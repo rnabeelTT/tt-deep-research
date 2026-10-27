@@ -11,12 +11,12 @@ tt assigns chips itself, so start the models one at a time, largest first. All t
 
 | Port | Model | Bundle | Chips | Ready in (first pull) |
 |---|---|---|---|---|
-| 8000 | gpt-oss-20b | `jashansinghTT/gpt-oss-20b-blackhole-fast`, profile `p150x2-throughput` | 2 | 12m 33s |
+| 8000 | gpt-oss-20b | `jashansinghTT/gpt-oss-20b-blackhole-fast`, profile `p150x2` | 2 | 12m 33s (5m 22s cached) |
 | 8001 | embeddinggemma-2 | `tt-hous/embeddinggemma-2` | 1 | 5m 56s |
 | 8002 | Laya | `tt-hous/laya` | 1 | 2m 30s |
 
 ```bash
-tt serve jashansinghTT/gpt-oss-20b-blackhole-fast --yes --port 8000 -- --profile p150x2-throughput
+tt serve jashansinghTT/gpt-oss-20b-blackhole-fast --yes --port 8000 -- --profile p150x2
 tt serve tt-hous/embeddinggemma-2 --yes --port 8001
 tt serve tt-hous/laya --yes --port 8002
 ```
@@ -29,6 +29,14 @@ hf download convaiinnovations/laya --revision 7b928d828b7b0e022f929d9bd2e44165aa
 ```
 
 To stop a model, run `tt model stop <bundle>`. To see its logs, run `tt model logs <bundle> --follow`.
+
+**Swapping a model:** stop it, reset the chips it held, then serve the new one. Without the reset, the next model can fail to bring its ethernet cores up.
+
+```bash
+tt model stop <bundle>
+tt device reset <chips> --yes      # only the freed chips; the other models keep running
+tt serve <new-bundle> --yes --port 8000 -- --profile <profile>
+```
 
 ## Start the data services and check everything
 
@@ -77,4 +85,11 @@ Laya also has `/v1/systemone/batch` (many states, shared forward passes) and `/v
 
 - Don't use `tt-hous/laya-typed-decisions`. It's a specialist for invoices, security, customer service and agent traces, and it got 2 of 3 claim-support checks right (base Laya got 3 of 3).
 - The decision model can be `tt-hous/kev-9b` (Qwen3.5-9B base, one chip, port 8008) instead of Laya. Which one we keep is decided at Stage 6.
-- gpt-oss-20b also has an interactive `p150x2` profile. It's an A/B candidate against `p150x2-throughput`.
+- gpt-oss-20b also has a `p150x2-throughput` profile, with 32K prefill steps instead of 8K and base-package decode. Decode measured with `ignore_eos`, 256 tokens per request:
+
+  | Profile | 1 stream | 8 | 16 | 32 (aggregate) |
+  |---|---|---|---|---|
+  | `p150x2` (used) | 34 tok/s | 102 | 130 | 162 tok/s |
+  | `p150x2-throughput` | 20 tok/s | 102 | 128 | 162 tok/s |
+
+  The prefill side gets A/B'd at Stage 9.

@@ -9,8 +9,12 @@ from rich.console import Console
 from rich.table import Table
 
 from ttdr import health, recipe
+from ttdr.bench_cli import app as bench_app
+from ttdr.evals.cli import app as eval_app
 
 app = typer.Typer(no_args_is_help=True)
+app.add_typer(eval_app, name="eval")
+app.add_typer(bench_app, name="bench")
 
 
 @app.callback()

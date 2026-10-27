@@ -10,7 +10,7 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 |---|---|---|
 | 0 | embeddinggemma-2 | Embed queries, chunks and page images |
 | 1 | Laya (`tt-hous/laya`); Kev-9B is the challenger at Stage 6 | Triage passages, verify claims |
-| 2–3 | gpt-oss-20b (`p150x2`) | Plan, read, write |
+| 2–3 | gpt-oss-20b (`p150x2` interactive profile) | Plan, read, write |
 | CPU | Qdrant, SearXNG, Redis, docling, PaddleOCR-VL | Data, search, OCR |
 
 ## Host facts (2026-10-27)
@@ -32,7 +32,7 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 
 ## Stages
 
-Each stage ends with something you can run and check. Done: **0a, 0b**.
+Each stage ends with something you can run and check. Done: **0a, 0b, 1, 1.5 (LLM A/B)**.
 
 | # | Stage | Builds | Done when |
 |---|---|---|---|
@@ -53,5 +53,6 @@ Each stage ends with something you can run and check. Done: **0a, 0b**.
 
 1. Decision model: Stage 6 compares base `laya` with `kev-9b` on the ~100 labeled pairs. Laya's 512-token limit means chunking passages; Kev reads whole sources.
 2. Can AI-Q drive gpt-oss-20b's tool calls (the `openai` parser) reliably? Stage 4 answers this.
-3. gpt-oss profile: `p150x2-throughput` or `p150x2` (interactive)? A/B once evals exist.
-4. After the upgrade, the installed tt-model (`019abcb`) doesn't match the golden pin (`713eeb2`). Run `tt update` if anything misbehaves.
+3. Decode is the bottleneck: 34 tok/s on one stream and about 160 tok/s aggregate, and gpt-oss reasons for hundreds to thousands of tokens per answer. Levers: `reasoning_effort` per step, and the `p150x2-throughput` profile's prefill at Stage 9.
+4. `nat eval` (AI-Q's eval runner) isn't integrated yet. We need it at Stage 4 for DeepResearch Bench.
+5. After the upgrade, the installed tt-model (`019abcb`) doesn't match the golden pin (`713eeb2`). Run `tt update` if anything misbehaves.
