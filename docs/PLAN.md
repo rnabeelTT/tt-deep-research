@@ -11,7 +11,7 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 | 0 | embeddinggemma-2 | Embed queries, chunks and page images |
 | 1 | Laya (`tt-hous/laya`); Kev-9B is the challenger at Stage 6 | Triage passages, verify claims |
 | 2–3 | gpt-oss-20b (`p150x2`) | Plan, read, write |
-| CPU | Qdrant, SearXNG, Redis, LiteLLM, docling, PaddleOCR-VL | Data, search, OCR |
+| CPU | Qdrant, SearXNG, Redis, docling, PaddleOCR-VL | Data, search, OCR |
 
 ## Host facts (2026-10-27)
 
@@ -25,23 +25,23 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 ## Principles
 
 - **One recipe** (`recipe.toml`) is the single source of truth for models, chips, ports, image versions and feature flags.
-- **Everything goes through OpenAI-compatible endpoints.** LiteLLM gives the LLMs one gateway with aliases, so swapping a model is a config change.
+- **Clients call model endpoints directly**, as listed in the recipe, so swapping a model is a recipe change. A gateway such as LiteLLM is deferred until we need several replicas, live A/B routing or many external clients. Until then it's only another hop that can mangle gpt-oss tool calls.
 - **The engine sits behind MCP.** The harness (AI-Q, Deep Agents or Hermes) can be swapped without touching search or verify.
 - **Evals come before features.** Every stage ends with a command that proves it works, and with numbers once the harness exists.
 - Containers never touch the chips. tt serve owns the devices.
 
 ## Stages
 
-Each stage ends with something you can run and check.
+Each stage ends with something you can run and check. Done: **0a, 0b**.
 
 | # | Stage | Builds | Done when |
 |---|---|---|---|
 | 0a | Model bring-up | Serve the 3 models pinned to chips 0, 1 and 2–3; record the exact commands | One curl call to each endpoint succeeds; all 3 run at the same time |
-| 0b | Skeleton | uv project, `recipe.toml`, typed clients, Compose (Qdrant, SearXNG, Redis, LiteLLM), `ttdr health` | `ttdr health` shows every endpoint up, with its latency |
+| 0b | Skeleton | uv project, `recipe.toml`, typed clients, Compose (Qdrant, SearXNG, Redis), `ttdr health` | `ttdr health` shows every endpoint up, with its latency |
 | 1 | Eval harness + B0 | Small gold set (10–20 Qs), runner, exact/numeric match plus an LLM judge pass, results store, `ttdr compare` | Baseline B0 (LLM only) recorded |
 | 2 | Ingestion + B1 | docling extraction, page flags, embeddings into Qdrant; naive RAG | recall@k reported; B1 vs B0 |
 | 3 | MCP server | `search` tool (web + corpus), evidence IDs and cache | MCP tool tests pass; B1 through MCP matches B1 |
-| 4 | Harness | AI-Q pointed at LiteLLM and our MCP; fall back to Deep Agents if it isn't working within 1–2 days | One research job end to end; time per report |
+| 4 | Harness | AI-Q pointed at the model endpoints and our MCP; fall back to Deep Agents if it isn't working within 1–2 days | One research job end to end; time per report |
 | 5 | UI + demo | Rebranded AI-Q UI and a scripted demo | Demo runs end to end |
 | 6 | Verify | Pick Laya or Kev, then `verify` tool and revision loop | Citation validity vs stage 4 |
 | 7 | Triage | Rank by embedding, then by the decision model | Triage on vs off |
@@ -52,6 +52,6 @@ Each stage ends with something you can run and check.
 ## Open questions
 
 1. Decision model: Stage 6 compares base `laya` with `kev-9b` on the ~100 labeled pairs. Laya's 512-token limit means chunking passages; Kev reads whole sources.
-2. Can AI-Q run with gpt-oss-20b's `openai` tool-call parser behind LiteLLM? Stage 4 answers this.
+2. Can AI-Q drive gpt-oss-20b's tool calls (the `openai` parser) reliably? Stage 4 answers this.
 3. gpt-oss profile: `p150x2-throughput` or `p150x2` (interactive)? A/B once evals exist.
 4. After the upgrade, the installed tt-model (`019abcb`) doesn't match the golden pin (`713eeb2`). Run `tt update` if anything misbehaves.
