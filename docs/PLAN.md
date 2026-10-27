@@ -9,7 +9,7 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 | Chip | Model | Role |
 |---|---|---|
 | 0 | embeddinggemma-2 | Embed queries, chunks and page images |
-| 1 | Laya or Kev-9B (picked at Stage 6) | Triage passages, verify claims |
+| 1 | Laya (`tt-hous/laya`); Kev-9B is the challenger at Stage 6 | Triage passages, verify claims |
 | 2–3 | gpt-oss-20b (`p150x2`) | Plan, read, write |
 | CPU | Qdrant, SearXNG, Redis, LiteLLM, docling, PaddleOCR-VL | Data, search, OCR |
 
@@ -19,7 +19,8 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 - tt 1.2.1, uv 0.11, Docker 29 with Compose v5, Python 3.12.
 - tt serve assigns chips itself. Models are served as tt-model bundles; see [SETUP.md](SETUP.md).
 - Decision-model candidates (`tt model search`): `tt-hous/laya`, `tt-hous/laya-typed-decisions` and `tt-hous/kev-9b`.
-- `laya-typed-decisions` is a specialist (invoices, security, customer service, agent traces). It runs at 11 ms per call, but at bring-up it got 2 of 3 claim-support checks right and called a clearly supported claim "contradicted".
+- Base `laya` got 3 of 3 claim-support checks right (supported 0.89, contradicted 0.93, not enough info 0.88) at ~10 ms per call. `laya-typed-decisions` is a specialist and got 2 of 3; don't use it.
+- Laya's `relevant` score follows support, not topic: a passage that contradicts the claim scored 0.03. For triage, word the question around answering the sub-question.
 
 ## Principles
 
@@ -50,7 +51,7 @@ Each stage ends with something you can run and check.
 
 ## Open questions
 
-1. Decision model: should Stage 6 compare base `laya`, `kev-9b` and `laya-typed-decisions` on the ~100 labeled pairs? Pull the labeling forward so the pick isn't blind.
+1. Decision model: Stage 6 compares base `laya` with `kev-9b` on the ~100 labeled pairs. Laya's 512-token limit means chunking passages; Kev reads whole sources.
 2. Can AI-Q run with gpt-oss-20b's `openai` tool-call parser behind LiteLLM? Stage 4 answers this.
 3. gpt-oss profile: `p150x2-throughput` or `p150x2` (interactive)? A/B once evals exist.
 4. After the upgrade, the installed tt-model (`019abcb`) doesn't match the golden pin (`713eeb2`). Run `tt update` if anything misbehaves.
