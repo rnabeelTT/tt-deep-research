@@ -30,7 +30,18 @@ hf download convaiinnovations/laya --revision 7b928d828b7b0e022f929d9bd2e44165aa
 
 To stop a model, run `tt model stop <bundle>`. To see its logs, run `tt model logs <bundle> --follow`.
 
-## Smoke tests
+## Start the data services and check everything
+
+```bash
+docker compose up -d     # Qdrant :6333, SearXNG :8888, Redis :6379 (localhost only)
+uv run ttdr health       # exits 0 only if every endpoint is up
+```
+
+Clients call the model endpoints listed in `recipe.toml` directly.
+
+Warm `ttdr health` latencies: llm 1.8 s, embed 17 ms, decide 15 ms, qdrant 4 ms, searxng 0.5 s, redis 3 ms.
+
+## Smoke tests (raw curl)
 
 ```bash
 # LLM

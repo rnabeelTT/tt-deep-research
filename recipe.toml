@@ -1,0 +1,22 @@
+version = "0.1.0"
+
+[models.llm]
+bundle = "jashansinghTT/gpt-oss-20b-blackhole-fast"
+profile = "p150x2-throughput"
+model = "openai/gpt-oss-20b"
+url = "http://localhost:8000/v1"
+
+[models.embed]
+bundle = "tt-hous/embeddinggemma-2"
+model = "google/embeddinggemma-2"
+url = "http://localhost:8001/v1"
+
+[models.decide]
+bundle = "tt-hous/laya"
+model = "convaiinnovations/laya"
+url = "http://localhost:8002"
+
+[services]
+qdrant = "http://localhost:6333"
+searxng = "http://localhost:8888"
+redis = "redis://localhost:6379"

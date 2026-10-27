@@ -1,0 +1,24 @@
+name: ttdr
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    ports: ["127.0.0.1:6333:6333"]
+    volumes: [qdrant:/qdrant/storage]
+    restart: unless-stopped
+
+  searxng:
+    image: searxng/searxng:2026.10.19-81371861f
+    ports: ["127.0.0.1:8888:8080"]
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-ttdr-local}
+    volumes: ["./config/searxng/settings.yml:/etc/searxng/settings.yml:ro"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:8.8.4-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    restart: unless-stopped
+
+volumes:
+  qdrant:
