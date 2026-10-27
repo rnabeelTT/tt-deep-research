@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import httpx
 
@@ -17,11 +17,24 @@ class OpenAICompat:
         return r.json()
 
 
+def reasoning_params(effort: str | None = None, thinking: bool | None = None) -> dict:
+    """gpt-oss takes reasoning_effort; Qwen-style chat templates (Ornith) take enable_thinking."""
+    params: dict = {}
+    if effort is not None:
+        params["reasoning_effort"] = effort
+    if thinking is not None:
+        params["chat_template_kwargs"] = {"enable_thinking": thinking}
+    return params
+
+
+@dataclass
 class LLM(OpenAICompat):
+    sampling: dict = field(default_factory=dict)
+    """Recipe defaults; request params override them."""
+
     async def chat(self, messages: list[dict], **params) -> dict:
-        return await self._post(
-            "/chat/completions", {"model": self.model, "messages": messages, **params}
-        )
+        body = {"model": self.model, "messages": messages, **self.sampling, **params}
+        return await self._post("/chat/completions", body)
 
 
 class Embedder(OpenAICompat):
@@ -57,7 +70,7 @@ class Clients:
 def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
     m = recipe.models
     return Clients(
-        LLM(http, m.llm.url, m.llm.model),
+        LLM(http, m.llm.url, m.llm.model, m.llm.sampling),
         Embedder(http, m.embed.url, m.embed.model),
         Decider(http, m.decide.url),
     )
