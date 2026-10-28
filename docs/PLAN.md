@@ -70,6 +70,12 @@ Each stage ends with something you can run and check. Done: **0a–10**. Results
 2. **Forced tool calls.** Guided decoding takes the whole batch off the fused sampler (~9× slower). Fix on the server (guided decoding on device) or in the harness (auto tool choice with a text fallback for AI-Q's structured outputs).
 3. **Abstention.** AI-Q's shallow researcher never says "I don't know"; B1 does. Prompt for it and measure wrong answers, not only accuracy.
 4. **Citations to our corpus.** AI-Q cites public filing URLs we can't fetch; map them to corpus documents so every claim is checkable.
-5. `nat eval` and DeepResearch Bench (English half) aren't wired in yet; needs the official judge.
+5. `nat eval` and DeepResearch Bench (English half) aren't wired in yet. Decided: grade it with our blinded Claude judge (scores not comparable with the public leaderboard).
 6. `tt launch deep-research` needs a plugin hook in tt-cli; `ttdr up` is the entry point it would call.
 7. Hand-grade ~30 answers to calibrate the Claude judge (design doc).
+
+## Later (after the stack is settled)
+
+- **Vanilla AI-Q baseline:** same Ornith, AI-Q's own sources (Tavily web search, its knowledge layer over the same PDFs), no patches, vs AI-Q on our engine. A Tavily free-tier key (about 1,000 searches a month) covers a sampled comparison, not full suites.
+- **New eval sets:** DeepResearch Bench (English half) first, then MMLongBench-Doc (charts, tables, scans by evidence type), then FreshQA. Licences recorded in DATASETS.md before use.
+- **Model-swap A/Bs:** Kev vs Laya, LLM bake-offs.
