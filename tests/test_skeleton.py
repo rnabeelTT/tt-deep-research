@@ -81,3 +81,13 @@ def test_llm_applies_recipe_sampling_and_request_overrides():
     assert bodies[1]["temperature"] == 0 and bodies[1]["top_k"] == 20
     gptoss = recipe.load(Path(__file__).parents[1] / "recipes" / "gpt-oss.toml").models.llm
     assert gptoss.sampling == {"temperature": 1.0, "top_k": 20, "top_p": 1.0}
+
+
+def test_up_serves_models_from_the_recipe():
+    from ttdr.stack import serve_command
+
+    assert serve_command(RECIPE.models.llm) == [
+        "tt", "serve", "raahemnabeel/ornith-1.5-35b-a3b", "--yes", "--port", "8000",
+        "--", "--profile", "p300", "--chat-template", "/hf/ttdr/ornith.jinja",
+    ]
+    assert serve_command(RECIPE.models.embed)[-2:] == ["--port", "8001"]

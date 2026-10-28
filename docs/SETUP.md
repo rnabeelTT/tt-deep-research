@@ -1,5 +1,13 @@
 # Setup
 
+## One command
+
+```bash
+uv sync && uv run ttdr up
+```
+
+`ttdr up` does everything below in order: pre-fetches adapters the bundles don't ship (`prefetch` in the recipe), stages chat templates, serves each model that isn't already up (largest first, so tt assigns chips 0–1, 2, 3), clones and patches AI-Q if needed (`scripts/setup-aiq.sh`), runs `docker compose --profile app up -d` and waits for every endpoint. App containers (`engine`, `aiq`, `ui`, `ocr`) use host networking, so the recipe's localhost URLs reach the models unchanged. Add `--build` after changing code. The sections below are the same steps by hand.
+
 ## Prerequisites
 
 - QB2 (4× p300c, detected as `p300x2`), Docker with Compose, uv
@@ -147,7 +155,7 @@ The UI runs as a production build: `npm run dev` (Turbopack) hits the OS file-wa
 
 **Patches** (`patches/aiq/`, applied to the pinned clone):
 
-- `0001-raise-research-budgets`: AI-Q caps every research budget at its default (100 source-tool calls and 20 research queries per job), sized for paid search APIs. This raises the caps to 1,000 and 60. Our search is local, so the extra calls cost nothing.
+- `0001-raise-research-budgets`: AI-Q caps every research budget at its default (100 source-tool calls and 20 research queries per job), sized for paid search APIs. This raises the caps to 1,000 and 60, and the 1-hour wall-clock limit per deep job to 3 hours. Our search is local, so the extra calls cost nothing.
 - `0002-agent-loop-guards`: caps `think` at 8 calls and source calls at 40 per agent run; past 40 the search tools are removed, so the agent can only return its result. Without these, Ornith can repeat the same call indefinitely.
 - `0003-tenstorrent-branding`: the web UI as "Tenstorrent Deep Research": the Tenstorrent mark (from `tenstorrent/tt-metal` docs, see `configs/branding/SOURCE`) instead of NVIDIA's, page title, and the brand colour moved from NVIDIA green to Tenstorrent purple (#7c68fa).
 

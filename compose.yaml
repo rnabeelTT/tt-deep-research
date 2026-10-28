@@ -20,5 +20,52 @@ services:
     ports: ["127.0.0.1:6379:6379"]
     restart: unless-stopped
 
+  # The app: `docker compose --profile app up -d` (or `ttdr up`). Host networking, so the
+  # recipe's localhost URLs reach the models (tt serve) and data services unchanged.
+  engine:
+    profiles: [app]
+    build: { context: ., dockerfile: docker/engine.Dockerfile }
+    image: ttdr/engine:${TTDR_VERSION:-dev}
+    network_mode: host
+    working_dir: ${PWD}
+    volumes: ["${PWD}:${PWD}:ro"]
+    command: ["ttdr", "mcp"]
+    depends_on: [qdrant, searxng, redis]
+    restart: unless-stopped
+
+  aiq:
+    profiles: [app]
+    build: { context: external/aiq, dockerfile: deploy/Dockerfile, target: release }
+    image: ttdr/aiq:${TTDR_VERSION:-dev}
+    network_mode: host
+    environment:
+      CONFIG_FILE: /config/ttdr.yml
+      HOST: 127.0.0.1
+      PORT: "8100"
+      DASK_SCHEDULER_PORT: "8796"
+    volumes: ["./configs/aiq:/config:ro", "aiq:/app/data"]
+    depends_on: [engine]
+    restart: unless-stopped
+
+  ui:
+    profiles: [app]
+    build: { context: external/aiq/frontends/ui, dockerfile: deploy/Dockerfile }
+    image: ttdr/ui:${TTDR_VERSION:-dev}
+    network_mode: host
+    environment: { BACKEND_URL: "http://127.0.0.1:8100", PORT: "3000", REQUIRE_AUTH: "false" }
+    depends_on: [aiq]
+    restart: unless-stopped
+
+  ocr:
+    profiles: [app]
+    build: { context: workers/ocr }
+    image: ttdr/ocr:${TTDR_VERSION:-dev}
+    network_mode: host
+    volumes: ["${PWD}/data/corpus:${PWD}/data/corpus:ro", "paddlex:/root/.paddlex"]
+    depends_on: [redis]
+    restart: unless-stopped
+
 volumes:
   qdrant:
+  aiq:
+  paddlex:
