@@ -31,6 +31,8 @@ mcp_servers:
     url: http://localhost:9901/mcp
 ```
 
+**Skill:** `.hermes/skills/qb2-deep-research/SKILL.md` teaches Hermes the research procedure for these tools (plan, search, fetch, cite evidence IDs, verify, deliver). Run `hermes skills trust` in this repo to load it, or copy the folder into `~/.hermes/skills/`.
+
 Checked on 2026-10-28 with Hermes on Ornith: asked for 3M's FY2018 capital expenditure from the FinanceBench corpus, it called `search` and answered "$1,577 million [3M_2018_10K#p48.2]" in 65 s.
 
 ## Any other MCP client
