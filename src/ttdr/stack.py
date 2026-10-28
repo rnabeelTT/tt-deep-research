@@ -79,10 +79,11 @@ def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
 
 def compose_env(recipe: Recipe) -> dict[str, str]:
     """Recipe values Compose needs, written to .env (Compose reads it automatically)."""
+    env = {"AIQ_AUTO_TOOL_CHOICE": "1" if recipe.features.auto_tool_choice else "0"}
     ocr = recipe.role("ocr")
     if not ocr:
-        return {"TTDR_OCR_BACKEND": "paddle"}
-    return {"TTDR_OCR_BACKEND": "llm", "TTDR_OCR_URL": ocr.url, "TTDR_OCR_MODEL": ocr.model}
+        return {**env, "TTDR_OCR_BACKEND": "paddle"}
+    return {**env, "TTDR_OCR_BACKEND": "llm", "TTDR_OCR_URL": ocr.url, "TTDR_OCR_MODEL": ocr.model}
 
 
 def up(recipe: Recipe, build: bool, log) -> dict[str, bool]:

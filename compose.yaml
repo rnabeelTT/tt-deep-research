@@ -46,6 +46,7 @@ services:
       DASK_SCHEDULER_PORT: "8796"
       NAT_JOB_STORE_DB_URL: sqlite+aiosqlite:////app/data/jobs.db
       AIQ_CHECKPOINT_DB: /app/data/checkpoints.db
+      AIQ_AUTO_TOOL_CHOICE: ${AIQ_AUTO_TOOL_CHOICE:-0}   # from features.auto_tool_choice
     volumes: ["./data/aiq/config:/config:ro", "aiq:/app/data"]   # rendered by ttdr up
     depends_on: [engine]
     restart: unless-stopped

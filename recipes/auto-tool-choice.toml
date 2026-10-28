@@ -1,0 +1,6 @@
+extends = "../recipe.toml"
+
+# A/B candidate: AI-Q without forced tool calls (patches/aiq/0004). Forced calls are served with
+# guided decoding, which took every request in the batch from ~118 to ~13 tok/s on Ornith.
+[features]
+auto_tool_choice = true

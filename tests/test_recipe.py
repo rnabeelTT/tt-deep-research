@@ -54,3 +54,12 @@ def test_aiq_config_follows_the_llm_and_its_reasoning_control():
     assert gptoss["agent_llm"]["extra_body"] == {"top_k": 20, "reasoning_effort": "high"}
     assert gptoss["planner_llm"]["extra_body"]["reasoning_effort"] == "low"
     assert gptoss["writer_llm"]["temperature"] == 1.0
+
+
+def test_features_reach_compose_through_env():
+    from ttdr.stack import compose_env
+
+    assert compose_env(RECIPE)["AIQ_AUTO_TOOL_CHOICE"] == "0"
+    on = recipe.load(ROOT / "recipes" / "auto-tool-choice.toml")
+    assert compose_env(on)["AIQ_AUTO_TOOL_CHOICE"] == "1"
+    assert compose_env(RECIPE)["TTDR_OCR_BACKEND"] == "paddle"

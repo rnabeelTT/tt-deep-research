@@ -70,6 +70,8 @@ class Features(BaseModel):
     """Queue scanned pages for OCR and run the OCR worker."""
     ui: bool = True
     """Run the web UI container."""
+    auto_tool_choice: bool = False
+    """AI-Q: let the model choose tools instead of forcing structured output (patch 0004)."""
 
 
 def _drop_empty(data: dict) -> dict:
