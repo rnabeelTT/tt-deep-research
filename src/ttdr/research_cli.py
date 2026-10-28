@@ -119,27 +119,57 @@ def research(
     raise typer.Exit(0 if status == "success" else 1)
 
 
+JOB_STORES = (Path("data/aiq/app/jobs.db"), Path("data/aiq/jobs.db"))  # container, host nat serve
+
+
 def jobs(
     limit: int = 15,
-    db: Annotated[Path, typer.Option(help="AI-Q job store")] = Path("data/aiq/jobs.db"),
+    db: Annotated[Path | None, typer.Option(help="AI-Q job store")] = None,
 ) -> None:
-    """Recent AI-Q jobs (read from the job store), newest first."""
+    """Recent AI-Q jobs with live progress: agents done, searches, fetches, last activity."""
     import sqlite3
+    from datetime import UTC, datetime
 
     from rich.table import Table
 
+    db = db or next((p for p in JOB_STORES if p.exists()), JOB_STORES[0])
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     rows = con.execute(
-        "SELECT i.job_id, a.agent_type, i.status, i.created_at, i.updated_at "
-        "FROM job_info i LEFT JOIN job_access a USING (job_id) "
-        "ORDER BY i.created_at DESC LIMIT ?",
+        "SELECT i.job_id, a.agent_type, i.status, i.created_at FROM job_info i "
+        "LEFT JOIN job_access a USING (job_id) ORDER BY i.created_at DESC LIMIT ?",
         (limit,),
     ).fetchall()
-    table = Table("job", "agent", "status", "created (UTC)", "updated (UTC)")
-    for job, agent, status, created, updated in rows:
-        table.add_row(job, agent or "", status, created[:19], updated[:19])
+    table = Table("job", "agent", "status", "started", "agents", "search", "fetch", "idle")
+    now = datetime.now(UTC).replace(tzinfo=None)
+    for job, agent, status, created in rows:
+        ev = con.execute(
+            "SELECT event_type, event_data, created_at FROM job_events WHERE job_id = ? "
+            "AND event_type IN ('workflow.start','workflow.end','tool.start','llm.end')",
+            (job,),
+        ).fetchall()
+        tools = Counter(
+            json.loads(d).get("name", "") for t, d, _ in ev if t == "tool.start"
+        )
+        started = sum(t == "workflow.start" for t, _, _ in ev)
+        done = sum(t == "workflow.end" for t, _, _ in ev)
+        last = max((c for _, _, c in ev), default=None)
+        idle = (
+            ""
+            if not last or status != "running"
+            else f"{(now - datetime.fromisoformat(last)).seconds // 60} min"
+        )
+        table.add_row(
+            job[:8],
+            (agent or "").replace("_researcher", ""),
+            status,
+            created[5:16],
+            f"{done}/{started}",
+            str(tools["ttdr__search"]),
+            str(tools["ttdr__fetch_page"]),
+            idle,
+        )
     console.print(table)
-    console.print("[dim]Watch one live: ttdr research … or http://127.0.0.1:8100/debug (job ID)[/]")
+    console.print(f"[dim]{db} · idle = minutes since the last model call or tool call[/]")
 
 
 def verify(
