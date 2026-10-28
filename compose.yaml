@@ -43,6 +43,8 @@ services:
       HOST: 127.0.0.1
       PORT: "8100"
       DASK_SCHEDULER_PORT: "8796"
+      NAT_JOB_STORE_DB_URL: sqlite+aiosqlite:////app/data/jobs.db
+      AIQ_CHECKPOINT_DB: /app/data/checkpoints.db
     volumes: ["./configs/aiq:/config:ro", "aiq:/app/data"]
     depends_on: [engine]
     restart: unless-stopped

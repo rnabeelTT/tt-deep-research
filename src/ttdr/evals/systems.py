@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
 from mcp import Client
 
 from ttdr.clients import Clients, reasoning_params
@@ -122,6 +123,20 @@ def cited_ids(text: str) -> list[str]:
     return sorted(ids)
 
 
+async def _get(http, url: str, tries: int = 5) -> dict:
+    """GET with retries: long polls through a shared client can hit closed keep-alive sockets."""
+    for attempt in range(tries):
+        try:
+            r = await http.get(url)
+            r.raise_for_status()
+            return r.json()
+        except httpx.TransportError:
+            if attempt == tries - 1:
+                raise
+            await asyncio.sleep(1 + attempt)
+    raise AssertionError
+
+
 @dataclass
 class AIQ:
     """A question submitted as an AI-Q job (shallow_researcher or deep_researcher) over its API."""
@@ -146,8 +161,8 @@ class AIQ:
                 await http.post(f"{self.api}/v1/jobs/async/job/{job}/cancel")
                 raise TimeoutError(f"job {job} still {status}")
             await asyncio.sleep(self.poll_s)
-            status = (await http.get(f"{self.api}/v1/jobs/async/job/{job}")).json()["status"]
-        report = (await http.get(f"{self.api}/v1/jobs/async/job/{job}/report")).json()
+            status = (await _get(http, f"{self.api}/v1/jobs/async/job/{job}"))["status"]
+        report = await _get(http, f"{self.api}/v1/jobs/async/job/{job}/report")
         text = report.get("report") or ""
         if status != "success":
             raise RuntimeError(f"job {job} ended {status}")

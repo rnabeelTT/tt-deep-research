@@ -67,3 +67,36 @@ def run(
     (run_dir / "items.jsonl").write_text("".join(i.model_dump_json() + "\n" for i in items))
     asyncio.run(_answer_all(system, items, recipe, concurrency, run_dir / "answers.jsonl"))
     return run_dir
+
+
+def retry(run_dir: Path, concurrency: int = 8) -> int:
+    """Re-answer the items of a run that errored, with the run's own system, params and recipe."""
+    config = json.loads((run_dir / "config.json").read_text())
+    answers = [
+        Answer.model_validate_json(x) for x in (run_dir / "answers.jsonl").read_text().splitlines()
+    ]
+    failed = {a.id for a in answers if a.error}
+    if not failed:
+        return 0
+    items = [
+        Item.model_validate_json(x) for x in (run_dir / "items.jsonl").read_text().splitlines()
+    ]
+    system = SYSTEMS[config["system"]](**config["params"])
+    redo = run_dir / "answers.retry.jsonl"
+    redo.unlink(missing_ok=True)
+    asyncio.run(
+        _answer_all(
+            system,
+            [i for i in items if i.id in failed],
+            Recipe.model_validate(config["recipe"]),
+            concurrency,
+            redo,
+        )
+    )
+    fresh = {
+        a.id: a for a in (Answer.model_validate_json(x) for x in redo.read_text().splitlines())
+    }
+    merged = [fresh.get(a.id, a) for a in answers]
+    (run_dir / "answers.jsonl").write_text("".join(a.model_dump_json() + "\n" for a in merged))
+    redo.unlink()
+    return sum(1 for a in fresh.values() if not a.error)
