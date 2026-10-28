@@ -77,3 +77,22 @@ The bundle card claims 187 tok/s for one user (greedy), which matches. **The Orn
 Noise floor: same-config pairs differ by 0–2.7 points.
 
 **Decision:** recommend **Ornith 35B-A3B (thinking on)** as the default LLM. Accuracy is tied. Ornith gives 37% fewer confident wrong answers, has 3.5× the KV cache (more parallel researchers with long contexts), twice the context, and vision, and its tool calls were perfect. gpt-oss decodes about 1.4× faster at the peak, but Ornith spends fewer tokens per answer (about 300 vs 1,150 on SimpleQA), so it finishes runs as fast or faster. Prefill (the design doc's argument for gpt-oss) isn't measured yet; check it at Stage 9.
+
+## 2026-10-28 · B1 (naive RAG) vs B0 on FinanceBench
+
+**Config:** `b1`, Ornith 1.5 (thinking on), top-10 chunks from the whole FinanceBench corpus (84 filings, 36,430 chunks, embeddinggemma-2 in Qdrant), `max_tokens=4096`, concurrency 32. **Judge:** Claude Opus 5.5 (blinded, 3 subagents).
+**Runs:** B1 `20261028-162106-b1`; B0 `20261027-211809-b0`.
+
+| FinanceBench | B0 | B1 | Retrieval hit (gold page in top 10) | Citation hit (cites a gold page) |
+|---|---|---|---|---|
+| All (150) | 17.3% | **73.3%** | 75% | 63% of 140 citing answers |
+| metrics-generated (50) | 8% | 90% | 98% | 90% |
+| novel-generated (50) | 12% | 70% | 78% | 60% |
+| domain-relevant (50) | 32% | 60% | 50% | 36% |
+
+**B1 − B0 = +56.0 points, 95% CI [+47.3, +64.7]** (+89 / −5 questions). Kept.
+
+- Retrieval recall (`ttdr corpus recall`): 33% / 63% / 76% / 86% at k = 1 / 5 / 10 / 20 over the whole corpus, barely better when the filing is known (77% at 10). The embedder finds the right filing; the misses are the right page within it.
+- Accuracy tracks retrieval: metric questions (one table, one page) nearly always hit; domain-relevant questions spread over several pages and miss half the time. That's where reranking (stage 7) and agentic search should help.
+- 22 abstentions vs 18 wrong answers: with passages in hand Ornith says "I don't know" rather than guess.
+- p50 latency (212 s) isn't comparable with B0: B1 shared the LLM with a deep research job, and the prompts are ~4K tokens longer.

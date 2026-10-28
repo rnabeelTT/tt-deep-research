@@ -59,3 +59,20 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 - Ornith's stock chat template rejects system-only prompts, which AI-Q's intent classifier sends. Fixed with a one-line template change.
 - With thinking on, `max_tokens: 32768` lets a looping reasoner run for ~30 minutes. Reasoning needs its own cap per step.
 - `presence_penalty`, the usual cure for repetition, cuts Ornith's decode from ~123 to ~82 tok/s, so we don't use it.
+
+## Stage 2: ingestion and B1 (2026-10-28)
+
+**Result:** 84 FinanceBench filings (12,013 pages) indexed in 3 min 14 s. Naive RAG lifts FinanceBench from 17% to 73% ([LOG.md](LOG.md)).
+
+- Text layer first works: only 44 of 12,013 pages are image-only, so OCR (stage 8) is a small tail for 10-Ks. Scanned corpora will differ.
+- pdfium isn't thread-safe; extracting in threads segfaulted. Extraction runs in a process pool.
+- embeddinggemma-2 on one chip embeds ~57K tokens/s, so indexing is bound by PDF parsing, not the chip.
+- FinanceBench pages are 0-indexed (page 59 of 3M's 2018 10-K is the cash flow statement), which matters for evidence matching.
+
+## Stage 3: engine and MCP tools (2026-10-28)
+
+**Result:** `search` (web + corpus), `fetch_page` (HTML and PDF) and `get_evidence`, every passage with an evidence ID stored in Redis. Search takes ~1.4 s, a page fetch ~2 s.
+
+- **Friction (search supply):** SearXNG scrapes public engines, and they push back. After the deep runs' ~5,000 searches, Brave and Google returned "too many requests" and DuckDuckGo a CAPTCHA, so search returned nothing. More engines (Bing, Yahoo, Mojeek, Startpage) and a 24 h Redis cache spread and cut the load. A product needs a licensed search API or its own index for sustained use.
+- Vane's reranking cutoffs don't transfer between embedders: embeddinggemma-2 scores relevant snippets 0.7–0.85 and distinct same-topic pages ~0.87 to each other, so Vane's 0.75 near-duplicate rule would keep one result per query. Re-tuned (relative floor, 0.97 duplicates).
+- Snippet and page passages needed separate IDs (`W<hash>` vs `W<hash>.<n>`); sharing one let a fetched page overwrite the snippet a report had cited.
