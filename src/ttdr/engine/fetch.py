@@ -1,6 +1,7 @@
 """Fetch a URL, extract readable text (HTML or PDF), chunk it, and rank chunks against a query."""
 
 import asyncio
+import threading
 
 import httpx
 import pypdfium2 as pdfium
@@ -22,12 +23,18 @@ DOC_PROMPT = "title: {title} | text: {text}"
 EMBED_BATCH = 64
 
 
+_PDFIUM = threading.Lock()  # pdfium isn't thread-safe; concurrent parses segfault
+
+
 def _pdf_text(data: bytes) -> str:
-    doc = pdfium.PdfDocument(data)
-    try:
-        return "\n\n".join(doc[i].get_textpage().get_text_bounded() for i in range(len(doc)))
-    finally:
-        doc.close()
+    with _PDFIUM:
+        doc = pdfium.PdfDocument(data)
+        try:
+            return "\n\n".join(
+                doc[i].get_textpage().get_text_bounded() for i in range(len(doc))
+            )
+        finally:
+            doc.close()
 
 
 async def extract(http: httpx.AsyncClient, url: str) -> tuple[str, str]:
