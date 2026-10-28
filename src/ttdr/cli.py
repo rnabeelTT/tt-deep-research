@@ -31,17 +31,19 @@ def main() -> None:
 @app.command("mcp")
 def mcp_cmd(
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+    host: Annotated[
+        str | None,
+        typer.Option(envvar="TTDR_MCP_HOST", help="Bind address (default: the recipe's MCP host)"),
+    ] = None,
 ):
-    """Serve the engine's MCP tools over streamable HTTP (URL from the recipe)."""
+    """Serve the engine's MCP tools over streamable HTTP. Beyond localhost, set TTDR_MCP_TOKEN."""
     from urllib.parse import urlparse
 
     from ttdr import mcp_server
 
     r = recipe.load(recipe_path)
     u = urlparse(r.services.mcp)
-    mcp_server.build(r).run(
-        "streamable-http", host=u.hostname, port=u.port, streamable_http_path=u.path
-    )
+    mcp_server.serve(r, host or u.hostname, u.port, u.path)
 
 
 @app.command("up")

@@ -72,7 +72,7 @@ After any change, `ttdr health` shows what's live and `ttdr up` brings the stack
 
 | Between | Contract |
 |---|---|
-| Engine ↔ harness | MCP tools `search(query, sources, max_results, corpus)`, `fetch_page(url, focus, max_passages)`, `get_evidence(ids)`, `verify(claim, evidence_ids)` (only with a decide role). Every passage carries an evidence ID. |
+| Engine ↔ harness | Streamable HTTP; localhost without auth, elsewhere `Authorization: Bearer $TTDR_MCP_TOKEN`. MCP tools `search(query, sources, max_results, corpus)`, `fetch_page(url, focus, max_passages)`, `get_evidence(ids)`, `verify(claim, evidence_ids)` (only with a decide role). Every passage carries an evidence ID. |
 | Evidence IDs | Corpus chunks `DOC#pPAGE.N` (0-based page). Web snippets `W<hash>`; passages of a fetched page `W<hash>.N`. Stored in Redis (`ev:<id>`, 7 days). |
 | Engine ↔ Qdrant | One collection `chunks`. Payload: corpus, eid, doc, page, text, flags. Image-only pages are stored as page-image vectors with empty text. |
 | Engine ↔ OCR worker | Redis list `ocr:queue` of `{corpus, doc, page}`; text in `ocr:text:DOC#pPAGE`; `ocr:pending` dedupes; `ocr:hits` ranks backfill. Workers resolve PDFs under their own `--corpus-dir`. |
