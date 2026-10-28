@@ -152,3 +152,16 @@ Throughput saturates at ~245 reports/hour from 2 concurrent jobs; beyond that jo
 **Batch effect (the main lever):** one request with `tool_choice: required` or a JSON-schema `response_format` drops every request in the batch from ~118 to ~13 tok/s (guided decoding falls off the fused sampler). LangChain's structured output (`ToolStrategy`) forces `tool_choice` on every turn of AI-Q's planner and researchers. Fixing it on either side (server: guided decoding on device; harness: auto tool choice with a text fallback) is the largest speedup available.
 
 **Prefix caching** (new Ornith bundle): a repeated 29K-token prompt goes from 6.2 s to 0.4 s. Over a day of agent traffic, 26% of 8.0M prompt tokens hit the cache.
+
+## 2026-10-28 · Verify and revise on AI-Q answers (stage 6)
+
+`ttdr eval verify-run runs/20261028-175948-aiq --revise`: every cited sentence in the 150 AI-Q answers checked by Laya against the passages it cites (corpus pages from Qdrant, web pages fetched), weak claims sent back to Ornith once, then re-checked. 99 s for all 150.
+
+| | Cited claims | Supported | Contradicted | Not enough info | Source unreachable | Citation validity |
+|---|---|---|---|---|---|---|
+| AI-Q answers | 128 | 35 | 3 | 40 | 50 | 27% |
+| After one revision | 87 | 34 | 0 | 3 | 50 | **39%** |
+
+**Accuracy after revision: 74.7% → 74.7%** (+1 / −1 question, CI [−2.0, +2.0]; Claude judge, blinded). Revision removes or narrows unsupported claims without losing correct answers. Kept, with two caveats:
+- Laya scores 42–49% on our claim pairs, so "not enough info" often means "Laya couldn't tell". Validity numbers are a lower bound until a stronger decision model passes the pair set.
+- 50 of 128 claims cite pages the engine can't fetch (sec.gov and some mirrors block scripted clients). AI-Q cites the public URL it found on the web rather than our corpus page for the same filing, so the claim can't be checked against the copy we have.
