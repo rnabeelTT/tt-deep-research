@@ -4,7 +4,7 @@ import httpx
 
 from ttdr.corpus import Corpus
 from ttdr.corpus.store import Store
-from ttdr.recipe import Recipe
+from ttdr.recipe import Model, Recipe
 
 
 @dataclass
@@ -53,10 +53,11 @@ class Embedder(OpenAICompat):
 
 @dataclass
 class Decider:
-    """Laya's systemone API: one state, named questions (noul, choice or score)."""
+    """Decision models' System One API (Laya, Kev): one state, named questions."""
 
     http: httpx.AsyncClient
     base_url: str
+    model: str = ""
 
     async def ask(self, state: str, questions: dict[str, dict]) -> dict:
         r = await self.http.post(
@@ -74,20 +75,32 @@ class Decider:
         return [res["answers"] for res in r.json()["results"]]
 
 
+# kind -> client. A new kind of model is one client class plus one entry here (and a role).
+KINDS = {
+    "chat": lambda http, m: LLM(http, m.url, m.model, m.sampling),
+    "embed": lambda http, m: Embedder(http, m.url, m.model),
+    "decide": lambda http, m: Decider(http, m.url, m.model),
+}
+
+
+def client(http: httpx.AsyncClient, m: Model):
+    return KINDS[m.kind](http, m)
+
+
 @dataclass
 class Clients:
     llm: LLM
     embed: Embedder
-    decide: Decider
+    decide: Decider | None
     corpus: Corpus
 
 
 def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
-    m = recipe.models
-    embed = Embedder(http, m.embed.url, m.embed.model)
+    embed = client(http, recipe.embed)
+    decide = recipe.decide
     return Clients(
-        LLM(http, m.llm.url, m.llm.model, m.llm.sampling),
+        client(http, recipe.llm),
         embed,
-        Decider(http, m.decide.url),
+        client(http, decide) if decide else None,
         Corpus(embed, Store(recipe.services.qdrant)),
     )

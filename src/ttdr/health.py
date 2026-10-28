@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ttdr.clients import Clients, connect
+from ttdr.clients import client
 from ttdr.recipe import Recipe
 
 PING = [{"role": "user", "content": "Reply with OK."}]
@@ -29,20 +29,23 @@ async def _timed(name: str, probe: Awaitable[str]) -> Check:
     return Check(name, ok, (time.perf_counter() - start) * 1000, detail)
 
 
-async def _chat(c: Clients) -> str:
-    r = await c.llm.chat(PING, max_tokens=64)
+async def _chat(llm) -> str:
+    r = await llm.chat(PING, max_tokens=64)
     return f"{r['usage']['completion_tokens']} tokens"
 
 
-async def _embed(c: Clients) -> str:
-    return f"dim {len((await c.embed.embed(['health check']))[0])}"
+async def _embed(embedder) -> str:
+    return f"dim {len((await embedder.embed(['health check']))[0])}"
 
 
-async def _decide(c: Clients) -> str:
-    a = await c.decide.ask(
+async def _decide(decider) -> str:
+    a = await decider.ask(
         "Health check.", {"q": {"type": "noul", "instructions": "Is this a test?"}}
     )
     return f"noul {a['q']['noul']:.2f}"
+
+
+PROBES = {"chat": _chat, "embed": _embed, "decide": _decide}
 
 
 async def _qdrant(http: httpx.AsyncClient, url: str) -> str:
@@ -77,14 +80,15 @@ async def _redis(url: str) -> str:
 async def run(recipe: Recipe, timeout: float = 60) -> list[Check]:
     s = recipe.services
     async with httpx.AsyncClient(timeout=timeout) as http:
-        c = connect(recipe, http)
-        return list(
-            await asyncio.gather(
-                _timed("llm", _chat(c)),
-                _timed("embed", _embed(c)),
-                _timed("decide", _decide(c)),
-                _timed("qdrant", _qdrant(http, s.qdrant)),
-                _timed("searxng", _searxng(http, s.searxng)),
-                _timed("redis", _redis(s.redis)),
-            )
-        )
+        roles = {}
+        for role, name in recipe.roles.items():
+            roles.setdefault(name, []).append(role)
+        probes = [
+            _timed(f"{name} ({', '.join(rs)})", PROBES[m.kind](client(http, m)))
+            for name, m in recipe.served().items()
+            for rs in [roles[name]]
+        ]
+        probes += [_timed("qdrant", _qdrant(http, s.qdrant)), _timed("redis", _redis(s.redis))]
+        if s.searxng:
+            probes.append(_timed("searxng", _searxng(http, s.searxng)))
+        return list(await asyncio.gather(*probes))

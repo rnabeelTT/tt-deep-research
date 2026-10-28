@@ -1,8 +1,16 @@
 extends = "../recipe.toml"
 
-[models.llm]
+# gpt-oss-20b as the LLM. Same chips (0-1) as Ornith, so serve one or the other.
+[models.gpt-oss]
+kind = "chat"
 bundle = "jashansinghTT/gpt-oss-20b-blackhole-fast"
 profile = "p150x2"
 model = "openai/gpt-oss-20b"
+url = "http://localhost:8000/v1"
 # top_k <= 32 keeps the bundle's fused decode path; without it decode is 5-9x slower
 sampling = { temperature = 1.0, top_k = 20, top_p = 1.0 }
+reasoning = "reasoning_effort"
+serve_order = 0
+
+[roles]
+llm = "gpt-oss"

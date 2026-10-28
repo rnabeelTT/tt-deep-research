@@ -1,8 +1,8 @@
-# AI-Q pointed at the QB2: every LLM role on the recipe's LLM (Ornith on :8000),
-# our MCP server as the only data source, clarifier off so runs are unattended.
+# AI-Q pointed at the QB2: every LLM role on the recipe's llm, our MCP server as the only
+# data source, clarifier off so runs are unattended. This is a template: `ttdr aiq-config`
+# (run by `ttdr up`) renders it with the recipe into data/aiq/config/ttdr.yml.
 # Role split and thinking on/off mirror AI-Q's configs/config_cli_default.yml.
-# `nat serve` exposes the job API on :8100 (SQLite job store, local Dask, auth off);
-# `nat run` uses the same file from the command line.
+# Rendered, `nat serve` exposes the job API on :8100 (SQLite job store, local Dask, auth off).
 
 general:
   use_uvloop: true
@@ -29,65 +29,48 @@ general:
         level: INFO
 
 llms:
+  # model_name, base_url and sampling are filled from the recipe's llm role (`ttdr aiq-config`).
+  # enable_thinking below is each role's intent; rendering maps it to the model's reasoning control.
   intent_llm:
     _type: openai
-    model_name: ornith-ai/Ornith-1.5-35B-A3B
-    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
     api_key: none
-    temperature: 0.6
-    top_p: 0.95
     max_tokens: 1024
     parallel_tool_calls: false
-    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: false } }
+    extra_body: { chat_template_kwargs: { enable_thinking: false } }
 
   agent_llm:
     _type: openai
-    model_name: ornith-ai/Ornith-1.5-35B-A3B
-    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
     api_key: none
-    temperature: 0.6
-    top_p: 0.95
     max_tokens: 32768
     parallel_tool_calls: false
-    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: true } }
+    extra_body: { chat_template_kwargs: { enable_thinking: true } }
 
   researcher_llm:
+    # thinking on (off, researchers never stop searching); 8K cap stops runaway reasoning
     _type: openai
-    model_name: ornith-ai/Ornith-1.5-35B-A3B
-    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
     api_key: none
-    temperature: 0.6
-    top_p: 0.95
     max_tokens: 8192
     parallel_tool_calls: false
-    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: true } }
+    extra_body: { chat_template_kwargs: { enable_thinking: true } }
 
   planner_llm:
     _type: openai
-    model_name: ornith-ai/Ornith-1.5-35B-A3B
-    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
     api_key: none
-    temperature: 0.6
-    top_p: 0.95
     max_tokens: 16384
-    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: false } }
+    extra_body: { chat_template_kwargs: { enable_thinking: false } }
 
   writer_llm:
     _type: openai
-    model_name: ornith-ai/Ornith-1.5-35B-A3B
-    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
     api_key: none
-    temperature: 0.6
-    top_p: 0.95
     max_tokens: 32768
-    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: false } }
+    extra_body: { chat_template_kwargs: { enable_thinking: false } }
 
 function_groups:
   ttdr:
     _type: mcp_client
     server:
       transport: streamable-http
-      url: ${TTDR_MCP_URL:-http://localhost:9901/mcp}
+      url: http://localhost:9901/mcp   # filled from the recipe's services.mcp
 
 functions:
   data_sources:
@@ -121,7 +104,7 @@ functions:
     enable_citation_verification: true
     orchestrator_llm: planner_llm
     source_router_llm: planner_llm
-    researcher_llm: researcher_llm   # thinking on (off, they never stop); 8K cap stops runaway reasoning
+    researcher_llm: researcher_llm
     planner_llm: planner_llm
     writer_llm: writer_llm
     # Our sources are local (MCP + SearXNG), so budgets are generous; AI-Q's defaults assume paid APIs

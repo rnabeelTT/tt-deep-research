@@ -60,6 +60,16 @@ def up_cmd(
     raise typer.Exit(0 if all(status.values()) else 1)
 
 
+@app.command("aiq-config")
+def aiq_config_cmd(
+    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+) -> None:
+    """Render AI-Q's config from the recipe (data/aiq/config/ttdr.yml)."""
+    from ttdr import aiq_config
+
+    Console().print(aiq_config.write(recipe.load(recipe_path)))
+
+
 @app.command("down")
 def down_cmd(
     models: Annotated[bool, typer.Option("--models", help="Also stop the models")] = False,

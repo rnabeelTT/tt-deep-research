@@ -76,9 +76,10 @@ class LLM:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--redis", default=os.environ.get("TTDR_REDIS", "redis://localhost:6379"))
-    p.add_argument("--backend", choices=["paddle", "llm"], default="paddle")
-    p.add_argument("--llm-url", default=os.environ.get("TTDR_LLM_URL", "http://localhost:8000/v1"))
-    p.add_argument("--llm-model", default="ornith-ai/Ornith-1.5-35B-A3B")
+    env = os.environ.get
+    p.add_argument("--backend", choices=["paddle", "llm"], default=env("TTDR_OCR_BACKEND", "paddle"))
+    p.add_argument("--llm-url", default=env("TTDR_OCR_URL", "http://localhost:8000/v1"))
+    p.add_argument("--llm-model", default=env("TTDR_OCR_MODEL", "ornith-ai/Ornith-1.5-35B-A3B"))
     p.add_argument("--corpus-dir", default=os.environ.get("TTDR_CORPUS_DIR", "data/corpus"))
     p.add_argument("--once", action="store_true", help="Exit when the queue is empty")
     args = p.parse_args()

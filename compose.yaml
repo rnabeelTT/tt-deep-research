@@ -20,7 +20,8 @@ services:
     ports: ["127.0.0.1:6379:6379"]
     restart: unless-stopped
 
-  # The app: `docker compose --profile app up -d` (or `ttdr up`). Host networking, so the
+  # The app: `ttdr up` (renders data/aiq/config and .env from the recipe, then
+  # `docker compose --profile app up -d <services>`). Host networking, so the
   # recipe's localhost URLs reach the models (tt serve) and data services unchanged.
   engine:
     profiles: [app]
@@ -45,7 +46,7 @@ services:
       DASK_SCHEDULER_PORT: "8796"
       NAT_JOB_STORE_DB_URL: sqlite+aiosqlite:////app/data/jobs.db
       AIQ_CHECKPOINT_DB: /app/data/checkpoints.db
-    volumes: ["./configs/aiq:/config:ro", "aiq:/app/data"]
+    volumes: ["./data/aiq/config:/config:ro", "aiq:/app/data"]   # rendered by ttdr up
     depends_on: [engine]
     restart: unless-stopped
 
@@ -63,7 +64,11 @@ services:
     build: { context: workers/ocr }
     image: ttdr/ocr:${TTDR_VERSION:-dev}
     network_mode: host
-    environment: { TTDR_CORPUS_DIR: /data/corpus }
+    environment:   # backend from the recipe's ocr role, via the .env that ttdr up writes
+      TTDR_CORPUS_DIR: /data/corpus
+      TTDR_OCR_BACKEND: ${TTDR_OCR_BACKEND:-paddle}
+      TTDR_OCR_URL: ${TTDR_OCR_URL:-}
+      TTDR_OCR_MODEL: ${TTDR_OCR_MODEL:-}
     volumes: ["./data/corpus:/data/corpus:ro", "paddlex:/root/.paddlex"]
     depends_on: [redis]
     restart: unless-stopped

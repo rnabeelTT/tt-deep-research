@@ -57,6 +57,13 @@ def window_chars(max_state_tokens: int | None) -> int:
     return min(MAX_WINDOW_CHARS, (max_state_tokens - QUESTION_TOKENS) * CHARS_PER_TOKEN)
 
 
+def from_recipe(recipe, decider) -> "Verifier":
+    """The recipe's decide model as a verifier; verification needs one."""
+    if decider is None or recipe.decide is None:
+        raise RuntimeError("the recipe has no decide role, so claims can't be verified")
+    return Verifier(decider, window=window_chars(recipe.decide.max_state_tokens))
+
+
 class Verifier:
     def __init__(
         self,

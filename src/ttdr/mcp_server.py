@@ -50,7 +50,10 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
         repeat = key in state["seen"]
         state["seen"].add(key)
         items = await eng().search(query, sources, max_results, corpus)
-        return (REPEAT_NOTE if repeat else "") + _format(items)
+        note = REPEAT_NOTE if repeat else ""
+        if sources in ("web", "all") and not recipe.services.searxng:
+            note += "Web search is off in this deployment; results are from private documents.\n\n"
+        return note + _format(items)
 
     @server.tool()
     async def fetch_page(url: str, focus: str | None = None, max_passages: int = 5) -> str:
@@ -66,5 +69,21 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
     async def get_evidence(ids: list[str]) -> str:
         """Full text of passages by evidence ID, e.g. to quote or check a claim."""
         return _format(await eng().get(ids))
+
+    if recipe.decide:  # tools follow the recipe: no decide role, no verify tool
+
+        @server.tool()
+        async def verify(claim: str, evidence_ids: list[str]) -> str:
+            """Check one claim against the passages it cites (by evidence ID).
+            Returns supported, contradicted or not_enough_info with the model's confidence."""
+            from ttdr.engine.verify import from_recipe
+
+            found = await eng().get(evidence_ids)
+            if not found:
+                return "not_enough_info: none of those evidence IDs are known"
+            v = await from_recipe(recipe, eng().clients.decide).check(
+                claim, "\n\n".join(e.text for e in found)
+            )
+            return f"{v.label} (supported {v.supported:.2f}, contradicted {v.contradicted:.2f})"
 
     return server

@@ -71,13 +71,13 @@ async def _judge(llm: LLM, item: Item, ans: Answer) -> Graded:
 
 
 def judge_info(recipe: Recipe) -> dict:
-    return {"model": recipe.models.judge.model, "prompt_sha": judge_info_sha()}
+    return {"model": recipe.judge.model, "prompt_sha": judge_info_sha()}
 
 
 async def _grade(items: dict[str, Item], answers: list[Answer], recipe: Recipe, concurrency: int):
     sem = asyncio.Semaphore(concurrency)
     async with httpx.AsyncClient(timeout=1800) as http:
-        j = recipe.models.judge
+        j = recipe.judge
         llm = LLM(http, j.url, j.model, j.sampling)
 
         async def one(a: Answer) -> Graded:
