@@ -8,9 +8,9 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 
 | Chip | Model | Role |
 |---|---|---|
-| 0 | embeddinggemma-2 | Embed queries, chunks and page images |
-| 1 | Laya (`tt-hous/laya`); Kev-9B is the challenger at Stage 6 | Triage passages, verify claims |
-| 2–3 | gpt-oss-20b (`p150x2` interactive profile) | Plan, read, write |
+| 0–1 | Ornith 1.5 35B-A3B (`p300`, prefix caching) | Plan, read, write |
+| 2 | embeddinggemma-2 | Embed queries, chunks and page images |
+| 3 | Laya (`tt-hous/laya`); Kev-9B is the challenger | Verify claims (triage off) |
 | CPU | Qdrant, SearXNG, Redis, docling, PaddleOCR-VL | Data, search, OCR |
 
 ## Host facts (2026-10-27)
@@ -32,7 +32,7 @@ A question goes in and a cited, verified report comes out. Everything runs on on
 
 ## Stages
 
-Each stage ends with something you can run and check. Done: **0a, 0b, 1, 1.5 (LLM A/B)**.
+Each stage ends with something you can run and check. Done: **0a–10**. Results per stage are in [LOG.md](LOG.md); friction in [JOURNEY.md](JOURNEY.md).
 
 | # | Stage | Builds | Done when |
 |---|---|---|---|
@@ -49,10 +49,27 @@ Each stage ends with something you can run and check. Done: **0a, 0b, 1, 1.5 (LL
 | 9 | Perf + CI | Load test at 1–16 jobs, A/B command, QB2 runner | Reports per hour; prefill/decode split |
 | 10 | Packaging | Images, recipe, pip, `tt launch deep-research` | Fresh install to first report |
 
+## Status at stage 10 (2026-10-28)
+
+| # | Gate | Result |
+|---|---|---|
+| 1 | B0 recorded | FinanceBench 17%, SimpleQA 12% (Ornith) |
+| 2 | recall@k; B1 vs B0 | recall@10 75%; B1 73% (+56) |
+| 3 | Tool tests; B1 through MCP | 30 unit tests; `b1mcp` system |
+| 4 | One job end to end; suite vs B0/B1; time per report | AI-Q shallow 75% (ties B1); shallow p50 26 s idle; deep: see LOG |
+| 5 | Scripted demo | `ttdr research`, branded UI |
+| 6 | Citation validity vs stage 4 | 27% → 39% after revision, accuracy unchanged; Laya weak (42–49% on pairs) |
+| 7 | Triage on vs off | Off: Laya reranking lowers recall |
+| 8 | Scanned pages | Found by page image before OCR; OCR text served after |
+| 9 | Reports/hour; prefill/decode split | ~245 shallow reports/h, saturating at 2 jobs |
+| 10 | Fresh install to first report | 35 s warm (models up, images cached) |
+
 ## Open questions
 
-1. Decision model: Stage 6 compares base `laya` with `kev-9b` on the ~100 labeled pairs. Laya's 512-token limit means chunking passages; Kev reads whole sources.
-2. Can AI-Q drive gpt-oss-20b's tool calls (the `openai` parser) reliably? Stage 4 answers this.
-3. Decode is the bottleneck: 34 tok/s on one stream and about 160 tok/s aggregate, and gpt-oss reasons for hundreds to thousands of tokens per answer. Levers: `reasoning_effort` per step, and the `p150x2-throughput` profile's prefill at Stage 9.
-4. `nat eval` (AI-Q's eval runner) isn't integrated yet. We need it at Stage 4 for DeepResearch Bench.
-5. After the upgrade, the installed tt-model (`019abcb`) doesn't match the golden pin (`713eeb2`). Run `tt update` if anything misbehaves.
+1. **Decision model.** Laya is near chance on claim support. Kev-9B didn't serve; get it running (or another 64K-state model) and re-run `ttdr eval claims-run`, then re-test triage.
+2. **Forced tool calls.** Guided decoding takes the whole batch off the fused sampler (~9× slower). Fix on the server (guided decoding on device) or in the harness (auto tool choice with a text fallback for AI-Q's structured outputs).
+3. **Abstention.** AI-Q's shallow researcher never says "I don't know"; B1 does. Prompt for it and measure wrong answers, not only accuracy.
+4. **Citations to our corpus.** AI-Q cites public filing URLs we can't fetch; map them to corpus documents so every claim is checkable.
+5. `nat eval` and DeepResearch Bench (English half) aren't wired in yet; needs the official judge.
+6. `tt launch deep-research` needs a plugin hook in tt-cli; `ttdr up` is the entry point it would call.
+7. Hand-grade ~30 answers to calibrate the Claude judge (design doc).
