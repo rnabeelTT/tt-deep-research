@@ -1,0 +1,33 @@
+# Runs on the QB2 itself (self-hosted runner labelled qb2) with models and services already up.
+# Grades with the on-box judge (provisional); decisions still use the blinded Claude judge.
+name: qb2-nightly
+on:
+  schedule: [{ cron: "0 6 * * *" }]
+  workflow_dispatch:
+jobs:
+  evals:
+    runs-on: [self-hosted, qb2]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - run: uv sync --frozen
+      - name: Endpoints
+        run: uv run ttdr health
+      - name: Retrieval recall
+        run: uv run ttdr corpus recall | tee recall.txt
+      - name: B1 on FinanceBench (50)
+        run: |
+          uv run ttdr eval run b1 -s financebench --limit 50 -p thinking=true -p reasoning_effort=none --grade
+          RUN=$(ls -td runs/*-b1 | head -1)
+          uv run ttdr eval check "$RUN" --min financebench.retrieval_hit=0.7 --min financebench.accuracy=0.6
+      - name: Decode and load
+        run: |
+          uv run ttdr bench decode -c 1 -c 8 -c 32
+          uv run ttdr bench load -c 1 -c 4 --jobs 8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qb2-nightly
+          path: |
+            runs/
+            recall.txt
