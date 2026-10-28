@@ -20,6 +20,7 @@ CORPUS_URL = re.compile(r"corpus://([^#\s]+)#page=(\d+)")
 SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[*])")
 BADGE = {"supported": "✓", "contradicted": "✗", "not_enough_info": "?"}
 FETCH_PASSAGES = 3
+FALLBACK_PASSAGES = 3
 
 
 @dataclass
@@ -34,6 +35,8 @@ class Checked:
     claim: Claim
     verdict: Verdict | None
     evidence: list[str] = field(default_factory=list)
+    fallback: bool = False
+    """Checked against our corpus because the cited source couldn't be fetched."""
 
 
 def sources(report: str) -> dict[str, str]:
@@ -76,27 +79,44 @@ async def passages(engine: Engine, ref: str, urls: dict[str, str], claim: str) -
         return []
 
 
-async def check(engine: Engine, verifier: Verifier, report: str, concurrency: int = 8):
+async def check(
+    engine: Engine,
+    verifier: Verifier,
+    report: str,
+    concurrency: int = 8,
+    corpus_fallback: bool = True,
+):
     urls = sources(report)
     sem = asyncio.Semaphore(concurrency)
 
     async def one(c: Claim) -> Checked:
         async with sem:
             found = [e for r in c.refs for e in await passages(engine, r, urls, c.text)]
+            fallback = not found and corpus_fallback
+            if fallback:
+                # Cited page unreachable (e.g. sec.gov blocks scripts): try our copy of the filing.
+                found = await engine.search(c.text, "corpus", FALLBACK_PASSAGES)
             if not found:
                 return Checked(c, None)
             verdict = await verifier.check(c.text, "\n\n".join(e.text for e in found))
-            return Checked(c, verdict, [e.id for e in found])
+            return Checked(c, verdict, [e.id for e in found], fallback)
 
     return await asyncio.gather(*(one(c) for c in claims(report)))
 
 
 def summary(checked: list[Checked]) -> dict:
-    labels = [c.verdict.label if c.verdict else "unreachable" for c in checked]
-    n = len(labels)
+    """citation_validity counts only claims supported by the source they cite; claims supported
+    by our corpus copy when the cited page was unreachable are reported separately."""
+    cited = [c for c in checked if not c.fallback]
+    labels = [c.verdict.label if c.verdict else "unreachable" for c in cited]
+    n = len(checked)
     return {
         "claims": n,
         **{k: labels.count(k) for k in (*BADGE, "unreachable")},
+        "fallback_checked": len(checked) - len(cited),
+        "fallback_supported": sum(
+            1 for c in checked if c.fallback and c.verdict and c.verdict.label == "supported"
+        ),
         "citation_validity": round(labels.count("supported") / n, 3) if n else None,
     }
 

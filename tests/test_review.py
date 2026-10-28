@@ -56,3 +56,14 @@ def test_triage_blends_embedding_and_usefulness():
     items = [SimpleNamespace(text=t, score=s) for t, s in (("a", 0.9), ("b", 0.85), ("c", 0.5))]
     ranked = asyncio.run(Triage(Decider(), weight=0.5).rerank("q", items))
     assert [i.text for i in ranked] == ["b", "a", "c"]
+
+
+def test_corpus_fallback_is_reported_apart_from_citation_validity():
+    found = review.claims(REPORT)
+    checked = [
+        review.Checked(found[0], Verdict("supported", 0.9, 0.0, 0)),
+        review.Checked(found[1], Verdict("supported", 0.9, 0.0, 0), fallback=True),
+    ]
+    s = review.summary(checked)
+    assert s["citation_validity"] == 0.5
+    assert s["fallback_checked"] == 1 and s["fallback_supported"] == 1
