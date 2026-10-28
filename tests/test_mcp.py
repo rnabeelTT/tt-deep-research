@@ -70,3 +70,34 @@ def test_tools_follow_the_recipe():
     assert names(minimal) == {"search", "fetch_page", "get_evidence"}
     out = _call(mcp_server.build(minimal, FakeEngine()), "search", {"query": "x"})
     assert "Web search is off" in out
+
+
+def test_token_guard_rejects_missing_or_wrong_tokens():
+    seen = []
+
+    async def app(scope, receive, send):
+        seen.append(scope["path"])
+
+    sent = []
+
+    async def send(msg):
+        sent.append(msg)
+
+    guarded = mcp_server.require_token(app, "s3cret")
+
+    def call(headers):
+        sent.clear()
+        asyncio.run(guarded({"type": "http", "path": "/mcp", "headers": headers}, None, send))
+        return sent[0]["status"] if sent else 200
+
+    assert call([]) == 401
+    assert call([(b"authorization", b"Bearer nope")]) == 401
+    assert call([(b"authorization", b"Bearer s3cret")]) == 200 and seen == ["/mcp"]
+
+
+def test_remote_bind_without_token_is_refused(monkeypatch):
+    import pytest
+
+    monkeypatch.delenv(mcp_server.TOKEN_ENV, raising=False)
+    with pytest.raises(SystemExit, match="Refusing"):
+        mcp_server.serve(RECIPE, "0.0.0.0", 9999, "/mcp")

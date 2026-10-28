@@ -52,13 +52,18 @@ async with Client("http://localhost:9901/mcp") as c:
 
 ## From another machine
 
-The MCP server has no authentication and listens on localhost only. Reach it from a laptop over SSH rather than opening the port:
+The MCP server listens on localhost and needs no token there. Two ways in from elsewhere:
 
-```bash
-ssh -L 9901:localhost:9901 <user>@<qb2-host>    # then use http://localhost:9901/mcp locally
-```
+- **SSH tunnel** (nothing to configure): `ssh -L 9901:localhost:9901 <user>@<qb2-host>`, then use `http://localhost:9901/mcp` locally.
+- **Token:** start it on all interfaces with a bearer token. It refuses to listen beyond localhost without one.
 
-Exposing it on the network needs an auth layer in front first (a reverse proxy with tokens), which isn't built yet.
+  ```bash
+  export TTDR_MCP_HOST=0.0.0.0 TTDR_MCP_TOKEN=$(openssl rand -hex 24)
+  uv run ttdr up            # or: uv run ttdr mcp
+  hermes mcp add ttdr --url http://<qb2-host>:9901/mcp --auth header   # paste the token when asked
+  ```
+
+  Clients send `Authorization: Bearer <token>`. The token is read from the environment only, never from the recipe or `.env`. Plain HTTP: use it on a trusted network, or put TLS in front.
 
 ## What a client needs to do well
 

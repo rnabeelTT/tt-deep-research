@@ -1,5 +1,8 @@
 """The engine's MCP server: research tools any MCP client (AI-Q, Hermes) can call."""
 
+import hmac
+import os
+
 from mcp.server.mcpserver import MCPServer
 
 from ttdr.engine import Engine
@@ -87,3 +90,43 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
             return f"{v.label} (supported {v.supported:.2f}, contradicted {v.contradicted:.2f})"
 
     return server
+
+
+TOKEN_ENV = "TTDR_MCP_TOKEN"
+LOCAL = {"127.0.0.1", "localhost", "::1"}
+
+
+def require_token(app, token: str):
+    """ASGI wrapper: every HTTP request needs `Authorization: Bearer <token>`."""
+
+    async def guarded(scope, receive, send):
+        if scope["type"] == "http":
+            auth = dict(scope["headers"]).get(b"authorization", b"").decode()
+            if not hmac.compare_digest(auth, f"Bearer {token}"):
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 401,
+                        "headers": [(b"www-authenticate", b"Bearer")],
+                    }
+                )
+                await send({"type": "http.response.body", "body": b"unauthorized"})
+                return
+        await app(scope, receive, send)
+
+    return guarded
+
+
+def serve(recipe: Recipe, host: str, port: int, path: str) -> None:
+    """Localhost needs no token. Any other bind address needs TTDR_MCP_TOKEN set."""
+    import uvicorn
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    token = os.environ.get(TOKEN_ENV)
+    if host not in LOCAL and not token:
+        raise SystemExit(f"Refusing to listen on {host} without {TOKEN_ENV} (no auth otherwise).")
+    security = TransportSecuritySettings(enable_dns_rebinding_protection=host in LOCAL)
+    app = build(recipe).streamable_http_app(
+        streamable_http_path=path, host=host, transport_security=security
+    )
+    uvicorn.run(require_token(app, token) if token else app, host=host, port=port)

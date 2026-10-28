@@ -31,6 +31,9 @@ services:
     working_dir: ${PWD}
     volumes: ["${PWD}:${PWD}:ro"]
     command: ["ttdr", "mcp"]
+    environment:   # remote clients: TTDR_MCP_HOST=0.0.0.0 TTDR_MCP_TOKEN=... ttdr up (from your shell)
+      TTDR_MCP_HOST: ${TTDR_MCP_HOST:-}
+      TTDR_MCP_TOKEN: ${TTDR_MCP_TOKEN:-}
     depends_on: [qdrant, searxng, redis]
     restart: unless-stopped
 
