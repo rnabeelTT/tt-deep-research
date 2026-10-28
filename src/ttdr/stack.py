@@ -19,6 +19,7 @@ from ttdr.recipe import Model, Recipe
 MODEL_CACHE = Path("/opt/tenstorrent/models")
 TEMPLATE_DIR = "ttdr"
 APP = {"engine": None, "aiq": "http://127.0.0.1:8100/health", "ui": "http://127.0.0.1:3000"}
+APP_SERVICES = ["engine", "aiq", "ui", "ocr"]
 
 
 def _run(cmd: list[str], log) -> None:
@@ -91,7 +92,9 @@ def up(recipe: Recipe, build: bool, log) -> dict[str, bool]:
 
 
 def down(stop_models: bool, recipe: Recipe, log) -> None:
-    _run(["docker", "compose", "--profile", "app", "down"], log)
+    """Stop the app containers; with stop_models, the models too."""
+    # Only the app: the data services (and Redis' caches) keep running.
+    _run(["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP_SERVICES], log)
     if stop_models:
         for m in {
             recipe.models.llm.bundle,
