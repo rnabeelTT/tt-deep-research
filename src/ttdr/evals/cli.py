@@ -94,6 +94,12 @@ def run(
         _print_summary(report.summarize(run_dir))
 
 
+@app.command("retry")
+def retry_cmd(run_dir: Path, concurrency: int = 8) -> None:
+    """Re-answer only the items of RUN_DIR that errored (same system, params and recipe)."""
+    console.print(f"recovered {runner.retry(run_dir, concurrency)} answers in {run_dir}")
+
+
 @app.command("grade")
 def grade_cmd(run_dir: Path, concurrency: int = 16, recipe_path: RecipeOpt = None) -> None:
     """(Re)grade a run: exact/numeric match first, then the LLM judge."""
