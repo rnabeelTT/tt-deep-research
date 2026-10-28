@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ttdr import recipe
-from ttdr.evals import datasets, grading, report, runner
+from ttdr.evals import claims, datasets, grading, report, runner
 
 app = typer.Typer(no_args_is_help=True, help="Build suites, run systems, grade and compare.")
 console = Console()
@@ -30,7 +30,9 @@ def _params(raw: list[str]) -> dict:
 
 
 def _print_summary(summary: dict) -> None:
-    table = Table("group", "n", "acc", "wrong", "abstain", "err", "cut", "p50 s", "p95 s", "tok")
+    table = Table(
+        "group", "n", "acc", "wrong", "abstain", "err", "cut", "p50 s", "p95 s", "tok", "ret", "cite"
+    )
     for name, s in summary.items():
         if name.startswith("_"):
             continue
@@ -45,6 +47,8 @@ def _print_summary(summary: dict) -> None:
             f"{s['latency_p50_s']:.1f}",
             f"{s['latency_p95_s']:.1f}",
             f"{s['completion_tokens_mean']:.0f}",
+            f"{s['retrieval_hit']:.0%}" if "retrieval_hit" in s else "",
+            f"{s['citation_hit']:.0%}" if s.get("citation_hit") is not None else "",
         )
     console.print(table)
     console.print(f"graded by: {summary['_grading']}")
@@ -134,3 +138,26 @@ def judge_import(
     for run_dir in grading.import_verdicts(queue, judge):
         console.print(f"[bold]{run_dir}[/]")
         _print_summary(report.summarize(run_dir))
+
+
+@app.command("claims-build")
+def claims_build(n_questions: int = 40) -> None:
+    """Claim-passage pairs from FinanceBench gold pages (labels by construction)."""
+    console.print(claims.build(n_questions))
+
+
+@app.command("claims-run")
+def claims_run(recipe_path: RecipeOpt = None) -> None:
+    """Score the decision model on the claim-passage pairs; sweeps the verdict thresholds."""
+    import asyncio
+
+    import httpx
+
+    from ttdr.clients import connect
+    from ttdr.engine.verify import Verifier
+
+    async def go():
+        async with httpx.AsyncClient(timeout=120) as http:
+            return await claims.score(Verifier(connect(recipe.load(recipe_path), http).decide))
+
+    console.print_json(json.dumps(asyncio.run(go()), default=str))

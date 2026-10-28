@@ -1,6 +1,9 @@
+import re
 import time
 from dataclasses import dataclass
 from typing import Protocol
+
+from mcp import Client
 
 from ttdr.clients import Clients, reasoning_params
 from ttdr.evals.schema import Answer, Item
@@ -23,12 +26,11 @@ class B0:
     )
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
-        start = time.perf_counter()
+        return await self._ask(clients, item, item.question, time.perf_counter())
+
+    async def _ask(self, clients: Clients, item: Item, user: str, start: float, **extra) -> Answer:
         r = await clients.llm.chat(
-            [
-                {"role": "system", "content": self.prompt},
-                {"role": "user", "content": item.question},
-            ],
+            [{"role": "system", "content": self.prompt}, {"role": "user", "content": user}],
             max_tokens=self.max_tokens,
             **reasoning_params(self.reasoning_effort, self.thinking),
         )
@@ -43,7 +45,70 @@ class B0:
             reasoning_tokens=(usage.get("completion_tokens_details") or {}).get(
                 "reasoning_tokens", 0
             ),
+            **extra,
         )
 
 
-SYSTEMS: dict[str, type] = {"b0": B0}
+CITE = re.compile(r"\[([^\[\]\s]+#p\d+\.\d+)\]")
+
+
+@dataclass
+class B1(B0):
+    """Naive RAG: top-k chunks from the suite's corpus, answer from them only, cite evidence IDs."""
+
+    k: int = 10
+    corpus: str = "financebench"
+    known_doc: bool = False
+    prompt: str = (
+        "Answer the question using only the passages provided. Cite the passages you used by "
+        "their ID in square brackets, e.g. [DOC#p12.0]. Be concise and give exact figures. "
+        'If the passages do not contain the answer, say "I don\'t know".'
+    )
+
+    async def answer(self, item: Item, clients: Clients) -> Answer:
+        start = time.perf_counter()
+        doc = item.tags.get("doc") if self.known_doc else None
+        hits = await clients.corpus.search(item.question, self.k, self.corpus, doc)
+        passages = "\n\n".join(f"[{h.id}]\n{h.text}" for h in hits)
+        a = await self._ask(
+            clients,
+            item,
+            f"Passages:\n\n{passages}\n\nQuestion: {item.question}",
+            start,
+            retrieved=[h.id for h in hits],
+        )
+        a.cited = sorted(set(CITE.findall(a.text)))
+        return a
+
+
+@dataclass
+class B1MCP(B1):
+    """B1 with retrieval through the engine's MCP `search` tool, to check the tool path."""
+
+    mcp_url: str = "http://localhost:9901/mcp"
+
+    async def answer(self, item: Item, clients: Clients) -> Answer:
+        start = time.perf_counter()
+        async with Client(self.mcp_url) as mcp:
+            r = await mcp.call_tool(
+                "search",
+                {
+                    "query": item.question,
+                    "sources": "corpus",
+                    "max_results": self.k,
+                    "corpus": self.corpus,
+                },
+            )
+        passages = "".join(c.text for c in r.content if c.type == "text")
+        a = await self._ask(
+            clients,
+            item,
+            f"Passages:\n\n{passages}\n\nQuestion: {item.question}",
+            start,
+            retrieved=re.findall(r"^\[([^\]]+)\]", passages, re.MULTILINE),
+        )
+        a.cited = sorted(set(CITE.findall(a.text)))
+        return a
+
+
+SYSTEMS: dict[str, type] = {"b0": B0, "b1": B1, "b1mcp": B1MCP}

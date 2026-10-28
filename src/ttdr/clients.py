@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from ttdr.corpus import Corpus
+from ttdr.corpus.store import Store
 from ttdr.recipe import Recipe
 
 
@@ -59,18 +61,29 @@ class Decider:
         r.raise_for_status()
         return r.json()["answers"]
 
+    async def ask_batch(self, states: list[str], questions: dict[str, dict]) -> list[dict]:
+        """Many states, one set of questions, shared forward passes."""
+        r = await self.http.post(
+            f"{self.base_url}/v1/systemone/batch", json={"states": states, "questions": questions}
+        )
+        r.raise_for_status()
+        return [res["answers"] for res in r.json()["results"]]
+
 
 @dataclass
 class Clients:
     llm: LLM
     embed: Embedder
     decide: Decider
+    corpus: Corpus
 
 
 def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
     m = recipe.models
+    embed = Embedder(http, m.embed.url, m.embed.model)
     return Clients(
         LLM(http, m.llm.url, m.llm.model, m.llm.sampling),
-        Embedder(http, m.embed.url, m.embed.model),
+        embed,
         Decider(http, m.decide.url),
+        Corpus(embed, Store(recipe.services.qdrant)),
     )

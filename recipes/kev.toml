@@ -1,0 +1,7 @@
+extends = "../recipe.toml"
+
+# Decision-model challenger (stage 6): Qwen3.5-9B-Base + pointer head, same System One API, 64K-token states.
+[models.decide]
+bundle = "tt-hous/kev-9b"
+model = "jaredpalmer/kev-9b"
+url = "http://localhost:8008"

@@ -22,6 +22,16 @@ def _pct(xs: list[float], q: float) -> float:
     return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else 0.0
 
 
+def _page(eid: str) -> tuple[str, int]:
+    doc, rest = eid.split("#p", 1)
+    return doc, int(rest.split(".", 1)[0])
+
+
+def evidence_hits(item: Item, eids: list[str]) -> bool:
+    gold = {(e.doc, e.page) for e in item.evidence}
+    return any(_page(e) in gold for e in eids)
+
+
 def summarize(run_dir: Path) -> dict:
     """Accuracy per suite and per tag, plus latency and token use. Written to summary.json."""
     items, answers, grades = _load(run_dir)
@@ -47,6 +57,7 @@ def summarize(run_dir: Path) -> dict:
             "completion_tokens_mean": round(
                 statistics.mean(answers[i].completion_tokens for i in ids), 1
             ),
+            **_evidence_stats([items[i] for i in ids], answers),
         }
 
     summary = {name: stats(ids) for name, ids in sorted(groups.items())}
@@ -54,6 +65,25 @@ def summarize(run_dir: Path) -> dict:
     summary["_grading"] = dict(methods)
     (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     return summary
+
+
+def _evidence_stats(items: list[Item], answers: dict[str, Answer]) -> dict:
+    """Retrieval hit: a gold page among retrieved chunks. Citation hit: among answers that cite."""
+    scored = [i for i in items if i.evidence and answers[i.id].retrieved]
+    if not scored:
+        return {}
+    citing = [i for i in scored if answers[i.id].cited]
+    return {
+        "retrieval_hit": round(
+            sum(evidence_hits(i, answers[i.id].retrieved) for i in scored) / len(scored), 4
+        ),
+        "citing": len(citing),
+        "citation_hit": round(
+            sum(evidence_hits(i, answers[i.id].cited) for i in citing) / len(citing), 4
+        )
+        if citing
+        else None,
+    }
 
 
 def compare(a_dir: Path, b_dir: Path, seed: int = 0) -> dict:
