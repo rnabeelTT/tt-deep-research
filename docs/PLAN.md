@@ -74,6 +74,11 @@ Each stage ends with something you can run and check. Done: **0a–10**. Results
 6. `tt launch deep-research` needs a plugin hook in tt-cli; `ttdr up` is the entry point it would call.
 7. Hand-grade ~30 answers to calibrate the Claude judge (design doc).
 
+## Stage 11 (stretch)
+
+- Hermes skill: `.hermes/skills/qb2-deep-research/` (done).
+- Deep Agents harness over MCP: `ttdr research --harness deepagents` (built); comparison with AI-Q on FinanceBench and one deep question pending.
+
 ## Later (after the stack is settled)
 
 - **Vanilla AI-Q baseline:** same Ornith, AI-Q's own sources (Tavily web search, its knowledge layer over the same PDFs), no patches, vs AI-Q on our engine. A Tavily free-tier key (about 1,000 searches a month) covers a sampled comparison, not full suites.
