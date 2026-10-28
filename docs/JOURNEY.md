@@ -139,3 +139,10 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 
 - `tt launch hermes` configures the model but not MCP servers; one `hermes mcp add` connects the engine. A tt-cli option to attach MCP servers at launch would make the engine a first-class tt client.
 - The MCP server has no authentication, so it stays on localhost; remote use goes through an SSH tunnel until a token-checking proxy is added.
+
+## Deep run 7: one researcher stalled the job (2026-10-28)
+
+**Result:** cancelled after 2 h 14 min, no report. Five of six researchers finished within 50 minutes; the sixth spent 75 minutes in a loop: every reply thought until the 8,192-token cap, so it had no tool call; LangChain's structured-output retry asked again with the cut-off reply appended (+7.6K prompt tokens each time); each of those calls ran 12 minutes on the forced-tool-call slow path (~11 tok/s). The orchestrator waits for all researchers, so one stuck agent stalls the job. Nothing in the logs said so: we found it from the token counts in AI-Q's event store (`job_events`), since async jobs write no checkpoints.
+
+- Fix: `patches/aiq/0005` (thinking off after a truncated reply, "return your result now" after three, 40 model calls per agent run).
+- Lesson for operations: a job needs a progress signal (last tool call, last finished agent) surfaced in `ttdr jobs`, not just "running".
