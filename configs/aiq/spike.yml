@@ -1,0 +1,117 @@
+# AI-Q pointed at the QB2: every LLM role on the recipe's LLM (Ornith on :8000),
+# our MCP server as the only data source, clarifier off so runs are unattended.
+# Role split and thinking on/off mirror AI-Q's configs/config_cli_default.yml.
+
+general:
+  telemetry:
+    logging:
+      console:
+        _type: console
+        level: INFO
+
+llms:
+  intent_llm:
+    _type: openai
+    model_name: ornith-ai/Ornith-1.5-35B-A3B
+    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
+    api_key: none
+    temperature: 0.6
+    top_p: 0.95
+    max_tokens: 1024
+    parallel_tool_calls: false
+    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: false } }
+
+  agent_llm:
+    _type: openai
+    model_name: ornith-ai/Ornith-1.5-35B-A3B
+    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
+    api_key: none
+    temperature: 0.6
+    top_p: 0.95
+    max_tokens: 32768
+    parallel_tool_calls: false
+    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: true } }
+
+  researcher_llm:
+    _type: openai
+    model_name: ornith-ai/Ornith-1.5-35B-A3B
+    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
+    api_key: none
+    temperature: 0.6
+    top_p: 0.95
+    max_tokens: 8192
+    parallel_tool_calls: false
+    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: true } }
+
+  planner_llm:
+    _type: openai
+    model_name: ornith-ai/Ornith-1.5-35B-A3B
+    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
+    api_key: none
+    temperature: 0.6
+    top_p: 0.95
+    max_tokens: 16384
+    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: false } }
+
+  writer_llm:
+    _type: openai
+    model_name: ornith-ai/Ornith-1.5-35B-A3B
+    base_url: ${TTDR_LLM_URL:-http://localhost:8000/v1}
+    api_key: none
+    temperature: 0.6
+    top_p: 0.95
+    max_tokens: 32768
+    extra_body: { top_k: 20, chat_template_kwargs: { enable_thinking: false } }
+
+function_groups:
+  ttdr:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: ${TTDR_MCP_URL:-http://localhost:9901/mcp}
+
+functions:
+  data_sources:
+    _type: data_source_registry
+    sources:
+      - id: ttdr
+        name: "QB2 Research Engine"
+        description: "Web search (and later private documents) served by the QB2."
+        tools:
+          - ttdr
+
+  intent_classifier:
+    _type: intent_classifier
+    llm: intent_llm
+
+  clarifier_agent:
+    _type: clarifier_agent
+    llm: planner_llm
+    max_turns: 3
+
+  shallow_research_agent:
+    _type: shallow_research_agent
+    llm: agent_llm
+    max_llm_turns: 10
+    max_tool_iterations: 5
+
+  deep_research_agent:
+    _type: deep_research_agent
+    enable_citation_verification: true
+    orchestrator_llm: planner_llm
+    source_router_llm: planner_llm
+    researcher_llm: researcher_llm   # thinking on (off, they never stop); 8K cap stops runaway reasoning
+    planner_llm: planner_llm
+    writer_llm: writer_llm
+    # Our sources are local (MCP + SearXNG), so budgets are generous; AI-Q's defaults assume paid APIs
+    max_research_concurrency: 8
+    max_concurrent_source_tool_calls: 16
+    resource_limits:
+      max_source_tool_calls: 1000
+      max_research_queries: 60
+
+workflow:
+  _type: chat_deepresearcher_agent
+  enable_escalation: true
+  enable_clarifier: false
+  checkpoint_db: ${AIQ_CHECKPOINT_DB:-./data/aiq/checkpoints.db}

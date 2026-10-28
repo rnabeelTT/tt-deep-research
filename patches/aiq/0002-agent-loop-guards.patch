@@ -1,0 +1,70 @@
+diff --git a/src/aiq_agent/agents/deep_researcher/custom_middleware.py b/src/aiq_agent/agents/deep_researcher/custom_middleware.py
+index cb3b275..b94342c 100644
+--- a/src/aiq_agent/agents/deep_researcher/custom_middleware.py
++++ b/src/aiq_agent/agents/deep_researcher/custom_middleware.py
+@@ -1382,6 +1382,36 @@ class PlanPersistenceMiddleware(AgentMiddleware):
+         await asyncio.to_thread(self._persist_plan, self._plan_from_state(state))
+ 
+ 
++class SourceCallCapMiddleware(AgentMiddleware):
++    """Removes source tools once an agent run has made ``max_calls`` source calls.
++
++    Smaller models may keep searching indefinitely; without the tools they can only
++    return their structured result.
++    """
++
++    def __init__(self, source_tool_names: set[str], max_calls: int = 40):
++        """Configure which tools count as source tools and the per-run cap."""
++        self.source_tool_names = source_tool_names
++        self.max_calls = max_calls
++
++    async def awrap_model_call(self, request, handler):
++        """Drop source tools and ask for the final result once the cap is reached."""
++        calls = sum(
++            tc["name"] in self.source_tool_names
++            for msg in request.messages
++            if isinstance(msg, AIMessage)
++            for tc in msg.tool_calls
++        )
++        if calls < self.max_calls:
++            return await handler(request)
++        tools = [t for t in request.tools if getattr(t, "name", None) not in self.source_tool_names]
++        note = HumanMessage(
++            content=f"You have made {calls} source calls, the limit for this task. "
++            "Stop searching and return your final result now from what you have found."
++        )
++        return await handler(request.override(tools=tools, messages=[*request.messages, note]))
++
++
+ class ToolResultPruningMiddleware(AgentMiddleware):
+     """Truncates older tool results to keep context manageable.
+ 
+diff --git a/src/aiq_agent/agents/deep_researcher/factory.py b/src/aiq_agent/agents/deep_researcher/factory.py
+index 1ce8eec..6f9a0e0 100644
+--- a/src/aiq_agent/agents/deep_researcher/factory.py
++++ b/src/aiq_agent/agents/deep_researcher/factory.py
+@@ -31,6 +31,7 @@ from deepagents.middleware.skills import SkillsMiddleware
+ from deepagents.middleware.summarization import create_summarization_middleware
+ from langchain.agents import create_agent
+ from langchain.agents.middleware import ModelRetryMiddleware
++from langchain.agents.middleware import ToolCallLimitMiddleware
+ from langchain.agents.middleware import ToolRetryMiddleware
+ from langchain_core.language_models import BaseChatModel
+ from langchain_core.tools import BaseTool
+@@ -49,6 +50,7 @@ from .custom_middleware import FinalReportCommitMiddleware
+ from .custom_middleware import FinalReportCommitTracker
+ from .custom_middleware import FinalReportOwnershipGuardMiddleware
+ from .custom_middleware import PlanPersistenceMiddleware
++from .custom_middleware import SourceCallCapMiddleware
+ from .custom_middleware import RequiredOutputFileMiddleware
+ from .custom_middleware import RequiredWriterDelegationMiddleware
+ from .custom_middleware import SourceRegistryMiddleware
+@@ -240,6 +242,8 @@ def build_common_middleware(
+         ToolRetryMiddleware(max_retries=3, backoff_factor=2.0, initial_delay=1.0),
+         source_registry_middleware,
+         ToolResultPruningMiddleware(keep_last_n=10, max_chars=2000),
++        ToolCallLimitMiddleware(tool_name="think", run_limit=8),
++        SourceCallCapMiddleware(tool_set.source_tool_names, max_calls=40),
+         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
+     ]
+     if artifact_manager is not None:

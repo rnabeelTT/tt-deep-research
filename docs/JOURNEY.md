@@ -40,3 +40,22 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 - **The judge is now Claude:** blinded subagents grading an exported queue (`judge-export` / `judge-import`). It agrees with gpt-oss 88–94% of the time, and the conclusions held. They differ only on long-form answers, which ~30 hand-graded answers should settle.
 - Added: recipe overlays (`extends`), a judge entry pinned in the recipe, `ttdr bench decode|tools`, and a model-agnostic reasoning control (`reasoning_effort` for gpt-oss, `enable_thinking` for Ornith).
 - Per-model sampling now lives in the recipe (`sampling = {...}`), and every client inherits it, so fast-path settings can't be forgotten.
+
+## Stage 4 spike: AI-Q on the QB2 (2026-10-27/28, in progress)
+
+**Result:** the shallow path works end to end: a cited answer in 12 s through our MCP `web_search`. The deep path doesn't finish within an hour yet. Four runs on one comparison question, each step decoded from AI-Q's checkpoint database:
+
+| Run | Change | Outcome |
+|---|---|---|
+| 1 | AI-Q defaults | Budget of 100 searches spent in 3 min; researchers retried the budget error 1,272 times |
+| 2 | Budgets raised to 1,000 calls / 60 queries | Planner made 276 searches (55 distinct), then called `think` with the same text 153 times |
+| 3 | Search cache with a "you already ran this" note; `think` capped at 8 | Planner fixed (plan in 5 min). 8 researchers made ~170 searches each (20–36 distinct), ignored the note, exhausted 1,000 calls, wrote no notes |
+| 4 | Thinking on for researchers | 6 of 8 researchers wrote notes (18–140 searches each, no budget errors). Two fell into runaway reasoning (~23K tokens each) and the writer never started |
+
+- **Friction (performance): agentic research is prefill-bound, and the tt vLLM platform disables prefix caching.** Across run 4, Ornith prefilled ~2,100 tok/s and decoded ~27 tok/s, roughly 80:1. Every agent turn re-sends its whole 10–18K-token history and recomputes it, because `Automatic prefix caching is disabled` (chunked prefill is off too). Decode benchmarks don't predict this workload. Prefix caching would likely be the biggest single speedup for deep research on Blackhole.
+- **Friction (harness fit): AI-Q's deep path assumes a frontier model.** Its defaults run the planner and researchers on Nemotron Ultra 550B. A 35B-A3B in those roles doesn't know when to stop, and ignores text nudges: our cache note, AI-Q's budget errors, and LangChain's retry message, which adds "Please try again." to a budget error.
+- **Friction (configurability): AI-Q's limits can only be lowered.** Every resource limit is validated `le=default`, so raising one takes a source patch (`patches/aiq/0001`).
+- AI-Q keeps only the last 10 tool results, truncated to 2,000 characters, so a researcher forgets earlier results and repeats searches.
+- Ornith's stock chat template rejects system-only prompts, which AI-Q's intent classifier sends. Fixed with a one-line template change.
+- With thinking on, `max_tokens: 32768` lets a looping reasoner run for ~30 minutes. Reasoning needs its own cap per step.
+- `presence_penalty`, the usual cure for repetition, cuts Ornith's decode from ~123 to ~82 tok/s, so we don't use it.

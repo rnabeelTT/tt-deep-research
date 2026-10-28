@@ -1,8 +1,0 @@
-extends = "../recipe.toml"
-
-[models.llm]
-bundle = "raahemnabeel/ornith-1.5-35b-a3b"
-profile = "p300"
-model = "ornith-ai/Ornith-1.5-35B-A3B"
-# The bundle card's sampling
-sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
