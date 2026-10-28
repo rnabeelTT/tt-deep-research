@@ -158,6 +158,7 @@ The UI runs as a production build: `npm run dev` (Turbopack) hits the OS file-wa
 
 - `0001-raise-research-budgets`: AI-Q caps every research budget at its default (100 source-tool calls and 20 research queries per job), sized for paid search APIs. This raises the caps to 1,000 and 60, and the 1-hour wall-clock limit per deep job to 3 hours. Our search is local, so the extra calls cost nothing.
 - `0002-agent-loop-guards`: caps `think` at 8 calls and source calls at 40 per agent run; past 40 the search tools are removed, so the agent can only return its result. Without these, Ornith can repeat the same call indefinitely.
+- `0004-auto-tool-choice`: opt-in (`AIQ_AUTO_TOOL_CHOICE=1`, set from the recipe's `features.auto_tool_choice`): the model chooses its tools instead of LangChain forcing the structured-output tool every turn. Forced choices are served with guided decoding, which slows every request in the batch about 9× on this bundle; AI-Q's text fallbacks recover the structured result when the model answers in JSON text.
 - `0003-tenstorrent-branding`: the web UI as "Tenstorrent Deep Research": the Tenstorrent mark (from `tenstorrent/tt-metal` docs, see `configs/branding/SOURCE`) instead of NVIDIA's, page title, and the brand colour moved from NVIDIA green to Tenstorrent purple (#7c68fa).
 
 The MCP server answers a repeated search from cache, with a note telling the model it already ran that search.

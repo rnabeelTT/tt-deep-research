@@ -1,0 +1,95 @@
+diff --git a/src/aiq_agent/agents/deep_researcher/custom_middleware.py b/src/aiq_agent/agents/deep_researcher/custom_middleware.py
+index b94342c..72b6bfd 100644
+--- a/src/aiq_agent/agents/deep_researcher/custom_middleware.py
++++ b/src/aiq_agent/agents/deep_researcher/custom_middleware.py
+@@ -18,6 +18,7 @@
+ import asyncio
+ import hashlib
+ import json
++import os
+ import logging
+ import posixpath
+ import re
+@@ -1382,6 +1383,45 @@ class PlanPersistenceMiddleware(AgentMiddleware):
+         await asyncio.to_thread(self._persist_plan, self._plan_from_state(state))
+ 
+ 
++def auto_tool_choice_enabled() -> bool:
++    """Opt-in: AIQ_AUTO_TOOL_CHOICE=1."""
++    return os.environ.get("AIQ_AUTO_TOOL_CHOICE") == "1"
++
++
++class AutoToolChoiceMiddleware(AgentMiddleware):
++    """Lets the model choose its tools instead of forcing the structured-output tool.
++
++    LangChain's ToolStrategy forces tool_choice on every turn of an agent with a response
++    format. Some servers serve a forced choice with guided decoding, which can slow every
++    request in the batch. The StructuredResponseTextFallbackMiddleware on those agents
++    recovers the result when the model replies in JSON text instead.
++    """
++
++    @staticmethod
++    def _auto(model):
++        if getattr(model, "_auto_tool_choice", False) or not hasattr(model, "bind_tools"):
++            return
++        bind_tools = model.bind_tools
++
++        def unforced(tools, *, tool_choice=None, **kwargs):
++            if tool_choice in ("any", "required"):
++                tool_choice = "auto"
++            return bind_tools(tools, tool_choice=tool_choice, **kwargs)
++
++        object.__setattr__(model, "bind_tools", unforced)
++        object.__setattr__(model, "_auto_tool_choice", True)
++
++    def wrap_model_call(self, request, handler):
++        """Unforce tool choice on the request's model."""
++        self._auto(request.model)
++        return handler(request)
++
++    async def awrap_model_call(self, request, handler):
++        """Unforce tool choice on the request's model."""
++        self._auto(request.model)
++        return await handler(request)
++
++
+ class SourceCallCapMiddleware(AgentMiddleware):
+     """Removes source tools once an agent run has made ``max_calls`` source calls.
+ 
+diff --git a/src/aiq_agent/agents/deep_researcher/factory.py b/src/aiq_agent/agents/deep_researcher/factory.py
+index 6f9a0e0..6080786 100644
+--- a/src/aiq_agent/agents/deep_researcher/factory.py
++++ b/src/aiq_agent/agents/deep_researcher/factory.py
+@@ -43,6 +43,8 @@ from aiq_agent.common import LLMRole
+ from aiq_agent.common import render_prompt_template
+ 
+ from .custom_middleware import ArtifactHarvestMiddleware
++from .custom_middleware import AutoToolChoiceMiddleware
++from .custom_middleware import auto_tool_choice_enabled
+ from .custom_middleware import EmptyContentFixMiddleware
+ from .custom_middleware import ExecuteTimeoutClampMiddleware
+ from .custom_middleware import FilesystemToolCallGuardMiddleware
+@@ -245,6 +247,7 @@ def build_common_middleware(
+         ToolCallLimitMiddleware(tool_name="think", run_limit=8),
+         SourceCallCapMiddleware(tool_set.source_tool_names, max_calls=40),
+         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
++        *([AutoToolChoiceMiddleware()] if auto_tool_choice_enabled() else []),
+     ]
+     if artifact_manager is not None:
+         middleware.append(ArtifactHarvestMiddleware(artifact_manager))
+@@ -279,6 +282,7 @@ def build_orchestrator_middleware(
+         source_registry_middleware,
+         ToolResultPruningMiddleware(keep_last_n=10, max_chars=2000),
+         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
++        *([AutoToolChoiceMiddleware()] if auto_tool_choice_enabled() else []),
+     ]
+ 
+ 
+@@ -289,6 +293,7 @@ def build_source_router_middleware(*, extra_valid_tool_names: Sequence[str] = ()
+         ToolNameSanitizationMiddleware(valid_tool_names=sorted(extra_valid_tool_names)),
+         ToolRetryMiddleware(max_retries=3, backoff_factor=2.0, initial_delay=1.0),
+         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
++        *([AutoToolChoiceMiddleware()] if auto_tool_choice_enabled() else []),
+     ]
+ 
+ 
