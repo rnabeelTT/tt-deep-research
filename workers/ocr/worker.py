@@ -17,6 +17,7 @@ import pypdfium2 as pdfium
 import redis
 
 QUEUE, PENDING, TEXT = "ocr:queue", "ocr:pending", "ocr:text:{page}"
+MAX_ATTEMPTS = 3
 PROMPT = (
     "Transcribe all text on this page as Markdown. Keep tables as Markdown tables. "
     "Output only the transcription."
@@ -78,6 +79,7 @@ def main() -> None:
     p.add_argument("--backend", choices=["paddle", "llm"], default="paddle")
     p.add_argument("--llm-url", default=os.environ.get("TTDR_LLM_URL", "http://localhost:8000/v1"))
     p.add_argument("--llm-model", default="ornith-ai/Ornith-1.5-35B-A3B")
+    p.add_argument("--corpus-dir", default=os.environ.get("TTDR_CORPUS_DIR", "data/corpus"))
     p.add_argument("--once", action="store_true", help="Exit when the queue is empty")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -92,15 +94,19 @@ def main() -> None:
             continue
         job = json.loads(item[1])
         key = f"{job['doc']}#p{job['page']}"
+        pdf = os.path.join(args.corpus_dir, job["corpus"], f"{job['doc']}.pdf")
         start = time.perf_counter()
         try:
-            text = ocr(render(job["pdf"], job["page"]))
+            text = ocr(render(pdf, job["page"]))
             r.set(TEXT.format(page=key), text)
+            r.srem(PENDING, key)
             log.info("%s: %d chars in %.0fs", key, len(text), time.perf_counter() - start)
         except Exception:
-            log.exception("%s failed", key)
-        finally:
-            r.srem(PENDING, key)
+            log.exception("%s failed (attempt %d)", key, job.get("attempt", 0) + 1)
+            if job.get("attempt", 0) + 1 < MAX_ATTEMPTS:
+                r.rpush(QUEUE, json.dumps({**job, "attempt": job.get("attempt", 0) + 1}))
+            else:
+                r.srem(PENDING, key)
 
 
 if __name__ == "__main__":

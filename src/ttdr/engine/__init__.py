@@ -8,7 +8,6 @@ import httpx
 from redis.asyncio import Redis
 
 from ttdr.clients import Clients, connect
-from ttdr.corpus.sources import CORPORA_DIR
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
 from ttdr.engine.ocr import NEEDS_OCR, PENDING_NOTE, OcrQueue
@@ -62,8 +61,7 @@ class Engine:
             if ocr := await self.ocr.text(h.doc, h.page):
                 text, flags = ocr, (*flags, "ocr")
             else:
-                pdf = str((CORPORA_DIR / h.corpus / f"{h.doc}.pdf").resolve())
-                await self.ocr.request(h.doc, h.page, pdf)
+                await self.ocr.request(h.corpus, h.doc, h.page)
                 text, flags = text or PENDING_NOTE, (*flags, "unverified")
         url = f"corpus://{h.doc}#page={h.page + 1}"
         return Evidence(h.id, "corpus", h.doc, url, text, round(h.score, 3), flags)

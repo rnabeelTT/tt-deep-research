@@ -63,7 +63,8 @@ services:
     build: { context: workers/ocr }
     image: ttdr/ocr:${TTDR_VERSION:-dev}
     network_mode: host
-    volumes: ["${PWD}/data/corpus:${PWD}/data/corpus:ro", "paddlex:/root/.paddlex"]
+    environment: { TTDR_CORPUS_DIR: /data/corpus }
+    volumes: ["./data/corpus:/data/corpus:ro", "paddlex:/root/.paddlex"]
     depends_on: [redis]
     restart: unless-stopped
 
