@@ -118,7 +118,7 @@ def ocr_backfill(name: str, recipe_path: RecipeOpt = None) -> None:
 
     root = sources.CORPORA_DIR / name
     pages = [
-        (p["doc"], p["page"], str((root / f"{p['doc']}.pdf").resolve()))
+        (name, p["doc"], p["page"])
         for p in map(json.loads, (root / "pages.jsonl").read_text().splitlines())
         if NEEDS_OCR & set(p["flags"])
     ]

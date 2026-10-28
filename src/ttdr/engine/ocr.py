@@ -16,6 +16,11 @@ NEEDS_OCR = {"image_only", "bad_text"}
 PENDING_NOTE = "[Scanned page: OCR pending. Ranked by its page image; text not yet verified.]"
 
 
+def _job(corpus: str, doc: str, page: int) -> str:
+    """Workers resolve corpus/doc under their own corpus directory, not a host path."""
+    return json.dumps({"corpus": corpus, "doc": doc, "page": page})
+
+
 def page_key(doc: str, page: int) -> str:
     return f"{doc}#p{page}"
 
@@ -27,22 +32,22 @@ class OcrQueue:
     async def text(self, doc: str, page: int) -> str | None:
         return await self.redis.get(TEXT.format(page=page_key(doc, page)))
 
-    async def request(self, doc: str, page: int, pdf: str) -> None:
+    async def request(self, corpus: str, doc: str, page: int) -> None:
         """Count a retrieval and queue the page once."""
         key = page_key(doc, page)
         await self.redis.zincrby(HITS, 1, key)
         if await self.redis.sadd(PENDING, key):
-            await self.redis.lpush(QUEUE, json.dumps({"doc": doc, "page": page, "pdf": pdf}))
+            await self.redis.lpush(QUEUE, _job(corpus, doc, page))
 
-    async def backfill(self, pages: list[tuple[str, int, str]]) -> int:
+    async def backfill(self, pages: list[tuple[str, str, int]]) -> int:
         """Queue every flagged page not yet done, most-retrieved first."""
         scores = {k: s for k, s in await self.redis.zrange(HITS, 0, -1, withscores=True)}
-        todo = sorted(pages, key=lambda p: -scores.get(page_key(p[0], p[1]), 0))
+        todo = sorted(pages, key=lambda p: -scores.get(page_key(p[1], p[2]), 0))
         n = 0
-        for doc, page, pdf in todo:
+        for corpus, doc, page in todo:
             if await self.text(doc, page) is None and await self.redis.sadd(
                 PENDING, page_key(doc, page)
             ):
-                await self.redis.rpush(QUEUE, json.dumps({"doc": doc, "page": page, "pdf": pdf}))
+                await self.redis.rpush(QUEUE, _job(corpus, doc, page))
                 n += 1
         return n
