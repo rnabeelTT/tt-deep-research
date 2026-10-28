@@ -76,3 +76,24 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 - **Friction (search supply):** SearXNG scrapes public engines, and they push back. After the deep runs' ~5,000 searches, Brave and Google returned "too many requests" and DuckDuckGo a CAPTCHA, so search returned nothing. More engines (Bing, Yahoo, Mojeek, Startpage) and a 24 h Redis cache spread and cut the load. A product needs a licensed search API or its own index for sustained use.
 - Vane's reranking cutoffs don't transfer between embedders: embeddinggemma-2 scores relevant snippets 0.7–0.85 and distinct same-topic pages ~0.87 to each other, so Vane's 0.75 near-duplicate rule would keep one result per query. Re-tuned (relative floor, 0.97 duplicates).
 - Snippet and page passages needed separate IDs (`W<hash>` vs `W<hash>.<n>`); sharing one let a fetched page overwrite the snippet a report had cited.
+
+## Stage 5: UI and demo (2026-10-28)
+
+**Result:** AI-Q's web UI as "Tenstorrent Deep Research" (`patches/aiq/0003`), served against our job API; `ttdr research "…"` streams the agents' searches and fetches live and prints the cited report.
+
+- The rebrand is 14 files: NVIDIA's logo is inline SVG and its green is hard-coded in components and a generated stylesheet, not only in theme tokens. Kept as a patch so AI-Q upgrades stay mechanical.
+- `npm run dev` (Turbopack) dies on this host with "OS file watch limit reached"; the production build (`npm run build && npm start`) has no watchers and suits a demo better anyway.
+- The UI's Sessions list only shows conversations started in the UI; API-submitted jobs show in `ttdr jobs` and AI-Q's debug console (`:8100/debug`).
+
+## Stage 7: triage (2026-10-28)
+
+**Result:** built and measured; **off by default**. Laya as a reranker lowers recall@10 from 75% to 48%; blended with the embedding score it's neutral ([LOG.md](LOG.md)). The eval gate did its job: without it this would have shipped as an "improvement".
+
+## Stage 8: lazy OCR (2026-10-28)
+
+**Result:** scanned pages are findable before OCR and readable after it. 44 image-only pages were embedded as page images in 4.1 s (embeddinggemma-2 is multimodal); a text query finds a scanned Walmart exhibit at rank 1. On first retrieval the page is queued and returned marked "OCR pending, unverified"; once the worker caches the text, search serves it.
+
+- PaddleOCR-VL on the CPU is accurate (tables, contents pages) but slow: 42 s for a sparse page, 6.6 min for a dense one on 16 cores. That's why it's lazy, with backfill in idle time (most-retrieved first).
+- Ornith's vision reads the same dense page in 2.8 min while sharing the chips with a deep job, with cleaner tables. The worker takes either backend (`--backend paddle|llm`); the design doc's CPU default keeps the chips for research.
+- PaddlePaddle has no wheels for our Python 3.14 venv, so the worker is its own Python 3.12 project (and image), talking to the engine only through Redis.
+- Redis' socket timeout must exceed the blocking pop's timeout, or an idle worker crashes.

@@ -96,3 +96,27 @@ Noise floor: same-config pairs differ by 0–2.7 points.
 - Accuracy tracks retrieval: metric questions (one table, one page) nearly always hit; domain-relevant questions spread over several pages and miss half the time. That's where reranking (stage 7) and agentic search should help.
 - 22 abstentions vs 18 wrong answers: with passages in hand Ornith says "I don't know" rather than guess.
 - p50 latency (212 s) isn't comparable with B0: B1 shared the LLM with a deep research job, and the prompts are ~4K tokens longer.
+
+## 2026-10-28 · Triage (stage 7): decision-model reranking, on vs off
+
+**Setup:** top 30 chunks by embedding, reranked by Laya, FinanceBench questions (gold page in top k). Full set (150) for the shipped wording; a 50-question sample for the variants.
+
+| Ranking | recall@1 | @5 | @10 |
+|---|---|---|---|
+| Embedding only (150) | 33% | 63% | 75% |
+| Laya "useful" alone (150) | 8% | 27% | 48% |
+| Embedding only (50) | 34% | 66% | 76% |
+| Laya alone, best of 3 wordings (50) | 14% | 40% | 68% |
+| Blend 0.8 embedding + 0.2 Laya (50) | 34–36% | 64–66% | 78% |
+
+**Decision:** triage stays **off** (`features.triage = false`). Laya alone hurts at every k; blended it's within noise. The blend is what ships behind the flag, so a stronger decision model can be tried with one recipe change. Laya's 512-token state cuts a 1,500-character chunk, and its scores track claim support more than topical usefulness (also seen at stage 0a).
+
+## 2026-10-28 · Decision model on claim-passage pairs (stage 6)
+
+**Set:** 113 pairs from FinanceBench gold pages (40 supported, 33 contradicted by a changed figure, 40 not enough info from a far page of the same filing), labels by construction (`ttdr eval claims-build`).
+
+| Model | Accuracy at 0.5 | Best thresholds | Per-label recall (best) | p50 per pair |
+|---|---|---|---|---|
+| Laya, 1,086-char windows | 42% | 49% | supported 40%, contradicted 12%, NEI 88% | 354 ms |
+
+Word choice (plain, NLI-style, ours) and window size (600 vs 1,200 chars) all land at 42–50%. Kev-9B, the planned challenger, could not be served (see JOURNEY). Verification ships with Laya and is marked provisional: use its badges as a pointer, not a verdict, until a stronger decision model passes this set.
