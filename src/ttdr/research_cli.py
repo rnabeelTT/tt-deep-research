@@ -53,32 +53,22 @@ def _describe(e: dict) -> str | None:
     return None
 
 
-def _research_lite(question: str, shallow: bool, out: Path | None, quiet: bool, recipe_path):
+def _research_deepagents(question: str, shallow: bool, out: Path | None, quiet: bool) -> None:
     import asyncio
 
-    import httpx
-
     from ttdr import recipe as recipes
-    from ttdr.clients import connect
-    from ttdr.harness import Lite
+    from ttdr.harness import DeepAgentsHarness
 
-    r = recipes.load(recipe_path)
-
-    async def go():
-        async with httpx.AsyncClient(timeout=1800) as http:
-            lite = Lite(connect(r, http).llm, r.services.mcp)
-            if shallow:
-                lite.max_subquestions, lite.max_rounds = 1, 4
-            return await lite.run(question, log=(lambda _: None) if quiet else console.print)
-
-    result = asyncio.run(go())
+    h = DeepAgentsHarness(recipes.load())
+    if shallow:
+        h.max_subquestions, h.max_tool_calls = 1, 4
+    result = asyncio.run(h.run(question, log=(lambda _: None) if quiet else console.print))
     console.rule()
     console.print(Markdown(result.report))
     console.rule()
     if out:
         out.write_text(result.report)
     console.print(", ".join(f"{k} {v:,}" for k, v in result.stats.items()))
-    return result
 
 
 def research(
@@ -92,8 +82,8 @@ def research(
     quiet: Annotated[bool, typer.Option(help="Hide live progress")] = False,
 ) -> None:
     """Research a question on the QB2 and print the cited report."""
-    if harness == "lite":
-        _research_lite(question, shallow, out, quiet, None)
+    if harness == "deepagents":
+        _research_deepagents(question, shallow, out, quiet)
         return
     agent = "shallow_researcher" if shallow else "deep_researcher"
     start = time.perf_counter()

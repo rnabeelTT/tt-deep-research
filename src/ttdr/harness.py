@@ -1,208 +1,176 @@
-"""A lean research harness over the engine's MCP tools: plan, research in parallel, write, verify.
+"""LangChain Deep Agents as a research harness over the engine's MCP tools.
 
-Orchestration is plain code, so loops are bounded by construction, and no request forces a tool
-call or a JSON schema (both push the whole batch off Blackhole's fast decode path). Talks to the
-engine only through MCP, like any other top layer.
+The design's fallback harness (and the stage 11 comparison with AI-Q). Deep Agents does the
+planning (write_todos), the research subagents (task) and the tool loop; this module only wires
+in the recipe's LLM, the engine's MCP tools, call limits, and a Sources list for cited IDs.
+No structured output is requested, so no request forces a tool call (that would push the whole
+batch off Blackhole's fast decode path).
 """
 
-import asyncio
-import json
 import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 
+from deepagents import create_deep_agent
+from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
+from langchain_core.tools import StructuredTool
+from langchain_openai import ChatOpenAI
 from mcp import Client
 
-from ttdr.clients import LLM
-from ttdr.engine import review
-from ttdr.engine.verify import Verdict
+from ttdr.recipe import Recipe
 
-PLAN_PROMPT = """Break this research request into 2 to {n} sub-questions that together answer it.
-For each, say where to look: "corpus" (private documents such as company 10-K filings), "web",
-or "all". Reply with JSON only: [{{"q": "...", "sources": "corpus|web|all"}}, ...]
-
-Request: {question}"""
-
-RESEARCH_PROMPT = """You are researching one sub-question for a report.
-Use the tools: search with short keyword queries, fetch_page on the most promising URLs with
-focus set to the sub-question. Every passage has an evidence ID in square brackets.
-When you have enough, stop calling tools and reply with research notes: short bullet facts, each
-ending with the evidence IDs it comes from, e.g. "- Revenue was $5.2B in 2022 [AMD_2022_10K#p48.0]".
-Only cite IDs the tools returned. Say what you could not find.
-
-Overall request: {question}
-Sub-question: {sub} (look in: {sources})"""
-
-NOTES_NOW = "Stop using tools. Write your research notes now, citing evidence IDs."
-
-WRITE_PROMPT = """Write the answer to the request from the research notes below.
-- Answer the request directly first, then give supporting detail; use headings for a long report.
-- Every factual sentence ends with the evidence IDs it rests on, in square brackets, copied from
-  the notes. Use no facts that aren't in the notes.
-- If the notes don't answer part of the request, say so plainly ("I don't know" is fine).
-Don't write a Sources list; it is added for you.
-
-Request: {question}
-
-Notes:
-{notes}"""
-
+RESEARCH_TOOLS = ("search", "fetch_page", "get_evidence")
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
-VERDICT = re.compile(r"^(supported|contradicted|not_enough_info)\b")
 
+INSTRUCTIONS = """You write cited research reports using the research engine's tools.
+Every factual sentence in your final report must end with the evidence IDs it rests on, in
+square brackets, copied from the researchers' notes. A sentence without an ID is not allowed.
 
-def _json_list(text: str) -> list:
-    m = re.search(r"\[.*\]", text, re.DOTALL)
-    try:
-        return json.loads(m.group()) if m else []
-    except json.JSONDecodeError:
-        return []
+1. Plan: break the request into 2-{subs} sub-questions with write_todos. Note for each whether it
+   needs private documents (search sources="corpus", e.g. company 10-K filings), the web
+   (sources="web") or both ("all").
+2. Delegate each sub-question to the researcher subagent with the task tool. Run them in parallel.
+3. Write the final answer yourself from the researchers' notes: answer the request directly
+   first, then supporting detail. Every factual sentence ends with the evidence IDs it rests on,
+   in square brackets, e.g. [3M_2018_10K#p59.0] or [W1a2b3c4d.2]. Only cite IDs from the notes.
+   If something wasn't found, say so ("I don't know" is fine).
+4. If the verify tool is available, check the sentences whose figures matter most and fix or
+   drop any that come back contradicted or not_enough_info.
+Reply with the final report only; a Sources list is added for you."""
+
+RESEARCHER = """You research one sub-question. Use search with short keyword queries and
+fetch_page (with focus set to the sub-question) on the most promising URLs. Every passage has an
+evidence ID in square brackets. Never repeat a search. When you have enough, or after about
+{calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
+evidence IDs it comes from. Only cite IDs the tools returned. Say what you could not find."""
 
 
 def _text(result) -> str:
     return "".join(c.text for c in result.content if getattr(c, "type", "") == "text")
 
 
-def _openai_tools(tools) -> list[dict]:
-    return [
-        {
-            "type": "function",
-            "function": {"name": t.name, "description": t.description, "parameters": t.input_schema},
-        }
-        for t in tools
-        if t.name in ("search", "fetch_page", "get_evidence")
-    ]
+def mcp_tools(client: Client, tools) -> list[StructuredTool]:
+    """The engine's MCP tools as LangChain tools (langchain-mcp-adapters lacks MCP 2.x support)."""
+
+    def wrap(t) -> StructuredTool:
+        async def call(**kwargs) -> str:
+            return _text(await client.call_tool(t.name, kwargs))
+
+        return StructuredTool(
+            name=t.name,
+            description=t.description or "",
+            args_schema=t.input_schema,
+            coroutine=call,
+        )
+
+    return [wrap(t) for t in tools]
+
+
+def chat_model(recipe: Recipe, thinking: bool, max_tokens: int) -> ChatOpenAI:
+    m = recipe.llm
+    return ChatOpenAI(
+        model=m.model,
+        base_url=m.url,
+        api_key="none",
+        max_tokens=max_tokens,
+        timeout=1800,
+        **m.request_settings(thinking),
+    )
 
 
 @dataclass
 class Result:
     report: str
-    notes: list[str]
     stats: Counter = field(default_factory=Counter)
-    verification: dict | None = None
 
 
 @dataclass
-class Lite:
-    llm: LLM
-    mcp_url: str
+class DeepAgentsHarness:
+    recipe: Recipe
     max_subquestions: int = 5
-    max_rounds: int = 6
-    concurrency: int = 4
+    max_tool_calls: int = 12
+    """Per researcher run and tool; past it the tool errors and the researcher wraps up."""
+    max_model_calls: int = 60
     thinking: bool = False
-    verify: bool = True
-    revise: bool = True
-    tool_result_chars: int = 6000
 
-    def _params(self, **kw) -> dict:
-        return {"chat_template_kwargs": {"enable_thinking": self.thinking}, **kw}
-
-    async def _chat(self, messages, stats: Counter, **kw) -> dict:
-        r = await self.llm.chat(messages, **self._params(**kw))
-        stats["llm calls"] += 1
-        stats["input tokens"] += r["usage"]["prompt_tokens"]
-        stats["output tokens"] += r["usage"]["completion_tokens"]
-        return r["choices"][0]["message"]
-
-    async def plan(self, question: str, stats: Counter) -> list[dict]:
-        prompt = PLAN_PROMPT.format(n=self.max_subquestions, question=question)
-        msg = await self._chat([{"role": "user", "content": prompt}], stats, max_tokens=2048)
-        subs = [
-            s for s in _json_list(msg.get("content") or "") if isinstance(s, dict) and s.get("q")
-        ]
-        return subs[: self.max_subquestions] or [{"q": question, "sources": "all"}]
-
-    async def research(self, mcp: Client, tools, question: str, sub: dict, stats, log) -> str:
-        messages = [
-            {
-                "role": "user",
-                "content": RESEARCH_PROMPT.format(
-                    question=question, sub=sub["q"], sources=sub.get("sources", "all")
-                ),
-            }
-        ]
-        for _ in range(self.max_rounds):
-            msg = await self._chat(messages, stats, tools=tools, max_tokens=4096)
-            calls = msg.get("tool_calls") or []
-            if not calls:
-                return msg.get("content") or ""
-            messages.append(
-                {"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls}
-            )
-            for call in calls:
-                name = call["function"]["name"]
-                try:
-                    args = json.loads(call["function"]["arguments"] or "{}")
-                    out = _text(await mcp.call_tool(name, args))
-                except Exception as e:  # noqa: BLE001 - the model sees the error and moves on
-                    args, out = {}, f"Tool error: {type(e).__name__}: {e}"
-                stats[name] += 1
-                log(f"  {name}: {str(args.get('query') or args.get('url') or args)[:90]}")
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call["id"],
-                        "content": out[: self.tool_result_chars],
-                    }
-                )
-        messages.append({"role": "user", "content": NOTES_NOW})
-        return (await self._chat(messages, stats, max_tokens=4096)).get("content") or ""
-
-    async def check(self, mcp: Client, report: str) -> list[review.Checked]:
-        async def one(c: review.Claim) -> review.Checked:
-            ids = [r for r in c.refs if not r.isdigit()]
-            out = _text(await mcp.call_tool("verify", {"claim": c.text, "evidence_ids": ids}))
-            m = VERDICT.match(out)
-            return review.Checked(c, Verdict(m[1], 0.0, 0.0, 0) if m else None, ids)
-
-        return list(await asyncio.gather(*(one(c) for c in review.claims(report))))
-
-    async def sources(self, mcp: Client, report: str) -> str:
-        ids = sorted(set(EVIDENCE_ID.findall(report)))
-        if not ids:
-            return ""
-        found = _text(await mcp.call_tool("get_evidence", {"ids": ids}))
-        lines = [
-            f"- [{m[1]}] {m[2].strip()} - {m[3].strip()}"
-            for m in re.finditer(r"^\[([^\]]+)\] (.*)\nURL: (\S+)", found, re.MULTILINE)
-        ]
-        return "\n\n## Sources\n" + "\n".join(lines) if lines else ""
+    def agent(self, tools: list[StructuredTool]):
+        research = [t for t in tools if t.name in RESEARCH_TOOLS]
+        researcher = {
+            "name": "researcher",
+            "description": "Researches one sub-question with the engine's search tools and "
+            "returns bullet notes with evidence IDs.",
+            "system_prompt": RESEARCHER.format(calls=self.max_tool_calls),
+            "tools": research,
+            "middleware": [
+                ToolCallLimitMiddleware(tool_name=t.name, run_limit=self.max_tool_calls)
+                for t in research
+            ],
+        }
+        return create_deep_agent(
+            model=chat_model(self.recipe, self.thinking, 8192),
+            tools=[t for t in tools if t.name == "verify"],
+            system_prompt=INSTRUCTIONS.format(subs=self.max_subquestions),
+            subagents=[researcher],
+            middleware=[ModelCallLimitMiddleware(run_limit=self.max_model_calls)],
+        )
 
     async def run(self, question: str, log=lambda _: None) -> Result:
         stats: Counter = Counter()
         start = time.perf_counter()
-        async with Client(self.mcp_url) as mcp:
-            listed = await mcp.list_tools()
-            tools = _openai_tools(listed.tools)
-            can_verify = any(t.name == "verify" for t in listed.tools)
-            subs = await self.plan(question, stats)
-            log(f"plan: {len(subs)} sub-questions")
-            for s in subs:
-                log(f"  - {s['q']} ({s.get('sources', 'all')})")
-            sem = asyncio.Semaphore(self.concurrency)
-
-            async def one(sub):
-                async with sem:
-                    return await self.research(mcp, tools, question, sub, stats, log)
-
-            notes = await asyncio.gather(*(one(s) for s in subs))
-            log("writing")
-            joined = "\n\n".join(f"### {s['q']}\n{n}" for s, n in zip(subs, notes, strict=True))
-            msg = await self._chat(
-                [{"role": "user", "content": WRITE_PROMPT.format(question=question, notes=joined)}],
-                stats,
-                max_tokens=8192,
-            )
-            report = msg.get("content") or ""
-            verification = None
-            if self.verify and can_verify:
-                checked = await self.check(mcp, report)
-                verification = {"before": review.summary(checked)}
-                if self.revise:
-                    report = await review.revise(self.llm, report, checked)
-                    verification["after"] = review.summary(await self.check(mcp, report))
-                log(f"verified: {verification}")
-            report += await self.sources(mcp, report)
+        async with Client(self.recipe.services.mcp) as client:
+            agent = self.agent(mcp_tools(client, (await client.list_tools()).tools))
+            final = None
+            async for namespace, update in agent.astream(
+                {"messages": [{"role": "user", "content": question}]},
+                stream_mode="updates",
+                subgraphs=True,
+                config={"recursion_limit": 500},
+            ):
+                for node in update.values():
+                    for msg in node.get("messages", []) if isinstance(node, dict) else []:
+                        _count(msg, stats, log)
+                        if not namespace and _is_answer(msg):
+                            final = msg
+            report = _content(final)
+            report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
-        return Result(report, list(notes), stats, verification)
+        return Result(report, stats)
+
+
+def _is_answer(msg) -> bool:
+    return getattr(msg, "type", "") == "ai" and not getattr(msg, "tool_calls", None)
+
+
+def _content(msg) -> str:
+    if msg is None:
+        return ""
+    c = msg.content
+    return c if isinstance(c, str) else "".join(p.get("text", "") for p in c if isinstance(p, dict))
+
+
+def _count(msg, stats: Counter, log) -> None:
+    if getattr(msg, "type", "") != "ai":
+        return
+    stats["llm calls"] += 1
+    usage = getattr(msg, "usage_metadata", None) or {}
+    stats["input tokens"] += usage.get("input_tokens", 0)
+    stats["output tokens"] += usage.get("output_tokens", 0)
+    for call in getattr(msg, "tool_calls", None) or []:
+        stats[call["name"]] += 1
+        a = call.get("args", {})
+        log(
+            f"  {call['name']}: {str(a.get('query') or a.get('url') or a.get('description') or '')[:90]}"
+        )
+
+
+async def _sources(client: Client, report: str) -> str:
+    ids = sorted(set(EVIDENCE_ID.findall(report)))
+    if not ids:
+        return ""
+    found = _text(await client.call_tool("get_evidence", {"ids": ids}))
+    lines = [
+        f"- [{m[1]}] {m[2].strip()} - {m[3].strip()}"
+        for m in re.finditer(r"^\[([^\]]+)\] (.*)\nURL: (\S+)", found, re.MULTILINE)
+    ]
+    return "\n\n## Sources\n" + "\n".join(lines) if lines else ""

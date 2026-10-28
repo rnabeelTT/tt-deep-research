@@ -43,6 +43,17 @@ class Model(BaseModel):
     serve_order: int = 0
     """`ttdr up` serves models largest first (lowest order first), so tt assigns chips in order."""
 
+    def request_settings(self, thinking: bool | None = None) -> dict:
+        """OpenAI-client settings: temperature/top_p, plus the rest of the sampling and the
+        model's own thinking switch in extra_body (for AI-Q, LangChain or any OpenAI client)."""
+        top = {k: self.sampling[k] for k in ("temperature", "top_p") if k in self.sampling}
+        extra = {k: v for k, v in self.sampling.items() if k not in top}
+        if thinking is not None and self.reasoning == "enable_thinking":
+            extra["chat_template_kwargs"] = {"enable_thinking": thinking}
+        elif thinking is not None and self.reasoning == "reasoning_effort":
+            extra["reasoning_effort"] = "high" if thinking else "low"
+        return {**top, "extra_body": extra}
+
 
 class Services(BaseModel):
     qdrant: str

@@ -13,19 +13,12 @@ from ttdr.recipe import Model, Recipe
 
 BASE = Path("configs/aiq/ttdr.yml")
 OUT = Path("data/aiq/config/ttdr.yml")
-REQUEST_PARAMS = ("temperature", "top_p")
 
 
 def _llm(entry: dict, m: Model) -> dict:
     body = entry.get("extra_body") or {}
     thinking = bool(body.get("chat_template_kwargs", {}).get("enable_thinking"))
-    extra = {k: v for k, v in m.sampling.items() if k not in REQUEST_PARAMS}
-    if m.reasoning == "enable_thinking":
-        extra["chat_template_kwargs"] = {"enable_thinking": thinking}
-    elif m.reasoning == "reasoning_effort":
-        extra["reasoning_effort"] = "high" if thinking else "low"
-    sampling = {k: m.sampling[k] for k in REQUEST_PARAMS if k in m.sampling}
-    return {**entry, "model_name": m.model, "base_url": m.url, **sampling, "extra_body": extra}
+    return {**entry, "model_name": m.model, "base_url": m.url, **m.request_settings(thinking)}
 
 
 def render(recipe: Recipe, base: Path = BASE) -> dict:

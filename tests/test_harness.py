@@ -1,21 +1,49 @@
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
-from ttdr import harness
+from ttdr import harness, recipe
+
+RECIPE = recipe.load(Path(__file__).parents[1] / "recipe.toml")
 
 
-def test_plan_json_is_parsed_leniently():
-    text = 'Sure.\n```json\n[{"q": "capex 2018", "sources": "corpus"}]\n```'
-    assert harness._json_list(text) == [{"q": "capex 2018", "sources": "corpus"}]
-    assert harness._json_list("no json here") == []
+class FakeClient:
+    def __init__(self):
+        self.calls = []
+
+    async def call_tool(self, name, args):
+        self.calls.append((name, args))
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=f"{name} ok")])
 
 
-def test_only_research_tools_are_offered_to_the_model():
-    tools = [
-        SimpleNamespace(name=n, description="d", input_schema={"type": "object"})
-        for n in ("search", "fetch_page", "get_evidence", "verify")
-    ]
-    names = [t["function"]["name"] for t in harness._openai_tools(tools)]
-    assert names == ["search", "fetch_page", "get_evidence"]
+def test_mcp_tools_become_langchain_tools():
+    client = FakeClient()
+    schema = {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+    [tool] = harness.mcp_tools(
+        client, [SimpleNamespace(name="search", description="d", input_schema=schema)]
+    )
+    assert tool.name == "search" and tool.args_schema == schema
+    assert asyncio.run(tool.ainvoke({"query": "capex"})) == "search ok"
+    assert client.calls == [("search", {"query": "capex"})]
+
+
+def test_chat_model_uses_the_recipe_llm_and_thinking_switch():
+    m = harness.chat_model(RECIPE, thinking=False, max_tokens=100)
+    assert m.model_name == RECIPE.llm.model and m.temperature == 0.6
+    assert m.extra_body == {"top_k": 20, "chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_deep_agent_builds_with_a_researcher_subagent():
+    schema = {"type": "object", "properties": {}}
+    tools = harness.mcp_tools(
+        FakeClient(),
+        [
+            SimpleNamespace(name=n, description="d", input_schema=schema)
+            for n in ("search", "fetch_page", "get_evidence", "verify")
+        ],
+    )
+    agent = harness.DeepAgentsHarness(RECIPE).agent(tools)
+    assert agent is not None
 
 
 def test_evidence_ids_in_reports():
