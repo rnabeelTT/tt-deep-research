@@ -471,6 +471,19 @@ index 38ff095..bf91e06 100644
    icons: {
      icon: '/favicon.ico',
    },
+diff --git a/frontends/ui/src/features/chat/components/ChatThinking.tsx b/frontends/ui/src/features/chat/components/ChatThinking.tsx
+index c78ee24..1cb718a 100644
+--- a/frontends/ui/src/features/chat/components/ChatThinking.tsx
++++ b/frontends/ui/src/features/chat/components/ChatThinking.tsx
+@@ -50,7 +50,7 @@ const formatDataSourceName = (sourceId: string): string => {
+ }
+ 
+ /**
+- * ChatThinking - collapsible thinking steps panel with nvidia green border
++ * ChatThinking - collapsible thinking steps panel with brand-colour border
+  */
+ export const ChatThinking: FC<ChatThinkingProps> = ({
+   steps,
 diff --git a/frontends/ui/src/features/layout/components/AppBar.tsx b/frontends/ui/src/features/layout/components/AppBar.tsx
 index bdda169..7e0517c 100644
 --- a/frontends/ui/src/features/layout/components/AppBar.tsx
@@ -520,6 +533,76 @@ index bdda169..7e0517c 100644
        >
          <Flex align="center" gap="2">
            <Book className="h-4 w-4 shrink-0" />
+diff --git a/frontends/ui/src/features/layout/components/ChatArea.spec.tsx b/frontends/ui/src/features/layout/components/ChatArea.spec.tsx
+index a4d7453..d0c02ef 100644
+--- a/frontends/ui/src/features/layout/components/ChatArea.spec.tsx
++++ b/frontends/ui/src/features/layout/components/ChatArea.spec.tsx
+@@ -49,7 +49,7 @@ describe('ChatArea', () => {
+   test('renders welcome state when not authenticated', () => {
+     render(<ChatArea isAuthenticated={false} />)
+ 
+-    expect(screen.getByText('Welcome to AI-Q')).toBeInTheDocument()
++    expect(screen.getByText('Welcome to Tenstorrent Deep Research')).toBeInTheDocument()
+     expect(screen.getByText(/sign in with your account/i)).toBeInTheDocument()
+     expect(screen.getByRole('button', { name: /sign in with.*sso/i })).toBeInTheDocument()
+   })
+@@ -57,8 +57,8 @@ describe('ChatArea', () => {
+   test('renders welcome state when authenticated with no messages', () => {
+     render(<ChatArea isAuthenticated={true} />)
+ 
+-    expect(screen.getByText('Welcome to AI-Q')).toBeInTheDocument()
+-    expect(screen.getByText(/AI-powered research companion/i)).toBeInTheDocument()
++    expect(screen.getByText('Welcome to Tenstorrent Deep Research')).toBeInTheDocument()
++    expect(screen.getByText(/Cited research reports/i)).toBeInTheDocument()
+   })
+ 
+   test('calls onSignIn when sign in button clicked', async () => {
+@@ -266,7 +266,7 @@ describe('ChatArea', () => {
+     render(<ChatArea isAuthenticated={true} />)
+ 
+     // Should show welcome state since assistant messages are filtered out
+-    expect(screen.getByText('Welcome to AI-Q')).toBeInTheDocument()
++    expect(screen.getByText('Welcome to Tenstorrent Deep Research')).toBeInTheDocument()
+   })
+ 
+   test('renders chat messages area with aria-label', () => {
+@@ -291,7 +291,7 @@ describe('ChatArea', () => {
+     render(<ChatArea isAuthenticated={true} />)
+ 
+     // Should render welcome state
+-    expect(screen.getByText('Welcome to AI-Q')).toBeInTheDocument()
++    expect(screen.getByText('Welcome to Tenstorrent Deep Research')).toBeInTheDocument()
+   })
+ 
+   test('renders file upload banners', () => {
+diff --git a/frontends/ui/src/features/layout/components/ChatArea.tsx b/frontends/ui/src/features/layout/components/ChatArea.tsx
+index 5cf43fb..6d6c83a 100644
+--- a/frontends/ui/src/features/layout/components/ChatArea.tsx
++++ b/frontends/ui/src/features/layout/components/ChatArea.tsx
+@@ -369,7 +369,7 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
+             <Lock />
+           </span>
+           <Text kind="title/lg" className="text-primary">
+-            Welcome to AI-Q
++            Welcome to Tenstorrent Deep Research
+           </Text>
+           <Text kind="body/regular/md" className="text-subtle">
+             Sign in with your account to start your AI-powered research session.
+@@ -404,11 +404,11 @@ const WelcomeState: FC<WelcomeStateProps> = ({ isAuthenticated = false, onSignIn
+       {/* Content */}
+       <Flex direction="col" align="center" gap="4" className="relative z-10 max-w-md text-center">
+         <Text kind="title/lg" className="text-primary">
+-          Welcome to AI-Q
++          Welcome to Tenstorrent Deep Research
+         </Text>
+         <Text kind="body/regular/md" className="text-subtle">
+-          Your AI-powered research companion for exploring technical documentation, market analysis,
+-          and more.
++          Cited research reports from the web and your own documents, running on Tenstorrent
++          hardware.
+         </Text>
+       </Flex>
+ 
 diff --git a/frontends/ui/src/features/layout/components/ResearchPanel.tsx b/frontends/ui/src/features/layout/components/ResearchPanel.tsx
 index b71881b..c7d3369 100644
 --- a/frontends/ui/src/features/layout/components/ResearchPanel.tsx
@@ -533,6 +616,19 @@ index b71881b..c7d3369 100644
              : 'cursor-not-allowed opacity-50'
          }`}
          style={{ height: 'calc(var(--spacing) * 38)' }}
+diff --git a/frontends/ui/src/shared/components/StarfieldAnimation/StarfieldAnimation.tsx b/frontends/ui/src/shared/components/StarfieldAnimation/StarfieldAnimation.tsx
+index 40a35fd..cc2ce30 100644
+--- a/frontends/ui/src/shared/components/StarfieldAnimation/StarfieldAnimation.tsx
++++ b/frontends/ui/src/shared/components/StarfieldAnimation/StarfieldAnimation.tsx
+@@ -13,7 +13,7 @@ const DEFAULT_MAX_RADIUS = 50
+ const DEFAULT_PARTICLE_SIZE = 2.0
+ const DEFAULT_ROTATION_SPEED = 0.001
+ const DEFAULT_SEED = 12345
+-const DEFAULT_PARTICLE_COLOR = '118, 185, 0'
++const DEFAULT_PARTICLE_COLOR = '124, 104, 250'
+ 
+ /**
+  * Animated starfield background using canvas.
 diff --git a/frontends/ui/src/styles/kui-generated.css b/frontends/ui/src/styles/kui-generated.css
 index c887b8c..ffe8089 100644
 --- a/frontends/ui/src/styles/kui-generated.css

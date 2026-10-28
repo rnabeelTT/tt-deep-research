@@ -124,7 +124,7 @@ git clone --depth 1 --branch v2.2.1 https://github.com/NVIDIA-AI-Blueprints/deep
 
 uv run ttdr mcp &                                        # engine tools at :9901/mcp, AI-Q's only data source
 external/aiq/.venv/bin/nat serve --config_file configs/aiq/ttdr.yml   # job API at :8100
-(cd external/aiq/frontends/ui && BACKEND_URL=http://127.0.0.1:8100 PORT=3000 npm run dev)   # UI at :3000
+(cd external/aiq/frontends/ui && npm run build && BACKEND_URL=http://127.0.0.1:8100 PORT=3000 npm start)   # UI at :3000
 ```
 
 `configs/aiq/ttdr.yml` points every AI-Q LLM role at the recipe's LLM (Ornith on :8000) and uses our MCP server as the only data source. The clarifier is off, so runs complete unattended. `nat serve` needs no other services: jobs go to SQLite (`data/aiq/jobs.db`), deep research runs on a local Dask cluster, and auth is off (`REQUIRE_AUTH` unset). No NVIDIA API key is needed, because every LLM is `_type: openai`.
@@ -140,6 +140,10 @@ curl 127.0.0.1:8100/v1/jobs/async/job/<id>/report
 ```
 
 `nat run --config_file configs/aiq/ttdr.yml --input "..."` still runs one question from the command line.
+
+The UI runs as a production build: `npm run dev` (Turbopack) hits the OS file-watch limit on this host.
+
+![Tenstorrent Deep Research home](img/ui-home.png)
 
 **Patches** (`patches/aiq/`, applied to the pinned clone):
 
