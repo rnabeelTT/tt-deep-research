@@ -120,15 +120,31 @@ AI-Q is NVIDIA's deep-researcher blueprint (`NVIDIA-AI-Blueprints/deep-researche
 ```bash
 git clone --depth 1 --branch v2.2.1 https://github.com/NVIDIA-AI-Blueprints/deep-researcher-agent external/aiq
 (cd external/aiq && git apply ../../patches/aiq/*.patch && uv sync && uv pip install -e ./frontends/cli)
-uv run ttdr mcp &                                    # AI-Q's only data source
-external/aiq/.venv/bin/nat run --config_file configs/aiq/spike.yml --input "your question"
+(cd external/aiq/frontends/ui && npm ci)                # Node 22+
+
+uv run ttdr mcp &                                        # engine tools at :9901/mcp, AI-Q's only data source
+external/aiq/.venv/bin/nat serve --config_file configs/aiq/ttdr.yml   # job API at :8100
+(cd external/aiq/frontends/ui && BACKEND_URL=http://127.0.0.1:8100 PORT=3000 npm run dev)   # UI at :3000
 ```
 
-`configs/aiq/spike.yml` points every AI-Q LLM role at the recipe's LLM (Ornith on :8000) and uses our MCP server as the only data source. The clarifier is off, so runs complete unattended.
+`configs/aiq/ttdr.yml` points every AI-Q LLM role at the recipe's LLM (Ornith on :8000) and uses our MCP server as the only data source. The clarifier is off, so runs complete unattended. `nat serve` needs no other services: jobs go to SQLite (`data/aiq/jobs.db`), deep research runs on a local Dask cluster, and auth is off (`REQUIRE_AUTH` unset). No NVIDIA API key is needed, because every LLM is `_type: openai`.
+
+Job API, for scripts and evals (`ttdr eval run aiq -p agent=deep_researcher`):
+
+```bash
+curl -X POST 127.0.0.1:8100/v1/jobs/async/submit -H 'content-type: application/json' \
+  -d '{"agent_type": "deep_researcher", "input": "your question", "data_sources": ["ttdr"]}'
+curl 127.0.0.1:8100/v1/jobs/async/job/<id>          # submitted | running | success | failure
+curl -N 127.0.0.1:8100/v1/jobs/async/job/<id>/stream  # server-sent events: tool calls, LLM output
+curl 127.0.0.1:8100/v1/jobs/async/job/<id>/report
+```
+
+`nat run --config_file configs/aiq/ttdr.yml --input "..."` still runs one question from the command line.
 
 **Patches** (`patches/aiq/`, applied to the pinned clone):
 
 - `0001-raise-research-budgets`: AI-Q caps every research budget at its default (100 source-tool calls and 20 research queries per job), sized for paid search APIs. This raises the caps to 1,000 and 60. Our search is local, so the extra calls cost nothing.
 - `0002-agent-loop-guards`: caps `think` at 8 calls and source calls at 40 per agent run; past 40 the search tools are removed, so the agent can only return its result. Without these, Ornith can repeat the same call indefinitely.
+- `0003-tenstorrent-branding`: the web UI as "Tenstorrent Deep Research": the Tenstorrent mark (from `tenstorrent/tt-metal` docs, see `configs/branding/SOURCE`) instead of NVIDIA's, page title, and the brand colour moved from NVIDIA green to Tenstorrent purple (#7c68fa).
 
 The MCP server answers a repeated search from cache, with a note telling the model it already ran that search.

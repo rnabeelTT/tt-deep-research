@@ -1,3 +1,4 @@
+import asyncio
 import re
 import time
 from dataclasses import dataclass
@@ -111,4 +112,48 @@ class B1MCP(B1):
         return a
 
 
-SYSTEMS: dict[str, type] = {"b0": B0, "b1": B1, "b1mcp": B1MCP}
+CORPUS_URL = re.compile(r"corpus://([^#\s)\]]+)#page=(\d+)")
+
+
+def cited_ids(text: str) -> list[str]:
+    """Evidence IDs a report cites, inline or as corpus:// URLs (page numbers are 1-based there)."""
+    ids = set(CITE.findall(text))
+    ids |= {f"{doc}#p{int(page) - 1}.0" for doc, page in CORPUS_URL.findall(text)}
+    return sorted(ids)
+
+
+@dataclass
+class AIQ:
+    """A question submitted as an AI-Q job (shallow_researcher or deep_researcher) over its API."""
+
+    agent: str = "shallow_researcher"
+    api: str = "http://127.0.0.1:8100"
+    poll_s: float = 5.0
+    timeout_s: float = 3600.0
+
+    async def answer(self, item: Item, clients: Clients) -> Answer:
+        start = time.perf_counter()
+        http = clients.llm.http
+        r = await http.post(
+            f"{self.api}/v1/jobs/async/submit",
+            json={"agent_type": self.agent, "input": item.question, "data_sources": ["ttdr"]},
+        )
+        r.raise_for_status()
+        job = r.json()["job_id"]
+        status = "submitted"
+        while status in ("submitted", "running"):
+            if time.perf_counter() - start > self.timeout_s:
+                await http.post(f"{self.api}/v1/jobs/async/job/{job}/cancel")
+                raise TimeoutError(f"job {job} still {status}")
+            await asyncio.sleep(self.poll_s)
+            status = (await http.get(f"{self.api}/v1/jobs/async/job/{job}")).json()["status"]
+        report = (await http.get(f"{self.api}/v1/jobs/async/job/{job}/report")).json()
+        text = report.get("report") or ""
+        if status != "success":
+            raise RuntimeError(f"job {job} ended {status}")
+        return Answer(
+            id=item.id, text=text, latency_s=time.perf_counter() - start, cited=cited_ids(text)
+        )
+
+
+SYSTEMS: dict[str, type] = {"b0": B0, "b1": B1, "b1mcp": B1MCP, "aiq": AIQ}

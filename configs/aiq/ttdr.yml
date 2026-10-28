@@ -1,8 +1,27 @@
 # AI-Q pointed at the QB2: every LLM role on the recipe's LLM (Ornith on :8000),
 # our MCP server as the only data source, clarifier off so runs are unattended.
 # Role split and thinking on/off mirror AI-Q's configs/config_cli_default.yml.
+# `nat serve` exposes the job API on :8100 (SQLite job store, local Dask, auth off);
+# `nat run` uses the same file from the command line.
 
 general:
+  use_uvloop: true
+  front_end:
+    _type: aiq_api
+    runner_class: aiq_api.plugin.AIQAPIWorker
+    host: 127.0.0.1
+    port: 8100
+    db_url: ${NAT_JOB_STORE_DB_URL:-sqlite+aiosqlite:///./data/aiq/jobs.db}
+    expiry_seconds: 86400
+    max_running_async_jobs: 4
+    dask_workers: processes
+    dask_threads_per_worker: 1
+    cors:
+      allow_origin_regex: 'http://(localhost|127\.0\.0\.1)(:\d+)?'
+      allow_methods: [GET, POST, DELETE, OPTIONS]
+      allow_headers: ["*"]
+      allow_credentials: true
+      expose_headers: ["*"]
   telemetry:
     logging:
       console:
@@ -76,7 +95,9 @@ functions:
     sources:
       - id: ttdr
         name: "QB2 Research Engine"
-        description: "Web search (and later private documents) served by the QB2."
+        description: >-
+          Web search plus private document collections (e.g. company 10-K filings), served by the QB2.
+          Tools: search (sources web, corpus or all), fetch_page, get_evidence. Passages carry evidence IDs.
         tools:
           - ttdr
 
@@ -114,4 +135,5 @@ workflow:
   _type: chat_deepresearcher_agent
   enable_escalation: true
   enable_clarifier: false
+  use_async_deep_research: true
   checkpoint_db: ${AIQ_CHECKPOINT_DB:-./data/aiq/checkpoints.db}
