@@ -44,6 +44,34 @@ def mcp_cmd(
     )
 
 
+@app.command("up")
+def up_cmd(
+    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+    build: Annotated[bool, typer.Option(help="Rebuild the app images")] = False,
+) -> None:
+    """Serve the recipe's models, start data services and the app, and check every endpoint."""
+    from ttdr import stack
+
+    console = Console()
+    status = stack.up(recipe.load(recipe_path), build, lambda m: console.print(f"[dim]$ {m}[/]"))
+    for name, ok in status.items():
+        console.print(f"{'[green]up[/]' if ok else '[red]down[/]'} {name}")
+    console.print('UI http://<host>:3000 · jobs `ttdr jobs` · CLI `ttdr research "..."`')
+    raise typer.Exit(0 if all(status.values()) else 1)
+
+
+@app.command("down")
+def down_cmd(
+    models: Annotated[bool, typer.Option("--models", help="Also stop the models")] = False,
+    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+) -> None:
+    """Stop the app containers (and, with --models, the models)."""
+    from ttdr import stack
+
+    console = Console()
+    stack.down(models, recipe.load(recipe_path), lambda m: console.print(f"[dim]$ {m}[/]"))
+
+
 @app.command("health")
 def health_cmd(
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,

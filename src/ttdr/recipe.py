@@ -13,6 +13,12 @@ class Model(BaseModel):
     sampling: dict[str, float | int] = {}
     max_state_tokens: int | None = None
     """Decision models only: tokens per state (Laya 512, Kev 65,536)."""
+    chat_template: str | None = None
+    """Repo path of a chat template that `ttdr up` stages for the server and passes to it."""
+    prefetch: list[str] = []
+    """`repo@revision` snapshots `ttdr up` downloads into the model cache before serving."""
+    serve_order: int = 0
+    """`ttdr up` serves models largest first (lowest order first), so tt assigns chips in order."""
 
 
 class Models(BaseModel):

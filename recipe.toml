@@ -6,6 +6,8 @@ profile = "p300"
 model = "ornith-ai/Ornith-1.5-35B-A3B"
 url = "http://localhost:8000/v1"
 sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
+chat_template = "configs/chat_templates/ornith.jinja"
+serve_order = 0
 
 # On-box judge for quick checks only; decisions use the blinded Claude judge (docs/EVALS.md)
 [models.judge]
@@ -19,12 +21,15 @@ sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
 bundle = "tt-hous/embeddinggemma-2"
 model = "google/embeddinggemma-2"
 url = "http://localhost:8001/v1"
+serve_order = 1
 
 [models.decide]
 bundle = "tt-hous/laya"
 model = "convaiinnovations/laya"
 url = "http://localhost:8002"
 max_state_tokens = 512
+prefetch = ["convaiinnovations/laya@7b928d828b7b0e022f929d9bd2e44165aa270148"]
+serve_order = 2
 
 [services]
 qdrant = "http://localhost:6333"
