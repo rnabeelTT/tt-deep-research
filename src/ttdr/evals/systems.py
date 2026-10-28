@@ -7,6 +7,7 @@ from typing import Protocol
 import httpx
 from mcp import Client
 
+from ttdr import recipe
 from ttdr.clients import Clients, reasoning_params
 from ttdr.evals.schema import Answer, Item
 
@@ -172,30 +173,21 @@ class AIQ:
 
 
 @dataclass
-class LiteHarness:
-    """The built-in harness (ttdr.harness.Lite) over the engine's MCP tools."""
+class DeepAgents:
+    """LangChain Deep Agents (ttdr.harness) over the engine's MCP tools."""
 
-    mcp_url: str = "http://localhost:9901/mcp"
     max_subquestions: int = 3
-    max_rounds: int = 5
+    max_tool_calls: int = 8
     thinking: bool = False
-    verify: bool = True
-    revise: bool = True
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
-        from ttdr.harness import Lite
+        from ttdr.harness import DeepAgentsHarness
 
         start = time.perf_counter()
-        lite = Lite(
-            clients.llm,
-            self.mcp_url,
-            self.max_subquestions,
-            self.max_rounds,
-            thinking=self.thinking,
-            verify=self.verify,
-            revise=self.revise,
+        h = DeepAgentsHarness(
+            recipe.load(), self.max_subquestions, self.max_tool_calls, thinking=self.thinking
         )
-        r = await lite.run(item.question)
+        r = await h.run(item.question)
         return Answer(
             id=item.id,
             text=r.report,
@@ -211,5 +203,5 @@ SYSTEMS: dict[str, type] = {
     "b1": B1,
     "b1mcp": B1MCP,
     "aiq": AIQ,
-    "lite": LiteHarness,
+    "deepagents": DeepAgents,
 }
