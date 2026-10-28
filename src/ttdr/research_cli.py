@@ -131,16 +131,14 @@ def verify(
 
     from ttdr import recipe as recipes
     from ttdr.engine import Engine, review
-    from ttdr.engine.verify import Verifier, window_chars
+    from ttdr.engine.verify import from_recipe
 
     r = recipes.load(recipe_path)
     text = report.read_text()
 
     async def go():
         engine = Engine.open(r)
-        verifier = Verifier(
-            engine.clients.decide, window=window_chars(r.models.decide.max_state_tokens)
-        )
+        verifier = from_recipe(r, engine.clients.decide)
         checked = await review.check(engine, verifier, text)
         result = {"before": review.summary(checked)}
         final = review.annotate(text, checked)

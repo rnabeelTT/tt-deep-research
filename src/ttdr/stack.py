@@ -1,7 +1,8 @@
 """`ttdr up` / `ttdr down`: the whole stack from one recipe.
 
 Models are served with tt (largest first, so tt assigns chips in a stable order), the data
-services and the app run under Docker Compose, then every endpoint is health-checked.
+services and the app run under Docker Compose, then every endpoint is health-checked. What runs
+follows the recipe: models its roles use, app services its features enable.
 """
 
 import asyncio
@@ -13,13 +14,18 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ttdr import health
+from ttdr import aiq_config, health
 from ttdr.recipe import Model, Recipe
 
 MODEL_CACHE = Path("/opt/tenstorrent/models")
 TEMPLATE_DIR = "ttdr"
-APP = {"engine": None, "aiq": "http://127.0.0.1:8100/health", "ui": "http://127.0.0.1:3000"}
-APP_SERVICES = ["engine", "aiq", "ui", "ocr"]
+# app service -> health URL (None: checked through the recipe's MCP URL)
+APP = {
+    "engine": None,
+    "aiq": "http://127.0.0.1:8100/health",
+    "ui": "http://127.0.0.1:3000",
+    "ocr": None,
+}
 
 
 def _run(cmd: list[str], log) -> None:
@@ -35,31 +41,21 @@ def serve_command(m: Model) -> list[str]:
     return ["tt", "serve", m.bundle, "--yes", "--port", port, *(["--", *extra] if extra else [])]
 
 
+def app_services(recipe: Recipe) -> list[str]:
+    f = recipe.features
+    return [s for s in APP if (s != "ui" or f.ui) and (s != "ocr" or f.ocr)]
+
+
 def serve_models(recipe: Recipe, log) -> None:
-    up = {c.name: c.ok for c in asyncio.run(health.run(recipe))}
-    models = {
-        "llm": recipe.models.llm,
-        "embed": recipe.models.embed,
-        "decide": recipe.models.decide,
-    }
-    for name, m in sorted(models.items(), key=lambda kv: kv[1].serve_order):
+    up = {c.name.split(" ")[0]: c.ok for c in asyncio.run(health.run(recipe))}
+    for name, m in recipe.served().items():
         if up.get(name):
             log(f"{name}: already serving ({m.bundle})")
             continue
         for snap in m.prefetch:
             repo, rev = snap.split("@")
-            _run(
-                [
-                    "hf",
-                    "download",
-                    repo,
-                    "--revision",
-                    rev,
-                    "--cache-dir",
-                    str(MODEL_CACHE / "hub"),
-                ],
-                log,
-            )
+            hub = str(MODEL_CACHE / "hub")
+            _run(["hf", "download", repo, "--revision", rev, "--cache-dir", hub], log)
         if m.chat_template:
             (MODEL_CACHE / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.copy(m.chat_template, MODEL_CACHE / TEMPLATE_DIR)
@@ -81,25 +77,32 @@ def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
     return status
 
 
+def compose_env(recipe: Recipe) -> dict[str, str]:
+    """Recipe values Compose needs, written to .env (Compose reads it automatically)."""
+    ocr = recipe.role("ocr")
+    if not ocr:
+        return {"TTDR_OCR_BACKEND": "paddle"}
+    return {"TTDR_OCR_BACKEND": "llm", "TTDR_OCR_URL": ocr.url, "TTDR_OCR_MODEL": ocr.model}
+
+
 def up(recipe: Recipe, build: bool, log) -> dict[str, bool]:
     serve_models(recipe, log)
     if not Path("external/aiq").exists():
         _run(["scripts/setup-aiq.sh"], log)
+    log(f"rendered {aiq_config.write(recipe)}")
+    Path(".env").write_text("".join(f"{k}={v}\n" for k, v in compose_env(recipe).items()))
     Path("data/corpus").mkdir(parents=True, exist_ok=True)  # else Docker creates it as root
-    _run(
-        ["docker", "compose", "--profile", "app", "up", "-d", *(["--build"] if build else [])], log
-    )
-    return wait({"engine": recipe.services.mcp, **{k: v for k, v in APP.items() if v}})
+    services = app_services(recipe)
+    flags = ["--build"] if build else []
+    _run(["docker", "compose", "--profile", "app", "up", "-d", *flags, *services], log)
+    urls = {"engine": recipe.services.mcp}
+    urls |= {s: APP[s] for s in services if APP[s]}
+    return wait(urls)
 
 
 def down(stop_models: bool, recipe: Recipe, log) -> None:
-    """Stop the app containers; with stop_models, the models too."""
-    # Only the app: the data services (and Redis' caches) keep running.
-    _run(["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP_SERVICES], log)
+    """Stop the app containers (data services and Redis' caches keep running)."""
+    _run(["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP], log)
     if stop_models:
-        for m in {
-            recipe.models.llm.bundle,
-            recipe.models.embed.bundle,
-            recipe.models.decide.bundle,
-        }:
-            _run(["tt", "model", "stop", m], log)
+        for m in recipe.served().values():
+            _run(["tt", "model", "stop", m.bundle], log)

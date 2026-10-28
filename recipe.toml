@@ -1,29 +1,28 @@
-version = "0.1.0"
+version = "0.2.0"
 
-[models.llm]
+# Models: a registry. `kind` decides the client (chat, embed, decide); `[roles]` decides the job.
+# Swap a model by pointing a role at another entry (see recipes/*.toml overlays).
+
+[models.ornith]
+kind = "chat"
 bundle = "raahemnabeel/ornith-1.5-35b-a3b"
 profile = "p300"
 model = "ornith-ai/Ornith-1.5-35B-A3B"
 url = "http://localhost:8000/v1"
 sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
+reasoning = "enable_thinking"
 chat_template = "configs/chat_templates/ornith.jinja"
 serve_order = 0
 
-# On-box judge for quick checks only; decisions use the blinded Claude judge (docs/EVALS.md)
-[models.judge]
-bundle = "raahemnabeel/ornith-1.5-35b-a3b"
-profile = "p300"
-model = "ornith-ai/Ornith-1.5-35B-A3B"
-url = "http://localhost:8000/v1"
-sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
-
-[models.embed]
+[models.embeddinggemma]
+kind = "embed"
 bundle = "tt-hous/embeddinggemma-2"
 model = "google/embeddinggemma-2"
 url = "http://localhost:8001/v1"
 serve_order = 1
 
-[models.decide]
+[models.laya]
+kind = "decide"
 bundle = "tt-hous/laya"
 model = "convaiinnovations/laya"
 url = "http://localhost:8002"
@@ -31,8 +30,20 @@ max_state_tokens = 512
 prefetch = ["convaiinnovations/laya@7b928d828b7b0e022f929d9bd2e44165aa270148"]
 serve_order = 2
 
+[roles]
+llm = "ornith"
+embed = "embeddinggemma"
+# judge = ...        # optional on-box judge for quick checks (defaults to llm); decisions use the Claude judge
+decide = "laya"      # optional: without it, verify and triage are off
+# ocr = "ornith"     # optional: OCR with a vision model on the chips instead of PaddleOCR on the CPU
+
 [services]
 qdrant = "http://localhost:6333"
-searxng = "http://localhost:8888"
+searxng = "http://localhost:8888"   # optional: without it, search covers the corpus only
 redis = "redis://localhost:6379"
 mcp = "http://localhost:9901/mcp"
+
+[features]
+triage = false       # Laya reranking lowers recall (docs/LOG.md)
+ocr = true
+ui = true

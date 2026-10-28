@@ -1,0 +1,56 @@
+from pathlib import Path
+
+import httpx
+import pytest
+from pydantic import ValidationError
+
+from ttdr import aiq_config, recipe
+from ttdr.clients import connect
+from ttdr.stack import app_services
+
+ROOT = Path(__file__).parents[1]
+RECIPE = recipe.load(ROOT / "recipe.toml")
+
+
+def test_minimal_overlay_removes_roles_services_and_features():
+    r = recipe.load(ROOT / "recipes" / "minimal.toml")
+    assert r.decide is None and r.services.searxng is None
+    assert list(r.served()) == ["ornith", "embeddinggemma"]
+    assert app_services(r) == ["engine", "aiq"]
+    assert connect(r, httpx.AsyncClient()).decide is None
+
+
+def test_roles_are_checked_against_model_kinds():
+    data = RECIPE.model_dump()
+    with pytest.raises(ValidationError, match="needs a decide model"):
+        recipe.Recipe.model_validate({**data, "roles": {**data["roles"], "decide": "ornith"}})
+    with pytest.raises(ValidationError, match="missing required roles: embed"):
+        recipe.Recipe.model_validate({**data, "roles": {"llm": "ornith"}})
+    with pytest.raises(ValidationError, match="unknown role"):
+        recipe.Recipe.model_validate({**data, "roles": {**data["roles"], "rerank": "laya"}})
+
+
+def test_legacy_recipes_from_old_runs_still_load():
+    legacy = {
+        "version": "0.1.0",
+        "models": {
+            k: {k2: v for k2, v in m.model_dump().items() if k2 != "kind"}
+            for k, m in (("llm", RECIPE.llm), ("embed", RECIPE.embed))
+        },
+        "services": RECIPE.services.model_dump(),
+    }
+    r = recipe.Recipe.model_validate(legacy)
+    assert r.llm.model == RECIPE.llm.model and r.roles == {"llm": "llm", "embed": "embed"}
+
+
+def test_aiq_config_follows_the_llm_and_its_reasoning_control():
+    ornith = aiq_config.render(RECIPE)["llms"]
+    assert ornith["planner_llm"]["model_name"] == RECIPE.llm.model
+    assert ornith["agent_llm"]["extra_body"] == {
+        "top_k": 20,
+        "chat_template_kwargs": {"enable_thinking": True},
+    }
+    gptoss = aiq_config.render(recipe.load(ROOT / "recipes" / "gpt-oss.toml"))["llms"]
+    assert gptoss["agent_llm"]["extra_body"] == {"top_k": 20, "reasoning_effort": "high"}
+    assert gptoss["planner_llm"]["extra_body"]["reasoning_effort"] == "low"
+    assert gptoss["writer_llm"]["temperature"] == 1.0

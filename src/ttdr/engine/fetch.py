@@ -30,9 +30,7 @@ def _pdf_text(data: bytes) -> str:
     with _PDFIUM:
         doc = pdfium.PdfDocument(data)
         try:
-            return "\n\n".join(
-                doc[i].get_textpage().get_text_bounded() for i in range(len(doc))
-            )
+            return "\n\n".join(doc[i].get_textpage().get_text_bounded() for i in range(len(doc)))
         finally:
             doc.close()
 

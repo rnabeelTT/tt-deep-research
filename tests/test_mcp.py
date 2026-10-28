@@ -61,3 +61,12 @@ def test_rerank_drops_weak_and_duplicate_results():
     vecs = [[1, 0], [0.95, 0.31], [0.95, 0.31], [0.85, -0.53], [0.3, 0.95]]
     ranked = asyncio.run(web.rerank(FakeEmbedder(vecs), "q", results))
     assert [r["url"] for r, _ in ranked] == ["good", "other"]
+
+
+def test_tools_follow_the_recipe():
+    names = lambda r: {t.name for t in asyncio.run(mcp_server.build(r, FakeEngine()).list_tools())}
+    assert "verify" in names(RECIPE)
+    minimal = recipe.load(Path(__file__).parents[1] / "recipes" / "minimal.toml")
+    assert names(minimal) == {"search", "fetch_page", "get_evidence"}
+    out = _call(mcp_server.build(minimal, FakeEngine()), "search", {"query": "x"})
+    assert "Web search is off" in out

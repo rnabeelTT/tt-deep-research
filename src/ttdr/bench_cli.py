@@ -22,7 +22,7 @@ def decode(
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Decode tok/s per stream and in total, at each concurrency."""
-    m = recipe.load(recipe_path).models.llm
+    m = recipe.load(recipe_path).llm
     rows = asyncio.run(bench.with_llm(m, bench.decode, concurrency or [1, 8, 16, 32], tokens))
     table = Table(
         "concurrency", "per stream tok/s", "total tok/s", title=f"{m.bundle} {m.sampling}"
@@ -41,7 +41,7 @@ def tools(
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Tool-call reliability: right tool, valid JSON args, no call when none is needed."""
-    m = recipe.load(recipe_path).models.llm
+    m = recipe.load(recipe_path).llm
     results = asyncio.run(bench.with_llm(m, bench.tools, reasoning_params(effort, thinking)))
     table = Table("ok", "expected", "called", "detail", "prompt", title=m.bundle)
     for r in results:
@@ -65,7 +65,7 @@ def load(
 
     from ttdr import load as loadtest
 
-    llm_url = recipe.load(recipe_path).models.llm.url
+    llm_url = recipe.load(recipe_path).llm.url
     lines = Path(f"data/suites/{suite}.jsonl").read_text().splitlines()
     questions = [json.loads(x)["question"] for x in lines]
     table = Table(

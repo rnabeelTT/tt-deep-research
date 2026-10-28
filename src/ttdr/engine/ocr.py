@@ -14,6 +14,7 @@ HITS = "ocr:hits"
 TEXT = "ocr:text:{page}"
 NEEDS_OCR = {"image_only", "bad_text"}
 PENDING_NOTE = "[Scanned page: OCR pending. Ranked by its page image; text not yet verified.]"
+OCR_OFF_NOTE = "[Scanned page: OCR is off in this recipe. Ranked by its page image only.]"
 
 
 def _job(corpus: str, doc: str, page: int) -> str:

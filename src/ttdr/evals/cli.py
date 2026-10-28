@@ -171,14 +171,13 @@ def claims_run(recipe_path: RecipeOpt = None) -> None:
     import httpx
 
     from ttdr.clients import connect
-    from ttdr.engine.verify import Verifier, window_chars
+    from ttdr.engine.verify import from_recipe
 
     r = recipe.load(recipe_path)
 
     async def go():
         async with httpx.AsyncClient(timeout=300) as http:
-            window = window_chars(r.models.decide.max_state_tokens)
-            return await claims.score(Verifier(connect(r, http).decide, window=window))
+            return await claims.score(from_recipe(r, connect(r, http).decide))
 
     console.print_json(json.dumps(asyncio.run(go()), default=str))
 
@@ -250,7 +249,7 @@ def verify_run(
     import shutil
 
     from ttdr.engine import Engine, review
-    from ttdr.engine.verify import Verifier, window_chars
+    from ttdr.engine.verify import from_recipe
     from ttdr.evals.schema import Answer
 
     r = recipe.load(recipe_path)
@@ -260,9 +259,7 @@ def verify_run(
 
     async def go():
         engine = Engine.open(r)
-        verifier = Verifier(
-            engine.clients.decide, window=window_chars(r.models.decide.max_state_tokens)
-        )
+        verifier = from_recipe(r, engine.clients.decide)
         sem = asyncio.Semaphore(concurrency)
 
         async def one(a: Answer):

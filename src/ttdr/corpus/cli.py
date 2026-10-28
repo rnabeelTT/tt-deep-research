@@ -77,8 +77,10 @@ def recall(
             from ttdr.engine.triage import OVERFETCH, Triage
             from ttdr.engine.verify import window_chars
 
+            if not r.decide:
+                raise typer.BadParameter("the recipe has no decide role")
             decider = connect(r, c.embedder.http).decide
-            t = Triage(decider, window_chars(r.models.decide.max_state_tokens))
+            t = Triage(decider, window_chars(r.decide.max_state_tokens))
 
         async def one(item, doc):
             async with sem:

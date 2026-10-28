@@ -10,7 +10,7 @@ from redis.asyncio import Redis
 from ttdr.clients import Clients, connect
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
-from ttdr.engine.ocr import NEEDS_OCR, PENDING_NOTE, OcrQueue
+from ttdr.engine.ocr import NEEDS_OCR, OCR_OFF_NOTE, PENDING_NOTE, OcrQueue
 from ttdr.engine.triage import OVERFETCH, Triage
 from ttdr.engine.verify import window_chars
 from ttdr.recipe import Recipe
@@ -25,9 +25,10 @@ class Engine:
         self.clients: Clients = connect(recipe, http)
         self.evidence = EvidenceStore(redis)
         self.ocr = OcrQueue(redis)
+        decide = recipe.decide
         self.triage = (
-            Triage(self.clients.decide, window_chars(recipe.models.decide.max_state_tokens))
-            if recipe.features.triage
+            Triage(self.clients.decide, window_chars(decide.max_state_tokens))
+            if recipe.features.triage and decide
             else None
         )
 
@@ -40,6 +41,8 @@ class Engine:
         )
 
     async def _web(self, query: str, k: int) -> list[Evidence]:
+        if not self.recipe.services.searxng:
+            return []
         key = f"web:{k}:{' '.join(query.lower().split())}"
         if hit := await self.evidence.cached(key):
             return [Evidence(**{**d, "flags": tuple(d["flags"])}) for d in json.loads(hit)]
@@ -60,6 +63,8 @@ class Engine:
         if NEEDS_OCR & set(h.flags):
             if ocr := await self.ocr.text(h.doc, h.page):
                 text, flags = ocr, (*flags, "ocr")
+            elif not self.recipe.features.ocr:
+                text, flags = text or OCR_OFF_NOTE, (*flags, "unverified")
             else:
                 await self.ocr.request(h.corpus, h.doc, h.page)
                 text, flags = text or PENDING_NOTE, (*flags, "unverified")

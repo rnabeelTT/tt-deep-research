@@ -1,9 +1,14 @@
 extends = "../recipe.toml"
 
-# Decision-model challenger (stage 6): Qwen3.5-9B-Base + pointer head, same System One API, 64K-token states.
-[models.decide]
+# Kev-9B as the decision model (Qwen3.5-9B-Base + pointer head, same System One API, 64K-token states).
+[models.kev]
+kind = "decide"
 bundle = "tt-hous/kev-9b"
 model = "jaredpalmer/kev-9b"
 url = "http://localhost:8008"
 max_state_tokens = 65536
 prefetch = ["jaredpalmer/kev-9b@db029f08b290afd9fee4aa4bbcd9ae48602d1eb0"]
+serve_order = 2
+
+[roles]
+decide = "kev"
