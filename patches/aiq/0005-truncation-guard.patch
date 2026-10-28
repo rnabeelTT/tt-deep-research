@@ -1,0 +1,93 @@
+diff --git a/src/aiq_agent/agents/deep_researcher/custom_middleware.py b/src/aiq_agent/agents/deep_researcher/custom_middleware.py
+index 72b6bfd..b1c59fa 100644
+--- a/src/aiq_agent/agents/deep_researcher/custom_middleware.py
++++ b/src/aiq_agent/agents/deep_researcher/custom_middleware.py
+@@ -1422,6 +1422,59 @@ class AutoToolChoiceMiddleware(AgentMiddleware):
+         return await handler(request)
+ 
+ 
++class TruncationGuardMiddleware(AgentMiddleware):
++    """Stops a run whose replies keep hitting max_tokens.
++
++    A reply cut off mid-thought has no tool call, so structured-output agents retry, and each
++    retry thinks to the limit again. After one truncated reply this turns thinking off for the
++    rest of the run; after ``max_truncations`` it also asks for the final result outright.
++    """
++
++    def __init__(self, max_truncations: int = 3):
++        """Configure how many truncated replies to allow before demanding the result."""
++        self.max_truncations = max_truncations
++
++    @staticmethod
++    def _truncated(messages) -> int:
++        return sum(
++            1
++            for m in messages
++            if isinstance(m, AIMessage) and (m.response_metadata or {}).get("finish_reason") == "length"
++        )
++
++    @staticmethod
++    def _no_thinking(request):
++        extra = dict(getattr(request.model, "extra_body", None) or {})
++        extra.update(request.model_settings.get("extra_body") or {})
++        if "reasoning_effort" in extra:
++            extra["reasoning_effort"] = "low"
++        else:
++            extra["chat_template_kwargs"] = {**extra.get("chat_template_kwargs", {}), "enable_thinking": False}
++        return {**request.model_settings, "extra_body": extra}
++
++    def _guard(self, request):
++        n = self._truncated(request.messages)
++        if not n:
++            return request
++        logger.warning("%d truncated replies in this run; thinking off", n)
++        messages = request.messages
++        if n >= self.max_truncations:
++            note = HumanMessage(
++                content="Your replies keep running past the length limit. Stop reasoning and "
++                "return your final result now, briefly, from what you already have."
++            )
++            messages = [*messages, note]
++        return request.override(model_settings=self._no_thinking(request), messages=messages)
++
++    def wrap_model_call(self, request, handler):
++        """Turn thinking off (and demand the result) after truncated replies."""
++        return handler(self._guard(request))
++
++    async def awrap_model_call(self, request, handler):
++        """Turn thinking off (and demand the result) after truncated replies."""
++        return await handler(self._guard(request))
++
++
+ class SourceCallCapMiddleware(AgentMiddleware):
+     """Removes source tools once an agent run has made ``max_calls`` source calls.
+ 
+diff --git a/src/aiq_agent/agents/deep_researcher/factory.py b/src/aiq_agent/agents/deep_researcher/factory.py
+index 6080786..e799bfe 100644
+--- a/src/aiq_agent/agents/deep_researcher/factory.py
++++ b/src/aiq_agent/agents/deep_researcher/factory.py
+@@ -30,6 +30,7 @@ from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+ from deepagents.middleware.skills import SkillsMiddleware
+ from deepagents.middleware.summarization import create_summarization_middleware
+ from langchain.agents import create_agent
++from langchain.agents.middleware import ModelCallLimitMiddleware
+ from langchain.agents.middleware import ModelRetryMiddleware
+ from langchain.agents.middleware import ToolCallLimitMiddleware
+ from langchain.agents.middleware import ToolRetryMiddleware
+@@ -53,6 +54,7 @@ from .custom_middleware import FinalReportCommitTracker
+ from .custom_middleware import FinalReportOwnershipGuardMiddleware
+ from .custom_middleware import PlanPersistenceMiddleware
+ from .custom_middleware import SourceCallCapMiddleware
++from .custom_middleware import TruncationGuardMiddleware
+ from .custom_middleware import RequiredOutputFileMiddleware
+ from .custom_middleware import RequiredWriterDelegationMiddleware
+ from .custom_middleware import SourceRegistryMiddleware
+@@ -246,6 +248,8 @@ def build_common_middleware(
+         ToolResultPruningMiddleware(keep_last_n=10, max_chars=2000),
+         ToolCallLimitMiddleware(tool_name="think", run_limit=8),
+         SourceCallCapMiddleware(tool_set.source_tool_names, max_calls=40),
++        TruncationGuardMiddleware(max_truncations=3),
++        ModelCallLimitMiddleware(run_limit=40, exit_behavior="end"),
+         ModelRetryMiddleware(max_retries=2, backoff_factor=2.0, initial_delay=1.0),
+         *([AutoToolChoiceMiddleware()] if auto_tool_choice_enabled() else []),
+     ]
