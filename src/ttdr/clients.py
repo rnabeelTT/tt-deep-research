@@ -46,6 +46,10 @@ class Embedder(OpenAICompat):
             body["dimensions"] = dimensions
         return [d["embedding"] for d in (await self._post("/embeddings", body))["data"]]
 
+    async def embed_images(self, images_b64: list[str]) -> list[list[float]]:
+        body = {"model": self.model, "input": [{"image": b} for b in images_b64]}
+        return [d["embedding"] for d in (await self._post("/embeddings", body))["data"]]
+
 
 @dataclass
 class Decider:

@@ -59,18 +59,34 @@ def search(
 def recall(
     suite: str = "financebench",
     ks: Annotated[list[int] | None, typer.Option("--k")] = None,
+    triage: Annotated[
+        bool, typer.Option(help="Rerank 3x candidates with the decision model")
+    ] = False,
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Share of questions with a gold evidence page in the top k: whole corpus vs the known doc."""
     ks = sorted(ks or [1, 5, 10, 20])
     items = [json.loads(x) for x in Path(f"data/suites/{suite}.jsonl").read_text().splitlines()]
 
+    r = recipe.load(recipe_path)
+
     async def go(c):
         sem = asyncio.Semaphore(16)
+        t = None
+        if triage:
+            from ttdr.engine.triage import OVERFETCH, Triage
+            from ttdr.engine.verify import window_chars
+
+            decider = connect(r, c.embedder.http).decide
+            t = Triage(decider, window_chars(r.models.decide.max_state_tokens))
 
         async def one(item, doc):
             async with sem:
-                hits = await c.search(item["question"], ks[-1], suite, doc)
+                if t:
+                    hits = await c.search(item["question"], ks[-1] * OVERFETCH, suite, doc)
+                    hits = (await t.rerank(item["question"], hits))[: ks[-1]]
+                else:
+                    hits = await c.search(item["question"], ks[-1], suite, doc)
             gold = {(e["doc"], e["page"]) for e in item["evidence"]}
             return next((r for r, h in enumerate(hits) if (h.doc, h.page) in gold), None)
 
@@ -85,3 +101,39 @@ def recall(
             name, *(f"{sum(r is not None and r < k for r in ranks) / len(ranks):.1%}" for k in ks)
         )
     console.print(table)
+
+
+def _ocr_queue(recipe_path: Path | None):
+    from redis.asyncio import Redis
+
+    from ttdr.engine.ocr import OcrQueue
+
+    return OcrQueue(Redis.from_url(recipe.load(recipe_path).services.redis, decode_responses=True))
+
+
+@app.command("ocr-backfill")
+def ocr_backfill(name: str, recipe_path: RecipeOpt = None) -> None:
+    """Queue every flagged page of a corpus for OCR, most-retrieved first."""
+    from ttdr.engine.ocr import NEEDS_OCR
+
+    root = sources.CORPORA_DIR / name
+    pages = [
+        (p["doc"], p["page"], str((root / f"{p['doc']}.pdf").resolve()))
+        for p in map(json.loads, (root / "pages.jsonl").read_text().splitlines())
+        if NEEDS_OCR & set(p["flags"])
+    ]
+    console.print(f"queued {asyncio.run(_ocr_queue(recipe_path).backfill(pages))} of {len(pages)}")
+
+
+@app.command("ocr-status")
+def ocr_status(recipe_path: RecipeOpt = None) -> None:
+    """Pages queued, in flight and done."""
+    from ttdr.engine.ocr import PENDING, QUEUE
+
+    async def go():
+        r = _ocr_queue(recipe_path).redis
+        done = len([k async for k in r.scan_iter("ocr:text:*")])
+        return await r.llen(QUEUE), await r.scard(PENDING), done
+
+    queued, pending, done = asyncio.run(go())
+    console.print(f"queued {queued} · pending {pending} · done {done}")

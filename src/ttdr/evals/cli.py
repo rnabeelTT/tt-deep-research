@@ -31,7 +31,18 @@ def _params(raw: list[str]) -> dict:
 
 def _print_summary(summary: dict) -> None:
     table = Table(
-        "group", "n", "acc", "wrong", "abstain", "err", "cut", "p50 s", "p95 s", "tok", "ret", "cite"
+        "group",
+        "n",
+        "acc",
+        "wrong",
+        "abstain",
+        "err",
+        "cut",
+        "p50 s",
+        "p95 s",
+        "tok",
+        "ret",
+        "cite",
     )
     for name, s in summary.items():
         if name.startswith("_"):
@@ -154,10 +165,13 @@ def claims_run(recipe_path: RecipeOpt = None) -> None:
     import httpx
 
     from ttdr.clients import connect
-    from ttdr.engine.verify import Verifier
+    from ttdr.engine.verify import Verifier, window_chars
+
+    r = recipe.load(recipe_path)
 
     async def go():
-        async with httpx.AsyncClient(timeout=120) as http:
-            return await claims.score(Verifier(connect(recipe.load(recipe_path), http).decide))
+        async with httpx.AsyncClient(timeout=300) as http:
+            window = window_chars(r.models.decide.max_state_tokens)
+            return await claims.score(Verifier(connect(r, http).decide, window=window))
 
     console.print_json(json.dumps(asyncio.run(go()), default=str))

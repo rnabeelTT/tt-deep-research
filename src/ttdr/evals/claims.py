@@ -40,7 +40,9 @@ def build(n_questions: int = 40, seed: int = 0) -> Path:
     pairs = []
     for item in items[:n_questions]:
         ev = item["evidence"][0]
-        doc = pages.setdefault(ev["doc"], pdf.read(CORPORA_DIR / "financebench" / f"{ev['doc']}.pdf"))
+        doc = pages.setdefault(
+            ev["doc"], pdf.read(CORPORA_DIR / "financebench" / f"{ev['doc']}.pdf")
+        )
         gold = doc[ev["page"]].text
         claim = item["answer"]
         far = [p for p in doc if abs(p.page - ev["page"]) > 5 and len(p.text) > 500]
@@ -48,7 +50,9 @@ def build(n_questions: int = 40, seed: int = 0) -> Path:
         if wrong := _perturb(claim, rng):
             pairs.append({"claim": wrong, "passage": gold, "label": "contradicted"})
         if far:
-            pairs.append({"claim": claim, "passage": rng.choice(far).text, "label": "not_enough_info"})
+            pairs.append(
+                {"claim": claim, "passage": rng.choice(far).text, "label": "not_enough_info"}
+            )
     PAIRS.write_text(
         "".join(
             json.dumps({"id": f"pair_{n:03d}", "question_of": "financebench", **p}) + "\n"
@@ -73,7 +77,9 @@ async def score(verifier: Verifier, concurrency: int = 8) -> dict:
     for s in (0.3, 0.4, 0.5, 0.6, 0.7):
         for c in (0.3, 0.5, 0.7):
             preds = [decide(probs, s, c).label for probs, _ in results]
-            sweep[(s, c)] = sum(p == q["label"] for p, q in zip(preds, pairs, strict=True)) / len(pairs)
+            sweep[(s, c)] = sum(p == q["label"] for p, q in zip(preds, pairs, strict=True)) / len(
+                pairs
+            )
     best = max(sweep, key=sweep.get)
     preds = [decide(probs, *best).label for probs, _ in results]
     confusion = Counter((q["label"], p) for p, q in zip(preds, pairs, strict=True))
@@ -85,7 +91,11 @@ async def score(verifier: Verifier, concurrency: int = 8) -> dict:
         "best_thresholds": best,
         "accuracy_best": sweep[best],
         "per_label_recall": {
-            lab: round(confusion[(lab, lab)] / max(1, sum(v for (g, _), v in confusion.items() if g == lab)), 3)
+            lab: round(
+                confusion[(lab, lab)]
+                / max(1, sum(v for (g, _), v in confusion.items() if g == lab)),
+                3,
+            )
             for lab in LABELS
         },
         "confusion": {f"{g}->{p}": v for (g, p), v in sorted(confusion.items())},

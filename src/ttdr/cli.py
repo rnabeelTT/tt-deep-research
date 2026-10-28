@@ -12,7 +12,7 @@ from ttdr import health, recipe
 from ttdr.bench_cli import app as bench_app
 from ttdr.corpus.cli import app as corpus_app
 from ttdr.evals.cli import app as eval_app
-from ttdr.research_cli import jobs, research
+from ttdr.research_cli import jobs, research, verify
 
 app = typer.Typer(no_args_is_help=True)
 app.add_typer(eval_app, name="eval")
@@ -20,6 +20,7 @@ app.add_typer(bench_app, name="bench")
 app.add_typer(corpus_app, name="corpus")
 app.command()(research)
 app.command()(jobs)
+app.command()(verify)
 
 
 @app.callback()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 QUERY_PROMPT = "task: question answering | query: {q}"
 DOC_PROMPT = "title: {doc} | text: {text}"
 BATCH = 32
+IMAGE_BATCH = 4
 
 
 class Corpus:
@@ -43,7 +45,30 @@ class Corpus:
                 [DOC_PROMPT.format(doc=c.doc, text=c.text) for c in batch]
             )
             await self.store.upsert(corpus, batch, vecs)
+        await self.index_images(path, [p for p in pages if "image_only" in p.flags], corpus, pool)
         return pages
+
+    async def index_images(
+        self,
+        path: Path,
+        pages: list[pdf.Page],
+        corpus: str,
+        pool: ProcessPoolExecutor | None = None,
+    ) -> None:
+        """Image-only pages are embedded as page images, so search can find them before OCR."""
+        if not pages:
+            return
+        pngs = await asyncio.get_running_loop().run_in_executor(
+            pool, pdf.render_png, path, [p.page for p in pages], 1.0
+        )
+        for i in range(0, len(pages), IMAGE_BATCH):
+            batch = pages[i : i + IMAGE_BATCH]
+            vecs = await self.embedder.embed_images(
+                [base64.b64encode(b).decode() for b in pngs[i : i + IMAGE_BATCH]]
+            )
+            await self.store.upsert(
+                corpus, [chunk.Chunk(p.doc, p.page, 0, "", p.flags) for p in batch], vecs
+            )
 
     async def index_dir(self, root: Path, corpus: str, concurrency: int = 4) -> dict:
         """Index every PDF under root; page flags go to root/pages.jsonl for the OCR stage."""

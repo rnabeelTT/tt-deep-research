@@ -59,3 +59,19 @@ def read(path: Path) -> list[Page]:
     finally:
         doc.close()
     return pages
+
+
+def render_png(path: Path, pages: list[int], scale: float = 2.0) -> list[bytes]:
+    """PNG bytes of the given pages (for image embeddings and OCR)."""
+    import io
+
+    doc = pdfium.PdfDocument(path)
+    out = []
+    try:
+        for i in pages:
+            buf = io.BytesIO()
+            doc[i].render(scale=scale).to_pil().save(buf, format="PNG")
+            out.append(buf.getvalue())
+    finally:
+        doc.close()
+    return out
