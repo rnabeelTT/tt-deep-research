@@ -125,7 +125,11 @@ def serve(recipe: Recipe, host: str, port: int, path: str) -> None:
     token = os.environ.get(TOKEN_ENV)
     if host not in LOCAL and not token:
         raise SystemExit(f"Refusing to listen on {host} without {TOKEN_ENV} (no auth otherwise).")
-    security = TransportSecuritySettings(enable_dns_rebinding_protection=host in LOCAL)
+    # Localhost keeps the SDK's DNS-rebinding defaults; a token-guarded remote bind can't know
+    # every Host name clients will use, so the token is the check there.
+    security = (
+        None if host in LOCAL else TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    )
     app = build(recipe).streamable_http_app(
         streamable_http_path=path, host=host, transport_security=security
     )

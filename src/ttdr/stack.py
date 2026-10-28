@@ -63,13 +63,33 @@ def serve_models(recipe: Recipe, log) -> None:
         _run(serve_command(m), log)
 
 
+MCP_INIT = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "ttdr-up", "version": "0"},
+    },
+}
+
+
+def _up(http: httpx.Client, name: str, url: str) -> bool:
+    """The engine counts as up only when an MCP handshake succeeds; other apps on any 2xx/3xx."""
+    if name == "engine":
+        r = http.post(url, json=MCP_INIT, headers={"accept": "application/json, text/event-stream"})
+        return r.status_code == 200
+    return http.get(url).status_code < 400
+
+
 def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
     deadline, status = time.time() + timeout_s, {}
     with httpx.Client(timeout=5) as http:
         for name, url in urls.items():
             while True:
                 try:
-                    status[name] = http.get(url).status_code < 500
+                    status[name] = _up(http, name, url)
                 except httpx.HTTPError:
                     status[name] = False
                 if status[name] or time.time() > deadline:
