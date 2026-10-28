@@ -11,15 +11,20 @@ tt assigns chips itself, so start the models one at a time, largest first. All t
 
 | Port | Model | Bundle | Chips | Ready in (first pull) |
 |---|---|---|---|---|
-| 8000 | gpt-oss-20b | `jashansinghTT/gpt-oss-20b-blackhole-fast`, profile `p150x2` | 2 | 12m 33s (5m 22s cached) |
+| 8000 | Ornith 1.5 35B-A3B | `raahemnabeel/ornith-1.5-35b-a3b`, profile `p300`, patched chat template | 2 | 9m 41s (4m 30s cached) |
 | 8001 | embeddinggemma-2 | `tt-hous/embeddinggemma-2` | 1 | 5m 56s |
 | 8002 | Laya | `tt-hous/laya` | 1 | 2m 30s |
 
 ```bash
-tt serve jashansinghTT/gpt-oss-20b-blackhole-fast --yes --port 8000 -- --profile p150x2
+mkdir -p /opt/tenstorrent/models/ttdr && cp configs/chat_templates/ornith.jinja /opt/tenstorrent/models/ttdr/
+tt serve raahemnabeel/ornith-1.5-35b-a3b --yes --port 8000 -- --profile p300 --chat-template /hf/ttdr/ornith.jinja
 tt serve tt-hous/embeddinggemma-2 --yes --port 8001
 tt serve tt-hous/laya --yes --port 8002
 ```
+
+**Ornith chat template.** Ornith's stock template raises "No user query found" when a request has no user turn. AI-Q's intent classifier sends system-only prompts. `configs/chat_templates/ornith.jinja` is the stock template with that one `raise` replaced by a fallback (a one-line diff). It's mounted through `/opt/tenstorrent/models`, which the container sees as `/hf`.
+
+The alternative LLM is gpt-oss-20b: `tt serve jashansinghTT/gpt-oss-20b-blackhole-fast --yes --port 8000 -- --profile p150x2`, with `--recipe recipes/gpt-oss.toml` on `ttdr` commands. Its sampling must keep `top_k <= 32` (see the recipe).
 
 **Laya workaround.** The bundle's pull leaves out the repo's `multilingual/` folder, but the server checks for the full snapshot and runs offline, so it exits with code 3. Fetch the full snapshot once, before the first serve:
 
@@ -43,6 +48,7 @@ tt serve <new-bundle> --yes --port 8000 -- --profile <profile>
 ```bash
 docker compose up -d     # Qdrant :6333, SearXNG :8888, Redis :6379 (localhost only)
 uv run ttdr health       # exits 0 only if every endpoint is up
+uv run ttdr mcp          # engine MCP server at :9901/mcp (tools: web_search)
 ```
 
 Clients call the model endpoints listed in `recipe.toml` directly.
@@ -93,3 +99,23 @@ Laya also has `/v1/systemone/batch` (many states, shared forward passes) and `/v
   | `p150x2-throughput` | 20 tok/s | 102 | 128 | 162 tok/s |
 
   The prefill side gets A/B'd at Stage 9.
+
+## AI-Q (research harness)
+
+AI-Q is NVIDIA's deep-researcher blueprint (`NVIDIA-AI-Blueprints/deep-researcher-agent`, Apache-2.0). We configure it rather than fork it: the clone is gitignored, and our config lives in `configs/aiq/`.
+
+```bash
+git clone --depth 1 --branch v2.2.1 https://github.com/NVIDIA-AI-Blueprints/deep-researcher-agent external/aiq
+(cd external/aiq && git apply ../../patches/aiq/*.patch && uv sync && uv pip install -e ./frontends/cli)
+uv run ttdr mcp &                                    # AI-Q's only data source
+external/aiq/.venv/bin/nat run --config_file configs/aiq/spike.yml --input "your question"
+```
+
+`configs/aiq/spike.yml` points every AI-Q LLM role at the recipe's LLM (Ornith on :8000) and uses our MCP server as the only data source. The clarifier is off, so runs complete unattended.
+
+**Patches** (`patches/aiq/`, applied to the pinned clone):
+
+- `0001-raise-research-budgets`: AI-Q caps every research budget at its default (100 source-tool calls and 20 research queries per job), sized for paid search APIs. This raises the caps to 1,000 and 60. Our search is local, so the extra calls cost nothing.
+- `0002-agent-loop-guards`: caps `think` at 8 calls and source calls at 40 per agent run; past 40 the search tools are removed, so the agent can only return its result. Without these, Ornith can repeat the same call indefinitely.
+
+The MCP server answers a repeated search from cache, with a note telling the model it already ran that search.

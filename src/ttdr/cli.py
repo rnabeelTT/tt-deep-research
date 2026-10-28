@@ -22,6 +22,22 @@ def main() -> None:
     """Deep research on a Tenstorrent QB2."""
 
 
+@app.command("mcp")
+def mcp_cmd(
+    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+):
+    """Serve the engine's MCP tools over streamable HTTP (URL from the recipe)."""
+    from urllib.parse import urlparse
+
+    from ttdr import mcp_server
+
+    r = recipe.load(recipe_path)
+    u = urlparse(r.services.mcp)
+    mcp_server.build(r).run(
+        "streamable-http", host=u.hostname, port=u.port, streamable_http_path=u.path
+    )
+
+
 @app.command("health")
 def health_cmd(
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,

@@ -1,19 +1,19 @@
 version = "0.1.0"
 
 [models.llm]
-bundle = "jashansinghTT/gpt-oss-20b-blackhole-fast"
-profile = "p150x2"
-model = "openai/gpt-oss-20b"
+bundle = "raahemnabeel/ornith-1.5-35b-a3b"
+profile = "p300"
+model = "ornith-ai/Ornith-1.5-35B-A3B"
 url = "http://localhost:8000/v1"
-# top_k <= 32 keeps the bundle's fused decode path; without it decode is 5-9x slower
-sampling = { temperature = 1.0, top_k = 20 }
+sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
 
+# On-box judge for quick checks only; decisions use the blinded Claude judge (docs/EVALS.md)
 [models.judge]
-bundle = "jashansinghTT/gpt-oss-20b-blackhole-fast"
-profile = "p150x2"
-model = "openai/gpt-oss-20b"
+bundle = "raahemnabeel/ornith-1.5-35b-a3b"
+profile = "p300"
+model = "ornith-ai/Ornith-1.5-35B-A3B"
 url = "http://localhost:8000/v1"
-sampling = { temperature = 1.0, top_k = 20 }
+sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
 
 [models.embed]
 bundle = "tt-hous/embeddinggemma-2"
@@ -29,3 +29,4 @@ url = "http://localhost:8002"
 qdrant = "http://localhost:6333"
 searxng = "http://localhost:8888"
 redis = "redis://localhost:6379"
+mcp = "http://localhost:9901/mcp"

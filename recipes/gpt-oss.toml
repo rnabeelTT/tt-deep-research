@@ -1,0 +1,8 @@
+extends = "../recipe.toml"
+
+[models.llm]
+bundle = "jashansinghTT/gpt-oss-20b-blackhole-fast"
+profile = "p150x2"
+model = "openai/gpt-oss-20b"
+# top_k <= 32 keeps the bundle's fused decode path; without it decode is 5-9x slower
+sampling = { temperature = 1.0, top_k = 20, top_p = 1.0 }

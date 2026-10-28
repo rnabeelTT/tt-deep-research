@@ -24,6 +24,7 @@ class Services(BaseModel):
     qdrant: str
     searxng: str
     redis: str
+    mcp: str
 
 
 class Recipe(BaseModel):

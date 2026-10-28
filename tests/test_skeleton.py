@@ -15,7 +15,7 @@ def _mock(handler) -> httpx.AsyncClient:
 
 
 def test_recipe_loads():
-    assert RECIPE.models.llm.profile == "p150x2"
+    assert RECIPE.models.llm.profile == "p300"
     assert RECIPE.models.decide.url.endswith(":8002")
 
 
@@ -57,8 +57,8 @@ def test_failed_probe_is_reported_not_raised():
 
 
 def test_recipe_overlay_swaps_llm_but_keeps_judge():
-    r = recipe.load(Path(__file__).parents[1] / "recipes" / "ornith.toml")
-    assert r.models.llm.model == "ornith-ai/Ornith-1.5-35B-A3B"
+    r = recipe.load(Path(__file__).parents[1] / "recipes" / "gpt-oss.toml")
+    assert r.models.llm.model == "openai/gpt-oss-20b"
     assert r.models.llm.url == RECIPE.models.llm.url
     assert r.models.judge == RECIPE.models.judge
 
@@ -77,7 +77,7 @@ def test_llm_applies_recipe_sampling_and_request_overrides():
             await llm.chat([], temperature=0)
 
     asyncio.run(go())
-    assert bodies[0]["top_k"] == 20 and bodies[0]["temperature"] == 1.0
+    assert bodies[0]["top_k"] == 20 and bodies[0]["temperature"] == 0.6
     assert bodies[1]["temperature"] == 0 and bodies[1]["top_k"] == 20
-    ornith = recipe.load(Path(__file__).parents[1] / "recipes" / "ornith.toml").models.llm
-    assert ornith.sampling == {"temperature": 0.6, "top_k": 20, "top_p": 0.95}
+    gptoss = recipe.load(Path(__file__).parents[1] / "recipes" / "gpt-oss.toml").models.llm
+    assert gptoss.sampling == {"temperature": 1.0, "top_k": 20, "top_p": 1.0}

@@ -40,7 +40,7 @@ Each stage ends with something you can run and check. Done: **0a, 0b, 1, 1.5 (LL
 | 0b | Skeleton | uv project, `recipe.toml`, typed clients, Compose (Qdrant, SearXNG, Redis), `ttdr health` | `ttdr health` shows every endpoint up, with its latency |
 | 1 | Eval harness + B0 | Small gold set (10–20 Qs), runner, exact/numeric match plus an LLM judge pass, results store, `ttdr compare` | Baseline B0 (LLM only) recorded |
 | 2 | Ingestion + B1 | docling extraction, page flags, embeddings into Qdrant; naive RAG | recall@k reported; B1 vs B0 |
-| 3 | MCP server | `search` tool (web + corpus), evidence IDs and cache | MCP tool tests pass; B1 through MCP matches B1 |
+| 3 | MCP server | `search` tool (web + corpus), `fetch_page` with extraction, evidence IDs and cache. Port Vane's (MIT, ex-Perplexica) SearXNG search, scraping and re-ranking logic, and its SearXNG settings | MCP tool tests pass; B1 through MCP matches B1 |
 | 4 | Harness | AI-Q pointed at the model endpoints and our MCP; fall back to Deep Agents if it isn't working within 1–2 days | One research job end to end; time per report |
 | 5 | UI + demo | Rebranded AI-Q UI and a scripted demo | Demo runs end to end |
 | 6 | Verify | Pick Laya or Kev, then `verify` tool and revision loop | Citation validity vs stage 4 |
