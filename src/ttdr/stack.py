@@ -6,6 +6,7 @@ follows the recipe: models its roles use, app services its features enable.
 """
 
 import asyncio
+import os
 import shutil
 import subprocess
 import time
@@ -79,7 +80,11 @@ def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
 
 def compose_env(recipe: Recipe) -> dict[str, str]:
     """Recipe values Compose needs, written to .env (Compose reads it automatically)."""
-    env = {"AIQ_AUTO_TOOL_CHOICE": "1" if recipe.features.auto_tool_choice else "0"}
+    env = {
+        "AIQ_AUTO_TOOL_CHOICE": "1" if recipe.features.auto_tool_choice else "0",
+        "TTDR_UID": str(os.getuid()),
+        "TTDR_GID": str(os.getgid()),
+    }
     ocr = recipe.role("ocr")
     if not ocr:
         return {**env, "TTDR_OCR_BACKEND": "paddle"}
@@ -92,7 +97,8 @@ def up(recipe: Recipe, build: bool, log) -> dict[str, bool]:
         _run(["scripts/setup-aiq.sh"], log)
     log(f"rendered {aiq_config.write(recipe)}")
     Path(".env").write_text("".join(f"{k}={v}\n" for k, v in compose_env(recipe).items()))
-    Path("data/corpus").mkdir(parents=True, exist_ok=True)  # else Docker creates it as root
+    for d in ("data/corpus", "data/aiq/app"):  # else Docker creates them as root
+        Path(d).mkdir(parents=True, exist_ok=True)
     services = app_services(recipe)
     flags = ["--build"] if build else []
     _run(["docker", "compose", "--profile", "app", "up", "-d", *flags, *services], log)
