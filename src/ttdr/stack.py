@@ -85,6 +85,7 @@ def up(recipe: Recipe, build: bool, log) -> dict[str, bool]:
     serve_models(recipe, log)
     if not Path("external/aiq").exists():
         _run(["scripts/setup-aiq.sh"], log)
+    Path("data/corpus").mkdir(parents=True, exist_ok=True)  # else Docker creates it as root
     _run(
         ["docker", "compose", "--profile", "app", "up", "-d", *(["--build"] if build else [])], log
     )
