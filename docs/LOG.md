@@ -120,3 +120,35 @@ Noise floor: same-config pairs differ by 0–2.7 points.
 | Laya, 1,086-char windows | 42% | 49% | supported 40%, contradicted 12%, NEI 88% | 354 ms |
 
 Word choice (plain, NLI-style, ours) and window size (600 vs 1,200 chars) all land at 42–50%. Kev-9B, the planned challenger, could not be served (see JOURNEY). Verification ships with Laya and is marked provisional: use its badges as a pointer, not a verdict, until a stronger decision model passes this set.
+
+## 2026-10-28 · AI-Q (shallow researcher) on FinanceBench vs B0 and B1 (stage 4)
+
+**Config:** `aiq`, `agent=shallow_researcher`, through AI-Q's job API with our MCP engine as its only source (web + the FinanceBench corpus), Ornith 1.5 with the prefix-caching bundle, concurrency 8. **Judge:** Claude Opus 5.5, blinded. **Run:** `20261028-175948-aiq` (27 answers re-fetched with `ttdr eval retry` after client polling errors; every job had succeeded server-side).
+
+| FinanceBench | B0 | B1 (naive RAG) | AI-Q shallow |
+|---|---|---|---|
+| All (150) | 17.3% | 73.3% | **74.7%** |
+| metrics-generated | 8% | 90% | 88% |
+| novel-generated | 12% | 70% | 68% |
+| domain-relevant | 32% | 60% | 68% |
+| Wrong / abstained | — | 18 / 22 | 38 / 0 |
+| p50 / p95 latency | — | — | 85 s / 306 s |
+
+**AI-Q − B1 = +1.3 points, CI [−6.7, ~+9]:** a tie. AI-Q − B0 = +57.3 [+49.3, …]. The agent decides for itself whether to search the corpus or the web, and gets the same accuracy as a fixed RAG pipeline that was told where to look. It never says "I don't know": twice as many confident wrong answers as B1. Abstention is worth prompting for before customers see it.
+
+## 2026-10-28 · Load test: shallow research jobs (stage 9)
+
+`ttdr bench load -c 1 -c 2 -c 4 -c 8 --jobs 8`, FinanceBench questions, packaged stack (containers), idle box apart from the CPU OCR backfill.
+
+| Jobs at once | Reports/hour | p50 | p95 | Prefill share of request time |
+|---|---|---|---|---|
+| 1 | 156 | 26 s | 38 s | 26% |
+| 2 | 243 | 26 s | 70 s | 19% |
+| 4 | 247 | 52 s | 68 s | 16% |
+| 8 | 242 | 86 s | 119 s | 19% |
+
+Throughput saturates at ~245 reports/hour from 2 concurrent jobs; beyond that jobs queue rather than overlap. Consistent with the batch effect below. Prefix-cache hits were 0%: shallow prompts don't share 2,048-token prefixes.
+
+**Batch effect (the main lever):** one request with `tool_choice: required` or a JSON-schema `response_format` drops every request in the batch from ~118 to ~13 tok/s (guided decoding falls off the fused sampler). LangChain's structured output (`ToolStrategy`) forces `tool_choice` on every turn of AI-Q's planner and researchers. Fixing it on either side (server: guided decoding on device; harness: auto tool choice with a text fallback) is the largest speedup available.
+
+**Prefix caching** (new Ornith bundle): a repeated 29K-token prompt goes from 6.2 s to 0.4 s. Over a day of agent traffic, 26% of 8.0M prompt tokens hit the cache.
