@@ -52,18 +52,7 @@ async with Client("http://localhost:9901/mcp") as c:
 
 ## From another machine
 
-The MCP server listens on localhost and needs no token there. Two ways in from elsewhere:
-
-- **SSH tunnel** (nothing to configure): `ssh -L 9901:localhost:9901 <user>@<qb2-host>`, then use `http://localhost:9901/mcp` locally.
-- **Token:** start it on all interfaces with a bearer token. It refuses to listen beyond localhost without one.
-
-  ```bash
-  export TTDR_MCP_HOST=0.0.0.0 TTDR_MCP_TOKEN=$(openssl rand -hex 24)
-  uv run ttdr up            # or: uv run ttdr mcp
-  hermes mcp add ttdr --url http://<qb2-host>:9901/mcp --auth header   # paste the token when asked
-  ```
-
-  Clients send `Authorization: Bearer <token>`. The token is read from the environment only, never from the recipe or `.env`. Plain HTTP: use it on a trusted network, or put TLS in front.
+Bind the engine to all interfaces with `TTDR_MCP_HOST=0.0.0.0 uv run ttdr up` (or `ttdr mcp --host 0.0.0.0`) and use `http://<qb2-host>:9901/mcp`, or use an SSH tunnel (`ssh -L 9901:localhost:9901 <user>@<qb2-host>`). There's no auth by default; setting `TTDR_MCP_TOKEN` makes every request need `Authorization: Bearer <token>`.
 
 ## What a client needs to do well
 
