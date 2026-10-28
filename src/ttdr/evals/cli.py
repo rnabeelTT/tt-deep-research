@@ -175,3 +175,57 @@ def claims_run(recipe_path: RecipeOpt = None) -> None:
             return await claims.score(Verifier(connect(r, http).decide, window=window))
 
     console.print_json(json.dumps(asyncio.run(go()), default=str))
+
+
+@app.command("ab")
+def ab(
+    system: str,
+    recipe_a: Annotated[Path, typer.Option("--a", help="Recipe for variant A (current best)")],
+    recipe_b: Annotated[Path, typer.Option("--b", help="Recipe for variant B (candidate)")],
+    suites: SuitesOpt = None,
+    param: Annotated[list[str] | None, typer.Option("--param", "-p", help="key=value")] = None,
+    limit: Annotated[int | None, typer.Option(help="First N items per suite")] = None,
+    concurrency: int = 16,
+    chunks: int = 6,
+) -> None:
+    """Run SYSTEM under two recipes on the same items, then build one blinded judge queue.
+
+    Both recipes' endpoints must be up. For two models that share chips, run each variant
+    with `ttdr eval run` and swap models in between, then `judge-export` both runs.
+    """
+    from datetime import datetime
+
+    suites = suites or list(datasets.BUILDERS)
+    params = _params(param or [])
+    runs = [
+        runner.run(system, suites, recipe.load(p), params, concurrency, limit)
+        for p in (recipe_a, recipe_b)
+    ]
+    queue = Path(f"data/judge/ab-{datetime.now():%Y%m%d-%H%M%S}")
+    n = grading.export_queue(runs, queue, chunks)
+    console.print(f"A: {runs[0]}\nB: {runs[1]}\n{n} answers to judge → {queue}")
+    console.print(
+        "Next: grade each queue-*.jsonl with a Claude subagent (verdicts-*.jsonl), then\n"
+        f"  ttdr eval judge-import {queue} --judge <judge>\n"
+        f"  ttdr eval compare {runs[0]} {runs[1]}"
+    )
+
+
+@app.command("check")
+def check(
+    run_dir: Path,
+    minimum: Annotated[
+        list[str], typer.Option("--min", help="suite.metric=value, e.g. financebench.accuracy=0.6")
+    ],
+) -> None:
+    """Exit 1 if any summary metric is below its floor (CI guardrail)."""
+    summary = json.loads((run_dir / "summary.json").read_text())
+    failed = False
+    for rule in minimum:
+        key, floor = rule.split("=")
+        group, metric = key.rsplit(".", 1)
+        value = summary.get(group, {}).get(metric)
+        ok = value is not None and value >= float(floor)
+        failed |= not ok
+        console.print(f"{'[green]ok[/]' if ok else '[red]FAIL[/]'} {key} = {value} (min {floor})")
+    raise typer.Exit(1 if failed else 0)
