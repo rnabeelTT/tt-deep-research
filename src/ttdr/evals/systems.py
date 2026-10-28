@@ -171,4 +171,45 @@ class AIQ:
         )
 
 
-SYSTEMS: dict[str, type] = {"b0": B0, "b1": B1, "b1mcp": B1MCP, "aiq": AIQ}
+@dataclass
+class LiteHarness:
+    """The built-in harness (ttdr.harness.Lite) over the engine's MCP tools."""
+
+    mcp_url: str = "http://localhost:9901/mcp"
+    max_subquestions: int = 3
+    max_rounds: int = 5
+    thinking: bool = False
+    verify: bool = True
+    revise: bool = True
+
+    async def answer(self, item: Item, clients: Clients) -> Answer:
+        from ttdr.harness import Lite
+
+        start = time.perf_counter()
+        lite = Lite(
+            clients.llm,
+            self.mcp_url,
+            self.max_subquestions,
+            self.max_rounds,
+            thinking=self.thinking,
+            verify=self.verify,
+            revise=self.revise,
+        )
+        r = await lite.run(item.question)
+        return Answer(
+            id=item.id,
+            text=r.report,
+            latency_s=time.perf_counter() - start,
+            prompt_tokens=r.stats["input tokens"],
+            completion_tokens=r.stats["output tokens"],
+            cited=sorted(set(CITE.findall(r.report))),
+        )
+
+
+SYSTEMS: dict[str, type] = {
+    "b0": B0,
+    "b1": B1,
+    "b1mcp": B1MCP,
+    "aiq": AIQ,
+    "lite": LiteHarness,
+}

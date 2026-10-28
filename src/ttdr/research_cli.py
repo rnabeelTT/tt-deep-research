@@ -53,14 +53,48 @@ def _describe(e: dict) -> str | None:
     return None
 
 
+def _research_lite(question: str, shallow: bool, out: Path | None, quiet: bool, recipe_path):
+    import asyncio
+
+    import httpx
+
+    from ttdr import recipe as recipes
+    from ttdr.clients import connect
+    from ttdr.harness import Lite
+
+    r = recipes.load(recipe_path)
+
+    async def go():
+        async with httpx.AsyncClient(timeout=1800) as http:
+            lite = Lite(connect(r, http).llm, r.services.mcp)
+            if shallow:
+                lite.max_subquestions, lite.max_rounds = 1, 4
+            return await lite.run(question, log=(lambda _: None) if quiet else console.print)
+
+    result = asyncio.run(go())
+    console.rule()
+    console.print(Markdown(result.report))
+    console.rule()
+    if out:
+        out.write_text(result.report)
+    console.print(", ".join(f"{k} {v:,}" for k, v in result.stats.items()))
+    return result
+
+
 def research(
     question: str,
     shallow: Annotated[bool, typer.Option(help="Quick cited answer instead of a report")] = False,
+    harness: Annotated[
+        str, typer.Option(help="aiq (job API) or lite (built-in, over MCP)")
+    ] = "aiq",
     api: Annotated[str, typer.Option(help="AI-Q job API")] = "http://127.0.0.1:8100",
     out: Annotated[Path | None, typer.Option(help="Write the report (Markdown) here")] = None,
     quiet: Annotated[bool, typer.Option(help="Hide live progress")] = False,
 ) -> None:
-    """Research a question with AI-Q on the QB2 and print the cited report."""
+    """Research a question on the QB2 and print the cited report."""
+    if harness == "lite":
+        _research_lite(question, shallow, out, quiet, None)
+        return
     agent = "shallow_researcher" if shallow else "deep_researcher"
     start = time.perf_counter()
     stats: Counter = Counter()
