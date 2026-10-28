@@ -8,8 +8,12 @@ import httpx
 from redis.asyncio import Redis
 
 from ttdr.clients import Clients, connect
+from ttdr.corpus.sources import CORPORA_DIR
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
+from ttdr.engine.ocr import NEEDS_OCR, PENDING_NOTE, OcrQueue
+from ttdr.engine.triage import OVERFETCH, Triage
+from ttdr.engine.verify import window_chars
 from ttdr.recipe import Recipe
 
 SOURCES = ("web", "corpus", "all")
@@ -21,6 +25,12 @@ class Engine:
         self.http = http
         self.clients: Clients = connect(recipe, http)
         self.evidence = EvidenceStore(redis)
+        self.ocr = OcrQueue(redis)
+        self.triage = (
+            Triage(self.clients.decide, window_chars(recipe.models.decide.max_state_tokens))
+            if recipe.features.triage
+            else None
+        )
 
     @classmethod
     def open(cls, recipe: Recipe) -> "Engine":
@@ -43,28 +53,34 @@ class Engine:
 
     async def _corpus(self, query: str, k: int, corpus: str | None) -> list[Evidence]:
         hits = await self.clients.corpus.search(query, k, corpus)
-        return [
-            Evidence(
-                h.id,
-                "corpus",
-                h.doc,
-                f"corpus://{h.doc}#page={h.page + 1}",
-                h.text,
-                round(h.score, 3),
-                tuple(h.flags),
-            )
-            for h in hits
-        ]
+        return list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits)))
+
+    async def _corpus_evidence(self, h) -> Evidence:
+        """Scanned pages use cached OCR text; on a miss they're queued and marked unverified."""
+        text, flags = h.text, tuple(h.flags)
+        if NEEDS_OCR & set(h.flags):
+            if ocr := await self.ocr.text(h.doc, h.page):
+                text, flags = ocr, (*flags, "ocr")
+            else:
+                pdf = str((CORPORA_DIR / h.corpus / f"{h.doc}.pdf").resolve())
+                await self.ocr.request(h.doc, h.page, pdf)
+                text, flags = text or PENDING_NOTE, (*flags, "unverified")
+        url = f"corpus://{h.doc}#page={h.page + 1}"
+        return Evidence(h.id, "corpus", h.doc, url, text, round(h.score, 3), flags)
 
     async def search(
         self, query: str, sources: str = "all", k: int = 8, corpus: str | None = None
     ) -> list[Evidence]:
+        n = k * OVERFETCH if self.triage else k
         tasks = []
         if sources in ("web", "all"):
-            tasks.append(self._web(query, k))
+            tasks.append(self._web(query, n))
         if sources in ("corpus", "all"):
-            tasks.append(self._corpus(query, k, corpus))
-        items = [e for batch in await asyncio.gather(*tasks) for e in batch]
+            tasks.append(self._corpus(query, n, corpus))
+        batches = await asyncio.gather(*tasks)
+        if self.triage:
+            batches = [(await self.triage.rerank(query, b))[:k] for b in batches]
+        items = [e for batch in batches for e in batch]
         await self.evidence.put(items)
         return items
 

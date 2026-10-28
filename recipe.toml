@@ -24,6 +24,7 @@ url = "http://localhost:8001/v1"
 bundle = "tt-hous/laya"
 model = "convaiinnovations/laya"
 url = "http://localhost:8002"
+max_state_tokens = 512
 
 [services]
 qdrant = "http://localhost:6333"

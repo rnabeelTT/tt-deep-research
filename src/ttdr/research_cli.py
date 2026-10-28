@@ -116,3 +116,45 @@ def jobs(
         table.add_row(job, agent or "", status, created[:19], updated[:19])
     console.print(table)
     console.print("[dim]Watch one live: ttdr research … or http://127.0.0.1:8100/debug (job ID)[/]")
+
+
+def verify(
+    report: Path,
+    out: Annotated[
+        Path | None, typer.Option(help="Write the badged (or revised) report here")
+    ] = None,
+    revise_weak: Annotated[bool, typer.Option("--revise", help="Rewrite weak claims once")] = False,
+    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+) -> None:
+    """Check every cited claim in a report against its sources with the decision model."""
+    import asyncio
+
+    from ttdr import recipe as recipes
+    from ttdr.engine import Engine, review
+    from ttdr.engine.verify import Verifier, window_chars
+
+    r = recipes.load(recipe_path)
+    text = report.read_text()
+
+    async def go():
+        engine = Engine.open(r)
+        verifier = Verifier(
+            engine.clients.decide, window=window_chars(r.models.decide.max_state_tokens)
+        )
+        checked = await review.check(engine, verifier, text)
+        result = {"before": review.summary(checked)}
+        final = review.annotate(text, checked)
+        if revise_weak:
+            revised = await review.revise(engine.clients.llm, text, checked)
+            rechecked = await review.check(engine, verifier, revised)
+            result["after"] = review.summary(rechecked)
+            final = review.annotate(revised, rechecked)
+        return checked, result, final
+
+    checked, result, final = asyncio.run(go())
+    for c in checked:
+        label = c.verdict.label if c.verdict else "unreachable"
+        console.print(f"{review.BADGE.get(label, '?')} [dim]{label:16s}[/] {c.claim.text[:110]}")
+    console.print_json(json.dumps(result))
+    if out:
+        out.write_text(final)

@@ -11,6 +11,8 @@ class Model(BaseModel):
     url: str
     profile: str | None = None
     sampling: dict[str, float | int] = {}
+    max_state_tokens: int | None = None
+    """Decision models only: tokens per state (Laya 512, Kev 65,536)."""
 
 
 class Models(BaseModel):
@@ -27,10 +29,16 @@ class Services(BaseModel):
     mcp: str
 
 
+class Features(BaseModel):
+    triage: bool = False
+    """Rerank search candidates with the decision model (stage 7)."""
+
+
 class Recipe(BaseModel):
     version: str
     models: Models
     services: Services
+    features: Features = Features()
 
 
 def _merge(base: dict, over: dict) -> dict:

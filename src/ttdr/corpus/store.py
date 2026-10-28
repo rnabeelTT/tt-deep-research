@@ -19,6 +19,7 @@ class Hit:
     text: str
     flags: list[str]
     score: float
+    corpus: str = ""
 
 
 def _point_id(evidence_id: str) -> str:
@@ -39,6 +40,9 @@ class Store:
                 await self.client.create_payload_index(
                     COLLECTION, key, models.PayloadSchemaType.KEYWORD
                 )
+            await self.client.create_payload_index(
+                COLLECTION, "page", models.PayloadSchemaType.INTEGER
+            )
 
     async def upsert(self, corpus: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         await self.client.upsert(
@@ -82,9 +86,28 @@ class Store:
                 p.payload["text"],
                 p.payload["flags"],
                 p.score,
+                p.payload["corpus"],
             )
             for p in r.points
         ]
+
+    async def page(self, doc: str, page: int) -> list[Hit]:
+        """Every chunk of one page, in order."""
+        points, _ = await self.client.scroll(
+            COLLECTION,
+            scroll_filter=models.Filter(
+                must=[
+                    models.FieldCondition(key="doc", match=models.MatchValue(value=doc)),
+                    models.FieldCondition(key="page", match=models.MatchValue(value=page)),
+                ]
+            ),
+            limit=100,
+        )
+        hits = [
+            Hit(p.payload["eid"], doc, page, p.payload["text"], p.payload["flags"], 1.0)
+            for p in points
+        ]
+        return sorted(hits, key=lambda h: int(h.id.rsplit(".", 1)[1]))
 
     async def docs(self, corpus: str) -> set[str]:
         r = await self.client.facet(

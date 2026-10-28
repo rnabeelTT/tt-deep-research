@@ -1,0 +1,19 @@
+[project]
+name = "ttdr-ocr-worker"
+version = "0.1.0"
+description = "Lazy OCR worker for tt-deep-research: Redis queue in, page text out"
+requires-python = ">=3.12,<3.13"
+dependencies = ["httpx>=0.28", "pillow>=11", "pypdfium2>=5", "redis>=5"]
+
+[project.optional-dependencies]
+paddle = ["paddlepaddle==3.2.0", "paddleocr[doc-parser]==3.7.0"]
+
+[project.scripts]
+ttdr-ocr = "worker:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+include = ["worker.py"]
