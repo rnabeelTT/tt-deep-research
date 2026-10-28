@@ -41,7 +41,7 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 - Added: recipe overlays (`extends`), a judge entry pinned in the recipe, `ttdr bench decode|tools`, and a model-agnostic reasoning control (`reasoning_effort` for gpt-oss, `enable_thinking` for Ornith).
 - Per-model sampling now lives in the recipe (`sampling = {...}`), and every client inherits it, so fast-path settings can't be forgotten.
 
-## Stage 4 spike: AI-Q on the QB2 (2026-10-27/28, in progress)
+## Stage 4: AI-Q on the QB2 (2026-10-27/28)
 
 **Result:** the shallow path works end to end: a cited answer in 12 s through our MCP `web_search`. The deep path doesn't finish within an hour yet. Four runs on one comparison question, each step decoded from AI-Q's checkpoint database:
 
@@ -97,3 +97,38 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 - Ornith's vision reads the same dense page in 2.8 min while sharing the chips with a deep job, with cleaner tables. The worker takes either backend (`--backend paddle|llm`); the design doc's CPU default keeps the chips for research.
 - PaddlePaddle has no wheels for our Python 3.14 venv, so the worker is its own Python 3.12 project (and image), talking to the engine only through Redis.
 - Redis' socket timeout must exceed the blocking pop's timeout, or an idle worker crashes.
+
+## Stage 4 (continued): AI-Q as a service (2026-10-28)
+
+**Result:** AI-Q runs as a job service (`nat serve`, then as a container) with our engine as its only source. On FinanceBench its shallow researcher scores 74.7%, tying naive RAG (73.3%) and 57 points over B0 ([LOG.md](LOG.md)). Deep research: see run 7 below.
+
+- After the loop guards (patch 0002) researchers search distinct queries (27–29 of 29) and stop; with thinking on, 6 of 8 wrote notes in run 4, and run 6 got through 7 research rounds (178 searches, 374 page fetches) before AI-Q's own 1-hour wall clock stopped it. That limit is also capped at its default; patch 0001 raises it to 3 hours.
+- **Friction (performance): forced tool calls slow the whole batch ~9×.** LangChain's structured output forces `tool_choice` on every planner and researcher turn; vLLM serves that with guided decoding, which drops every request in the batch from ~118 to ~13 tok/s. It's the main reason deep jobs take an hour, and why throughput flattens at 2 concurrent jobs.
+- AI-Q needs no NVIDIA keys or extra services for this setup: SQLite job store, local Dask, auth off by default. As a container, its entrypoint runs Dask separately and then insists on `NAT_JOB_STORE_DB_URL`.
+- Polling AI-Q's job API through one shared HTTP client hit closed keep-alive sockets under load (27 of 150 polls), while every job succeeded server-side. The eval client retries, and `ttdr eval retry` re-answers only failed items.
+- The shallow researcher never abstains: 38 wrong vs B1's 18 wrong + 22 "I don't know".
+
+## Stage 6: verify (2026-10-28)
+
+**Result:** `ttdr verify` / `ttdr eval verify-run` check every cited claim against its source; one revision pass raises citation validity on AI-Q's answers from 27% to 39% with accuracy unchanged (74.7% → 74.7%) ([LOG.md](LOG.md)).
+
+- **Friction (decision model):** Laya scores 42–49% on 113 claim-passage pairs, near chance; its 512-token state can't hold a 10-K table and the claim together. Kev-9B (64K-token states) is the intended upgrade but didn't serve: first it couldn't write its adapter into the shared model cache (its card documents a pre-download; the recipe now does it via `prefetch`), then its server spun at 100% CPU for 50+ minutes after loading weights, with no log output. Laya went back on chip 3.
+- 50 of 128 cited claims point at pages the engine can't fetch (sec.gov blocks scripted clients). AI-Q cites the public URL it found rather than our corpus copy of the same filing, so those claims can't be checked. Mapping public filing URLs to corpus documents would close most of the gap.
+- pdfium's thread-unsafety bit a second time: concurrent PDF fetches in the engine segfaulted silently (no traceback, the process just exits). One lock in `fetch_page` fixed it.
+
+## Stage 9: perf and CI (2026-10-28)
+
+**Result:** `ttdr bench load` (reports/hour, latency, prefill/decode split from vLLM's metrics), `ttdr eval ab` (one command, one blinded queue), `ttdr eval check` (CI floor), CI on push and a nightly QB2 workflow. Shallow jobs peak at ~245 reports/hour, reached at 2 concurrent jobs ([LOG.md](LOG.md)).
+
+- The new Ornith bundle's prefix caching makes a repeated 29K-token prompt 15× faster (6.2 s → 0.4 s); 26% of a day's 8.0M prompt tokens hit the cache.
+- Before prefix caching, agent turns were prefill-bound (~80:1 prompt:output tokens). With it, request time is dominated by decode, and decode is dominated by the forced-tool-call batch effect (stage 4).
+- The nightly workflow grades with the on-box judge: Claude subagents can't run unattended in CI without an API key, which this project avoids. Decisions still use the blinded Claude judge.
+
+## Stage 10: packaging (2026-10-28)
+
+**Result:** from a fresh clone, `ttdr up` (with models already served and image layers cached) brings up all endpoints in 19 s; the first cited report arrives 35 s after `git clone`. Cold, the box adds model serving (~15 min sequentially) and image builds (~3 min).
+
+- **Friction (tt CLI):** `tt launch` has a fixed list of clients (opencode, aider, hermes, openwebui, …) and no plugin hook, so `tt launch deep-research` needs a tt-cli change. `ttdr up` is what it would call; the recipe already carries everything tt needs (bundles, profiles, ports, chat templates, adapters to pre-fetch, serve order).
+- **Friction (chip allocation):** serving two models at once let tt give Kev chip 0 and Ornith chips 1 and 3, which aren't a board pair, so Ornith couldn't open its mesh. `ttdr up` serves strictly in `serve_order`, largest first.
+- Images: engine 974 MB, OCR worker 4.3 GB (PaddlePaddle), AI-Q and UI built from the patched clone with AI-Q's own Dockerfiles. App containers use host networking so the recipe's localhost URLs work unchanged.
+- Packaging bugs the fresh-install test caught: Docker creates missing bind-mount sources as root (now created first); `compose down` would have removed Redis and its caches (now only app services stop); OCR jobs carried host paths, so a worker from another checkout drained the queue (now corpus-relative, with retries).
