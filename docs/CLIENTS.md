@@ -13,6 +13,10 @@ The engine is an MCP server (`services.mcp` in the recipe, `http://localhost:990
 
 `ttdr up` starts it with the engine as its only data source: UI on :3000, job API on :8100, `ttdr research "…"` from the terminal.
 
+## LangChain Deep Agents
+
+The design's fallback harness, built in: `ttdr research --harness deepagents "…"` (and the `deepagents` eval system). Deep Agents plans with `write_todos`, sends each sub-question to a researcher subagent, and writes the cited report; `src/ttdr/harness.py` only connects the recipe's LLM, the engine's MCP tools and call limits. It asks for no structured output, so no request forces a tool call.
+
 ## Hermes
 
 Hermes is in the tt CLI (`tt launch hermes`), which points it at a served model but doesn't add MCP servers. Add the engine once, then launch as usual:
