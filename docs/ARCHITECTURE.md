@@ -64,7 +64,7 @@ Overlays (`extends = "../recipe.toml"`) change only what differs. Setting a role
 | Add an MCP tool | Engine method + `@server.tool()` in `mcp_server.py` | Small. AI-Q lists the tool automatically through its MCP client |
 | Add a document collection | Fetcher in `corpus/sources.py`, then `ttdr corpus index <name>` | Small |
 | Add an eval system or suite | `evals/systems.py` (`SYSTEMS`) or `evals/datasets.py` (`BUILDERS`) | Small |
-| Replace the harness | Point any MCP client at `services.mcp` | No change to the engine |
+| Replace or add a top layer (Hermes, coding agents, scripts) | Point any MCP client at `services.mcp` ([CLIENTS.md](CLIENTS.md)) | No change to the engine |
 
 After any change, `ttdr health` shows what's live and `ttdr up` brings the stack to match the recipe.
 
