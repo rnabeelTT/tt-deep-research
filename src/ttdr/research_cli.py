@@ -1,0 +1,118 @@
+"""`ttdr research`: submit a question to AI-Q's job API, show live progress, print the report."""
+
+import json
+import time
+from collections import Counter
+from pathlib import Path
+from typing import Annotated
+
+import httpx
+import typer
+from rich.console import Console
+from rich.markdown import Markdown
+
+console = Console()
+DONE = {"success", "failure", "interrupted", "not_found"}
+SOURCE_TOOLS = {"ttdr__search", "ttdr__fetch_page", "ttdr__get_evidence"}
+
+
+def _events(http: httpx.Client, api: str, job: str):
+    """Server-sent events for a job, resuming from the last event ID if the stream drops."""
+    last = None
+    while True:
+        url = f"{api}/v1/jobs/async/job/{job}/stream" + (f"/{last}" if last else "")
+        event: dict = {}
+        with http.stream("GET", url, timeout=None) as r:
+            for line in r.iter_lines():
+                if line.startswith("id:"):
+                    event["id"] = line[3:].strip()
+                elif line.startswith("event:"):
+                    event["event"] = line[6:].strip()
+                elif line.startswith("data:"):
+                    event["data"] = json.loads(line[5:].strip() or "{}")
+                elif not line and event:
+                    last = event.get("id", last)
+                    yield event
+                    event = {}
+        status = http.get(f"{api}/v1/jobs/async/job/{job}").json()["status"]
+        if status in DONE:
+            return
+
+
+def _describe(e: dict) -> str | None:
+    data = e.get("data", {})
+    kind = e.get("event")
+    if kind == "workflow.start" and data.get("name", "").endswith("agent"):
+        return f"[bold]{data['name']}[/]"
+    if kind == "tool.start" and data.get("name") in SOURCE_TOOLS:
+        args = data.get("data", {}).get("input", {})
+        target = args.get("query") or args.get("url") or ", ".join(args.get("ids", []))
+        return f"  {data['name'].removeprefix('ttdr__')}: {str(target)[:100]}"
+    if kind == "job.status":
+        return f"[dim]status {data.get('status')}[/]"
+    return None
+
+
+def research(
+    question: str,
+    shallow: Annotated[bool, typer.Option(help="Quick cited answer instead of a report")] = False,
+    api: Annotated[str, typer.Option(help="AI-Q job API")] = "http://127.0.0.1:8100",
+    out: Annotated[Path | None, typer.Option(help="Write the report (Markdown) here")] = None,
+    quiet: Annotated[bool, typer.Option(help="Hide live progress")] = False,
+) -> None:
+    """Research a question with AI-Q on the QB2 and print the cited report."""
+    agent = "shallow_researcher" if shallow else "deep_researcher"
+    start = time.perf_counter()
+    stats: Counter = Counter()
+    with httpx.Client(timeout=60) as http:
+        r = http.post(
+            f"{api}/v1/jobs/async/submit",
+            json={"agent_type": agent, "input": question, "data_sources": ["ttdr"]},
+        )
+        r.raise_for_status()
+        job = r.json()["job_id"]
+        console.print(f"[dim]job {job} ({agent})[/]")
+        for e in _events(http, api, job):
+            kind, data = e.get("event"), e.get("data", {})
+            if kind == "llm.end":
+                usage = data.get("metadata", {}).get("usage", {})
+                stats["llm calls"] += 1
+                stats["input tokens"] += usage.get("input_tokens", 0)
+                stats["output tokens"] += usage.get("output_tokens", 0)
+            elif kind == "tool.start" and data.get("name") in SOURCE_TOOLS:
+                stats[data["name"].removeprefix("ttdr__")] += 1
+            if not quiet and (line := _describe(e)):
+                console.print(line)
+        status = http.get(f"{api}/v1/jobs/async/job/{job}").json()["status"]
+        report = http.get(f"{api}/v1/jobs/async/job/{job}/report").json().get("report") or ""
+    console.rule()
+    console.print(Markdown(report) if report else f"[red]no report (job {status})[/]")
+    console.rule()
+    if out and report:
+        out.write_text(report)
+    summary = ", ".join(f"{k} {v:,}" for k, v in stats.items())
+    console.print(f"[bold]{status}[/] in {time.perf_counter() - start:.0f}s · {summary}")
+    raise typer.Exit(0 if status == "success" else 1)
+
+
+def jobs(
+    limit: int = 15,
+    db: Annotated[Path, typer.Option(help="AI-Q job store")] = Path("data/aiq/jobs.db"),
+) -> None:
+    """Recent AI-Q jobs (read from the job store), newest first."""
+    import sqlite3
+
+    from rich.table import Table
+
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    rows = con.execute(
+        "SELECT i.job_id, a.agent_type, i.status, i.created_at, i.updated_at "
+        "FROM job_info i LEFT JOIN job_access a USING (job_id) "
+        "ORDER BY i.created_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    table = Table("job", "agent", "status", "created (UTC)", "updated (UTC)")
+    for job, agent, status, created, updated in rows:
+        table.add_row(job, agent or "", status, created[:19], updated[:19])
+    console.print(table)
+    console.print("[dim]Watch one live: ttdr research … or http://127.0.0.1:8100/debug (job ID)[/]")
