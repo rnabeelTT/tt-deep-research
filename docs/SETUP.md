@@ -48,12 +48,25 @@ tt serve <new-bundle> --yes --port 8000 -- --profile <profile>
 ```bash
 docker compose up -d     # Qdrant :6333, SearXNG :8888, Redis :6379 (localhost only)
 uv run ttdr health       # exits 0 only if every endpoint is up
-uv run ttdr mcp          # engine MCP server at :9901/mcp (tools: web_search)
+uv run ttdr mcp          # engine MCP server at :9901/mcp (tools: search, fetch_page, get_evidence)
 ```
 
 Clients call the model endpoints listed in `recipe.toml` directly.
 
 Warm `ttdr health` latencies: llm 1.8 s, embed 17 ms, decide 15 ms, qdrant 4 ms, searxng 0.5 s, redis 3 ms.
+
+## Documents
+
+```bash
+uv run ttdr corpus fetch financebench    # 84 pinned 10-K PDFs → data/corpus/financebench (159 MB)
+uv run ttdr corpus index financebench    # text layer + page flags → chunks → embeddings → Qdrant (~3 min)
+uv run ttdr corpus search "3M capital expenditure 2018" --corpus financebench
+uv run ttdr corpus recall                # gold evidence page in top k, FinanceBench
+```
+
+Pages are 0-indexed, matching FinanceBench. Each page gets flags: `text_ok`, `image_only`, `bad_text` or `large_figure`. They're written to `data/corpus/<name>/pages.jsonl` for the OCR stage. Image-only pages aren't embedded yet. Chunks are 1,500 characters with a 200-character overlap. Each has an evidence ID such as `3M_2018_10K#p59.0` (doc, page, chunk).
+
+**Search engines.** SearXNG scrapes public engines, and they rate-limit. After a few thousand searches, Brave, DuckDuckGo and Google suspended us ("too many requests", CAPTCHA). `configs/searxng/settings.yml` enables Bing, Yahoo, Mojeek and Startpage as well, to spread the load. Search results are cached in Redis for 24 hours.
 
 ## Smoke tests (raw curl)
 

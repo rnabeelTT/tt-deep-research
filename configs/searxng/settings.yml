@@ -1,0 +1,19 @@
+use_default_settings: true
+
+server:
+  limiter: false
+  image_proxy: false
+
+search:
+  formats: [html, json]
+
+# Spread load across more upstream engines; a single deep job can make thousands of searches.
+engines:
+  - name: bing
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: startpage
+    disabled: false
