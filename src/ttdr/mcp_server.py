@@ -118,13 +118,13 @@ def require_token(app, token: str):
 
 
 def serve(recipe: Recipe, host: str, port: int, path: str) -> None:
-    """Localhost needs no token. Any other bind address needs TTDR_MCP_TOKEN set."""
+    """No auth unless TTDR_MCP_TOKEN is set (then every request needs it)."""
     import uvicorn
     from mcp.server.transport_security import TransportSecuritySettings
 
     token = os.environ.get(TOKEN_ENV)
     if host not in LOCAL and not token:
-        raise SystemExit(f"Refusing to listen on {host} without {TOKEN_ENV} (no auth otherwise).")
+        print(f"warning: MCP server open on {host} without auth (set {TOKEN_ENV} to require one)")
     # Localhost keeps the SDK's DNS-rebinding defaults; a token-guarded remote bind can't know
     # every Host name clients will use, so the token is the check there.
     security = (

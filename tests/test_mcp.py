@@ -93,11 +93,3 @@ def test_token_guard_rejects_missing_or_wrong_tokens():
     assert call([]) == 401
     assert call([(b"authorization", b"Bearer nope")]) == 401
     assert call([(b"authorization", b"Bearer s3cret")]) == 200 and seen == ["/mcp"]
-
-
-def test_remote_bind_without_token_is_refused(monkeypatch):
-    import pytest
-
-    monkeypatch.delenv(mcp_server.TOKEN_ENV, raising=False)
-    with pytest.raises(SystemExit, match="Refusing"):
-        mcp_server.serve(RECIPE, "0.0.0.0", 9999, "/mcp")
