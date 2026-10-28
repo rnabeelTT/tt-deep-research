@@ -279,7 +279,8 @@ def verify_run(
     def pooled(key):
         s = [x[key] for x in rows if x.get(key)]
         claims = sum(x["claims"] for x in s)
-        tally = {k: sum(x[k] for x in s) for k in (*review.BADGE, "unreachable")}
+        keys = (*review.BADGE, "unreachable", "fallback_checked", "fallback_supported")
+        tally = {k: sum(x.get(k, 0) for x in s) for k in keys}
         return {
             "claims": claims,
             **tally,
