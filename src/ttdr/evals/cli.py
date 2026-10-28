@@ -235,3 +235,84 @@ def check(
         failed |= not ok
         console.print(f"{'[green]ok[/]' if ok else '[red]FAIL[/]'} {key} = {value} (min {floor})")
     raise typer.Exit(1 if failed else 0)
+
+
+@app.command("verify-run")
+def verify_run(
+    run_dir: Path,
+    revise: Annotated[bool, typer.Option(help="Also revise weak claims and re-check")] = False,
+    limit: Annotated[int | None, typer.Option(help="First N answers")] = None,
+    concurrency: int = 4,
+    recipe_path: RecipeOpt = None,
+) -> None:
+    """Verify every cited claim in a run's answers; with --revise, write <run>-revised to grade."""
+    import asyncio
+    import shutil
+
+    from ttdr.engine import Engine, review
+    from ttdr.engine.verify import Verifier, window_chars
+    from ttdr.evals.schema import Answer
+
+    r = recipe.load(recipe_path)
+    lines = (run_dir / "answers.jsonl").read_text().splitlines()
+    answers = [Answer.model_validate_json(x) for x in lines][:limit]
+    out_dir = run_dir.with_name(run_dir.name + "-revised")
+
+    async def go():
+        engine = Engine.open(r)
+        verifier = Verifier(
+            engine.clients.decide, window=window_chars(r.models.decide.max_state_tokens)
+        )
+        sem = asyncio.Semaphore(concurrency)
+
+        async def one(a: Answer):
+            async with sem:
+                checked = await review.check(engine, verifier, a.text)
+                row = {"id": a.id, "before": review.summary(checked)}
+                if revise:
+                    text = await review.revise(engine.clients.llm, a.text, checked)
+                    row["after"] = review.summary(await review.check(engine, verifier, text))
+                    row["text"] = text
+                return row
+
+        return await asyncio.gather(*(one(a) for a in answers if not a.error))
+
+    rows = asyncio.run(go())
+
+    def pooled(key):
+        s = [x[key] for x in rows if x.get(key)]
+        claims = sum(x["claims"] for x in s)
+        tally = {k: sum(x[k] for x in s) for k in (*review.BADGE, "unreachable")}
+        return {
+            "claims": claims,
+            **tally,
+            "validity": round(tally["supported"] / claims, 3) if claims else None,
+        }
+
+    result = {"answers": len(rows), "before": pooled("before")}
+    if revise:
+        result["after"] = pooled("after")
+        shutil.copytree(run_dir, out_dir, dirs_exist_ok=True)
+        for f in ("grades.jsonl", "summary.json", "judge.json"):
+            (out_dir / f).unlink(missing_ok=True)
+        texts = {x["id"]: x["text"] for x in rows}
+        keep = {x["id"] for x in rows}
+        items = [
+            x
+            for x in (out_dir / "items.jsonl").read_text().splitlines()
+            if json.loads(x)["id"] in keep
+        ]
+        (out_dir / "items.jsonl").write_text("\n".join(items) + "\n")
+        revised = [a.model_copy(update={"text": texts[a.id]}) for a in answers if a.id in texts]
+        (out_dir / "answers.jsonl").write_text("".join(a.model_dump_json() + "\n" for a in revised))
+        result["revised_run"] = str(out_dir)
+    (run_dir / "verify.json").write_text(
+        json.dumps(
+            {
+                "summary": result,
+                "answers": [{k: v for k, v in x.items() if k != "text"} for x in rows],
+            },
+            indent=2,
+        )
+    )
+    console.print_json(json.dumps(result))
