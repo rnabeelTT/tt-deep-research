@@ -8,7 +8,7 @@ uv run ttdr up                         # serve the models (tt), start services +
 uv run ttdr research "your question"   # live progress, then a cited report
 ```
 
-The UI is at `http://<host>:3000`. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates and pre-fetched adapters, and the endpoints. `ttdr down` stops the app (`--models` stops the models too). Step-by-step setup and the pieces behind `ttdr up` are in [docs/SETUP.md](docs/SETUP.md). How the pieces fit and where a change goes (new model, removed component, new tool) is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The roadmap is in [docs/PLAN.md](docs/PLAN.md); what we learned along the way is in [docs/JOURNEY.md](docs/JOURNEY.md).
+The UI is at `http://<host>:3000`. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates and pre-fetched adapters, and the endpoints. `ttdr down` stops the app (`--models` stops the models too). Step-by-step setup and the pieces behind `ttdr up` are in [docs/SETUP.md](docs/SETUP.md). How the pieces fit and where a change goes (new model, removed component, new tool) is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The engine works under other top layers too (Hermes, coding agents, scripts): see [docs/CLIENTS.md](docs/CLIENTS.md). The roadmap is in [docs/PLAN.md](docs/PLAN.md); what we learned along the way is in [docs/JOURNEY.md](docs/JOURNEY.md).
 
 | Command | What |
 |---|---|

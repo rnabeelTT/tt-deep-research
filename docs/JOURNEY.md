@@ -132,3 +132,10 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 - **Friction (chip allocation):** serving two models at once let tt give Kev chip 0 and Ornith chips 1 and 3, which aren't a board pair, so Ornith couldn't open its mesh. `ttdr up` serves strictly in `serve_order`, largest first.
 - Images: engine 974 MB, OCR worker 4.3 GB (PaddlePaddle), AI-Q and UI built from the patched clone with AI-Q's own Dockerfiles. App containers use host networking so the recipe's localhost URLs work unchanged.
 - Packaging bugs the fresh-install test caught: Docker creates missing bind-mount sources as root (now created first); `compose down` would have removed Redis and its caches (now only app services stop); OCR jobs carried host paths, so a worker from another checkout drained the queue (now corpus-relative, with retries).
+
+## Modularity pass (2026-10-28)
+
+**Result:** the stack follows the recipe: a model registry with roles, optional components that switch off cleanly, AI-Q's config rendered from the recipe, and a second top layer verified. Hermes, with Ornith and our MCP server as its only tools, answered a FinanceBench question with a correct cited figure in 65 s ([CLIENTS.md](CLIENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md)).
+
+- `tt launch hermes` configures the model but not MCP servers; one `hermes mcp add` connects the engine. A tt-cli option to attach MCP servers at launch would make the engine a first-class tt client.
+- The MCP server has no authentication, so it stays on localhost; remote use goes through an SSH tunnel until a token-checking proxy is added.
