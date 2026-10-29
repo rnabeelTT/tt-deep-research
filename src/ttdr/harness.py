@@ -7,6 +7,7 @@ No structured output is requested, so no request forces a tool call (that would 
 batch off Blackhole's fast decode path).
 """
 
+import asyncio
 import re
 import time
 from collections import Counter
@@ -84,7 +85,40 @@ def _text(result) -> str:
     return "".join(c.text for c in result.content if getattr(c, "type", "") == "text")
 
 
-def mcp_tools(client: Client, tools) -> list[StructuredTool]:
+@dataclass
+class Engine:
+    """The engine's MCP tools, one short connection per call (the server keeps no session).
+
+    A call that can't reach the engine is retried with backoff, so a restart of the engine
+    container (about 10 s) doesn't fail every research run in flight.
+    """
+
+    url: str
+    retries: int = 5
+
+    async def _with_client(self, fn):
+        for attempt in range(self.retries + 1):
+            try:
+                async with Client(self.url) as c:
+                    return await fn(c)
+            except Exception:  # connection loss surfaces as several exception types
+                if attempt == self.retries:
+                    raise
+                await asyncio.sleep(2**attempt)
+        raise AssertionError
+
+    async def list_tools(self):
+        return await self._with_client(lambda c: _tools(c))
+
+    async def call_tool(self, name: str, args: dict):
+        return await self._with_client(lambda c: c.call_tool(name, args))
+
+
+async def _tools(c: Client):
+    return (await c.list_tools()).tools
+
+
+def mcp_tools(client, tools) -> list[StructuredTool]:
     """The engine's MCP tools as LangChain tools (langchain-mcp-adapters lacks MCP 2.x support)."""
 
     def wrap(t) -> StructuredTool:
@@ -219,28 +253,28 @@ class DeepAgentsHarness:
     async def run(self, question: str, log=lambda _: None) -> Result:
         stats: Counter = Counter()
         start = time.perf_counter()
-        async with Client(self.recipe.services.mcp) as client:
-            agent = self.agent(mcp_tools(client, (await client.list_tools()).tools))
-            final, seen = None, {}
-            async for namespace, update in agent.astream(
-                {"messages": [{"role": "user", "content": question}]},
-                stream_mode="updates",
-                subgraphs=True,
-                config={"recursion_limit": 500},
-            ):
-                for node in update.values():
-                    for msg in node.get("messages", []) if isinstance(node, dict) else []:
-                        _count(msg, stats, log)
-                        _collect(msg, seen)
-                        if not namespace and _is_answer(msg):
-                            final = msg
-            report = _clean(_content(final))
-            report = await self.check_citations(client, report, seen, stats)
-            report += await _sources(client, report)
+        client = Engine(self.recipe.services.mcp)
+        agent = self.agent(mcp_tools(client, await client.list_tools()))
+        final, seen = None, {}
+        async for namespace, update in agent.astream(
+            {"messages": [{"role": "user", "content": question}]},
+            stream_mode="updates",
+            subgraphs=True,
+            config={"recursion_limit": 500},
+        ):
+            for node in update.values():
+                for msg in node.get("messages", []) if isinstance(node, dict) else []:
+                    _count(msg, stats, log)
+                    _collect(msg, seen)
+                    if not namespace and _is_answer(msg):
+                        final = msg
+        report = _clean(_content(final))
+        report = await self.check_citations(client, report, seen, stats)
+        report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
         return Result(report, stats)
 
-    async def check_citations(self, client: Client, report: str, seen: dict, stats: Counter) -> str:
+    async def check_citations(self, client, report: str, seen: dict, stats: Counter) -> str:
         """Every cited ID must exist in the evidence store. Invented ones get one rewrite with the
         real IDs the research returned (kept only if it doesn't lose real ones); any left are removed."""
         report = MIXED_WEB_ID.sub(r"\1.\2", report)
@@ -281,7 +315,7 @@ def _tokens(group: str) -> list[str]:
     return [t.strip() for t in re.split(r"[;,]", group) if t.strip()]
 
 
-async def _known(client: Client, ids: set[str]) -> set[str]:
+async def _known(client, ids: set[str]) -> set[str]:
     if not ids:
         return set()
     found = _text(await client.call_tool("get_evidence", {"ids": sorted(ids)}))
@@ -337,7 +371,7 @@ def _count(msg, stats: Counter, log) -> None:
         )
 
 
-async def _sources(client: Client, report: str) -> str:
+async def _sources(client, report: str) -> str:
     ids = sorted(set(EVIDENCE_ID.findall(report)))
     if not ids:
         return ""

@@ -24,6 +24,7 @@ EMBED_BATCH = 64
 
 
 _PDFIUM = threading.Lock()  # pdfium isn't thread-safe; concurrent parses segfault
+_LXML = threading.Lock()  # nor are trafilatura's shared lxml parsers (heap corruption under load)
 
 
 def _pdf_text(data: bytes) -> str:
@@ -52,11 +53,15 @@ async def extract(http: httpx.AsyncClient, url: str) -> tuple[str, str]:
     data = r.content[:MAX_BYTES]
     if "pdf" in r.headers.get("content-type", "") or data[:5] == b"%PDF-":
         return url.rsplit("/", 1)[-1], await asyncio.to_thread(_pdf_text, data)
-    html = r.text
-    text = await asyncio.to_thread(
-        trafilatura.extract, html, include_tables=True, include_links=False, favor_recall=True
-    )
-    meta = trafilatura.extract_metadata(html)
+    return await asyncio.to_thread(_html_text, r.text, url)
+
+
+def _html_text(html: str, url: str) -> tuple[str, str]:
+    with _LXML:
+        text = trafilatura.extract(
+            html, include_tables=True, include_links=False, favor_recall=True
+        )
+        meta = trafilatura.extract_metadata(html)
     return (meta.title if meta and meta.title else url), text or ""
 
 
