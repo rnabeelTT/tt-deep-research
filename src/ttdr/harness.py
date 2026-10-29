@@ -31,6 +31,7 @@ PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\n(?:URL: .*\n)?((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
 )
 FIGURE = re.compile(r"\d[\d,.]*\d|\b[A-Z][a-z]{3,}\b")
+MIXED_WEB_ID = re.compile(r"\b(W[0-9a-f]{8})#p(\d+)\b")  # web ID in filing style: Wab12cd34#p5
 CITATION = re.compile(r" ?\[([^\[\]]*(?:#|\bW[0-9a-f]{8})[^\[\]]*)\]")
 
 INSTRUCTIONS = """You write cited research reports using the research engine's tools.
@@ -198,11 +199,14 @@ class DeepAgentsHarness:
                 OnlyTools(RESEARCH_TOOLS),
             ],
         }
+        # The planner sometimes picks Deep Agents' built-in general-purpose subagent, which has
+        # no search tools and reports "no web search"; under that name it gets the researcher's.
+        general = {**researcher, "name": "general-purpose", "description": "Same as researcher."}
         return create_deep_agent(
             model=chat_model(self.recipe, self.thinking, 8192),
             tools=[t for t in tools if t.name == "verify"],
             system_prompt=INSTRUCTIONS.format(subs=self.max_subquestions),
-            subagents=[researcher],
+            subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),
                 OnlyTools(MAIN_TOOLS),
@@ -235,7 +239,8 @@ class DeepAgentsHarness:
 
     async def check_citations(self, client: Client, report: str, seen: dict, stats: Counter) -> str:
         """Every cited ID must exist in the evidence store. Invented ones get one rewrite with the
-        real IDs the research returned; any left after it are removed."""
+        real IDs the research returned (kept only if it doesn't lose real ones); any left are removed."""
+        report = MIXED_WEB_ID.sub(r"\1.\2", report)
         known = await _known(client, citations(report))
         invented = citations(report) - known
         stats["invented ids"] = len(invented)
@@ -245,8 +250,10 @@ class DeepAgentsHarness:
             fixed = await chat_model(self.recipe, False, 8192).ainvoke(
                 [{"role": "system", "content": prompt}, {"role": "user", "content": report}]
             )
-            report = _clean(_content(fixed)) or report
-            known = await _known(client, citations(report))
+            rewrite = _clean(_content(fixed))
+            rewrite_known = await _known(client, citations(rewrite))
+            if len(rewrite_known) >= len(known):  # a rewrite that loses real citations is dropped
+                report, known = rewrite, rewrite_known
             stats["invented after rewrite"] = len(citations(report) - known)
         stats["cited ids"] = len(known)
         return strip_citations(report, known)

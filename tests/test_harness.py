@@ -125,3 +125,43 @@ def test_check_citations_counts_and_drops_invented_ids_when_nothing_to_rewrite_w
     out = asyncio.run(h.check_citations(EvidenceClient(), report, {}, stats))
     assert out == "A [W1a2b3c4d.2]. B."
     assert stats["invented ids"] == 1 and stats["cited ids"] == 1
+
+
+class FakeLLM:
+    def __init__(self, reply):
+        self.reply = reply
+
+    async def ainvoke(self, messages):
+        return SimpleNamespace(content=self.reply)
+
+
+def test_rewrite_that_loses_real_citations_is_dropped(monkeypatch):
+    from collections import Counter
+
+    monkeypatch.setattr(harness, "chat_model", lambda *a: FakeLLM("A. B."))
+    h = harness.DeepAgentsHarness(RECIPE)
+    seen = {"W1a2b3c4d.2": "Title: body"}
+    report = "A [W1a2b3c4d.2]. B [Fake_10K#p1]."
+    out = asyncio.run(h.check_citations(EvidenceClient(), report, seen, Counter()))
+    assert out == "A [W1a2b3c4d.2]. B."
+
+
+def test_rewrite_that_fixes_citations_is_kept(monkeypatch):
+    from collections import Counter
+
+    fixed = "A [W1a2b3c4d.2]. B [W1a2b3c4d.3]."
+    monkeypatch.setattr(harness, "chat_model", lambda *a: FakeLLM(fixed))
+    h = harness.DeepAgentsHarness(RECIPE)
+    stats = Counter()
+    report = "A [W1a2b3c4d.2]. B [Fake_10K#p1]."
+    out = asyncio.run(h.check_citations(EvidenceClient(), report, {"W1a2b3c4d.3": "x"}, stats))
+    assert out == fixed and stats["invented after rewrite"] == 0
+
+
+def test_web_ids_in_filing_style_are_normalized():
+    from collections import Counter
+
+    h = harness.DeepAgentsHarness(RECIPE)
+    stats = Counter()
+    out = asyncio.run(h.check_citations(EvidenceClient(), "A [W1a2b3c4d#p2].", {}, stats))
+    assert out == "A [W1a2b3c4d.2]." and stats["invented ids"] == 0
