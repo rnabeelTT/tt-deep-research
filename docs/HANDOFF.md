@@ -8,11 +8,11 @@ Stages 0–11 are done. Defaults: Ornith on chips 0–1, embeddinggemma-2 on chi
 
 ### In progress
 
-1. **DeepResearch Bench, both harnesses** (English half, 50 tasks, `-s deepresearch_bench`).
-   - Deep Agents: `runs/20261029-202659-deepagents` (2 tasks at a time, ~3–5 min per report). Earlier attempts are superseded: one lost 27 tasks to an engine segfault (fixed: pdfium pages closed inside the lock); one ran 6 at a time, which thrashed Ornith's prefix cache on ~100k-token researcher contexts (14 min per report); one was hurt by the engine's repeat-search nudge being global across clients (fixed: 10-minute window); one lost citations to the built-in general-purpose subagent and to filing-style web IDs (both fixed).
-   - AI-Q: starts after it (same script, 2 at a time), `ttdr eval run aiq -s deepresearch_bench -p agent=deep_researcher -p timeout_s=10800 --concurrency 2`.
-   - Then grade: `ttdr eval race-export <deepagents run> <aiq run> --out data/judge/race-drb`, one Claude subagent per entry in `chunks.json` (it reads `rubric.md` and its `task-*.md` files and writes `verdicts-NN.jsonl`), then `ttdr eval race-import data/judge/race-drb --judge claude-opus-5-5`. Log in LOG.md and JOURNEY.md.
-2. **Decision-model bake-off on chip 3** (approved, runs after the benchmark): Kev-9B (`recipes/kev.toml`) and CLM-v0.1-8B (`recipes/clm.toml`) against Laya on the 113 claim-passage pairs (`ttdr eval claims-run --recipe …`). Stop Laya, serve the challenger, run, swap back. Kev's server hung after loading weights last time (JOURNEY, stage 6). The engine's `verify` calls `/v1/systemone/batch`; Kev's and CLM's cards don't list it, so the client may need a fallback to single calls. Clef needs two chips and is out of scope.
+Direction (2026-10-29): improve quality on corpus-answerable questions (FinanceBench) and settle the models first; web-dependent evals wait for a search API key.
+
+1. **DeepResearch Bench: parked.** Free scraped search can't carry benchmark volume: SearXNG's Brave, DuckDuckGo and Google got suspended, Bing and Yahoo returned junk. 24 good Deep Agents reports are in `runs/20261029-202659-deepagents` (tasks 75–100 errored in an engine crash); no AI-Q run. With a search API key: `ttdr eval retry` that run, then `ttdr eval run aiq -s deepresearch_bench -p agent=deep_researcher -p timeout_s=10800 --concurrency 2`, then `race-export` / Claude subagents per `chunks.json` / `race-import`. Run 2 tasks at a time (6 thrashed Ornith's prefix cache).
+2. **Decision model: decided pending sign-off.** Bake-off in LOG.md: Laya 49%, CLM 35%, Kev 69%, Ornith-as-verifier 69%, and verify-then-revise lowered accuracy with every verifier. Recommendation: `decide = ornith` (`recipes/llm-verify.toml`), no auto-revise, chip 3 free. The default recipe still serves Laya until that's agreed.
+3. **Next: the LLM.** Bake-off on FinanceBench (corpus) for the chat model on chips 0–1.
 
 ### Known issues to fix next
 
