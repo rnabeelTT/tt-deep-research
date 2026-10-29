@@ -1,0 +1,14 @@
+extends = "../recipe.toml"
+
+# CLM-v0.1-8B (Cloudflare's System One verifier and ranker on a Qwen3-8B encoder) as the decision
+# model. States past 2,048 tokens are cut to their last 2,048.
+[models.clm]
+kind = "decide"
+bundle = "tt-hous/clm-v0.1-8b"
+model = "Contrastive-LM/CLM-v0.1-8B"
+url = "http://localhost:8009"
+max_state_tokens = 2048
+serve_order = 2
+
+[roles]
+decide = "clm"
