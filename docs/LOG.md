@@ -207,3 +207,31 @@ Both graders preferred the Deep Agents report. AI-Q's report misidentified MI350
 **Kept as the default.** Accuracy holds (the difference is inside the CI), shallow jobs are 10–18% faster, and deep jobs 6× faster because no request in the batch falls off the fused sampler. The deep report from the auto run did less research (8 researchers instead of 15) and graded slightly lower: its prefill/decode section was short and uncited. One sample each, so that gap is within noise, but AI-Q deep reports trail Deep Agents' (7, 7.5 from the same graders) either way.
 
 The forced baseline here (76.0%) is 1.3 points above the earlier AI-Q run (74.7%, patches 0001–0003); the two differ by patches 0004–0006 (off), the containerized stack, and run-to-run noise.
+
+## 2026-10-29 · Decision models: Laya vs Kev vs CLM vs the LLM itself
+
+**Question:** which decision model should verify claims, and do we need one at all? Web search is parked (DeepResearch Bench throttled our SearXNG), so this is on the FinanceBench corpus.
+
+**Claim-passage pairs** (113, labels by construction; `ttdr eval claims-run --recipe …`):
+
+| Verifier | Accuracy (default / best thresholds) | Supported | Contradicted | Not enough info | p50 per pair | Chip |
+|---|---|---|---|---|---|---|
+| Laya (`tt-hous/laya`, current default) | 42% / 49% | 40% | 12% | 88% | 0.3 s | 3 |
+| CLM-v0.1-8B (`tt-hous/clm-v0.1-8b`) | 35% / 35% | 100% | 0% | 0% | 1.4 s | 3 |
+| Kev-9B (`tt-hous/kev-9b`) | 64% / 69% | 75% | 36% | 90% | 4.4 s | 3 |
+| Ornith, thinking off (`recipes/llm-verify.toml`) | 69% / 69% | 70% | 36% | 95% | 3.8 s | none extra |
+
+CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and Ornith tie; Ornith needs no chip of its own (the `decide` role can now point at the LLM).
+
+**Does better verification improve answers?** Verify and revise on the 150 AI-Q FinanceBench answers (auto tool choice, 78.7%), then the blinded Claude judge:
+
+| | Accuracy | vs unrevised | Citation validity before → after |
+|---|---|---|---|
+| Unrevised | 78.7% | | |
+| Revised with Kev | 76.0% | −2.7 (CI [−5.3, −0.7]), +0/−4 | 36% → 67% |
+| Revised with Ornith | 78.0% | −0.7 (CI [−2.0, 0.0]), +0/−1 | 38% → 65% |
+
+- Revision raises validity by **removing** claims (81 → 42–48), not by fixing them, and it never turned a wrong answer right. With Kev it cost 4 correct answers: Kev's false "not enough info" flags send good sentences to the reviser, and in one case the reviser didn't get the source text and replied "I need to fact-check… the source content wasn't included" instead of an answer.
+- Laya's earlier run (stage 6) also left accuracy flat. So on this corpus a decision model buys citation badges, not accuracy.
+
+**Recommendation:** no dedicated decision model for now. Point `decide` at Ornith for verify badges, don't auto-revise answers, and free chip 3. Revisit when a decision model clears ~85% on the pair set, and fix the reviser to always get the source text.
