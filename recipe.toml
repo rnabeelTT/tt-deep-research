@@ -47,4 +47,4 @@ mcp = "http://localhost:9901/mcp"
 triage = false       # Laya reranking lowers recall (docs/LOG.md)
 ocr = true
 ui = true
-auto_tool_choice = false   # AI-Q forces structured-output tool calls; true lets the model choose (A/B pending)
+auto_tool_choice = true    # AI-Q agents choose their tools instead of a forced call each turn (docs/LOG.md)
