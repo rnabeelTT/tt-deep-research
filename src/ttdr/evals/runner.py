@@ -70,17 +70,17 @@ def run(
 
 
 def retry(run_dir: Path, concurrency: int = 8) -> int:
-    """Re-answer the items of a run that errored, with the run's own system, params and recipe."""
+    """Re-answer the items of a run that errored or never finished, with the run's own system, params and recipe."""
     config = json.loads((run_dir / "config.json").read_text())
     answers = [
         Answer.model_validate_json(x) for x in (run_dir / "answers.jsonl").read_text().splitlines()
     ]
-    failed = {a.id for a in answers if a.error}
-    if not failed:
-        return 0
     items = [
         Item.model_validate_json(x) for x in (run_dir / "items.jsonl").read_text().splitlines()
     ]
+    failed = {a.id for a in answers if a.error} | ({i.id for i in items} - {a.id for a in answers})
+    if not failed:
+        return 0
     system = SYSTEMS[config["system"]](**config["params"])
     redo = run_dir / "answers.retry.jsonl"
     redo.unlink(missing_ok=True)
@@ -96,7 +96,8 @@ def retry(run_dir: Path, concurrency: int = 8) -> int:
     fresh = {
         a.id: a for a in (Answer.model_validate_json(x) for x in redo.read_text().splitlines())
     }
-    merged = [fresh.get(a.id, a) for a in answers]
+    done = {a.id for a in answers}
+    merged = [fresh.get(a.id, a) for a in answers] + [a for a in fresh.values() if a.id not in done]
     (run_dir / "answers.jsonl").write_text("".join(a.model_dump_json() + "\n" for a in merged))
     redo.unlink()
     return sum(1 for a in fresh.values() if not a.error)

@@ -96,7 +96,7 @@ def run(
 
 @app.command("retry")
 def retry_cmd(run_dir: Path, concurrency: int = 8) -> None:
-    """Re-answer only the items of RUN_DIR that errored (same system, params and recipe)."""
+    """Re-answer the items of RUN_DIR that errored or never finished (same system, params, recipe)."""
     console.print(f"recovered {runner.retry(run_dir, concurrency)} answers in {run_dir}")
 
 
