@@ -39,7 +39,9 @@ def test_requests_dedupe_count_and_carry_no_host_paths():
     assert [json.loads(j) for j in r.lists[QUEUE]] == [
         {"corpus": "financebench", "doc": "WALMART_2019_10K", "page": 89}
     ]
-    assert r.zsets[HITS]["WALMART_2019_10K#p89"] == 2 and r.sets[PENDING] == {"WALMART_2019_10K#p89"}
+    assert r.zsets[HITS]["WALMART_2019_10K#p89"] == 2 and r.sets[PENDING] == {
+        "WALMART_2019_10K#p89"
+    }
 
 
 def test_backfill_skips_done_pages_and_puts_most_retrieved_first():

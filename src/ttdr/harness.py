@@ -13,7 +13,11 @@ from collections import Counter
 from dataclasses import dataclass, field
 
 from deepagents import create_deep_agent
-from langchain.agents.middleware import ModelCallLimitMiddleware, ToolCallLimitMiddleware
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ModelCallLimitMiddleware,
+    ToolCallLimitMiddleware,
+)
 from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from mcp import Client
@@ -22,6 +26,10 @@ from ttdr.recipe import Recipe
 
 RESEARCH_TOOLS = ("search", "fetch_page", "get_evidence")
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
+PASSAGE = re.compile(
+    r"^\[([^\]\s]+)\] (.*)\n(?:URL: .*\n)?((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
+)
+FIGURE = re.compile(r"\d[\d,.]*\d|\b[A-Z][a-z]{3,}\b")
 
 INSTRUCTIONS = """You write cited research reports using the research engine's tools.
 Every factual sentence in your final report must end with the evidence IDs it rests on, in
@@ -31,6 +39,7 @@ square brackets, copied from the researchers' notes. A sentence without an ID is
    needs private documents (search sources="corpus", e.g. company 10-K filings), the web
    (sources="web") or both ("all").
 2. Delegate each sub-question to the researcher subagent with the task tool. Run them in parallel.
+   Ask each researcher for bullet facts that end with evidence IDs.
 3. Write the final answer yourself from the researchers' notes: answer the request directly
    first, then supporting detail. Every factual sentence ends with the evidence IDs it rests on,
    in square brackets, e.g. [3M_2018_10K#p59.0] or [W1a2b3c4d.2]. Only cite IDs from the notes.
@@ -43,7 +52,9 @@ RESEARCHER = """You research one sub-question. Use search with short keyword que
 fetch_page (with focus set to the sub-question) on the most promising URLs. Every passage has an
 evidence ID in square brackets. Never repeat a search. When you have enough, or after about
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
-evidence IDs it comes from. Only cite IDs the tools returned. Say what you could not find."""
+evidence IDs it comes from, e.g.
+- 3M's 2018 capital expenditure was $1,577 million [3M_2018_10K#p59.2]
+Only cite IDs the tools returned. Say what you could not find."""
 
 
 def _text(result) -> str:
@@ -79,6 +90,42 @@ def chat_model(recipe: Recipe, thinking: bool, max_tokens: int) -> ChatOpenAI:
     )
 
 
+class EvidenceNotes(AgentMiddleware):
+    """Researchers often drop evidence IDs from their notes; append the passages that back them.
+
+    Ranks the passages the researcher's tools returned by how many of the notes' figures and
+    names they contain, so the writer has real IDs to cite.
+    """
+
+    def __init__(self, limit: int = 8):
+        super().__init__()
+        self.limit = limit
+
+    def after_agent(self, state, runtime):
+        messages = state["messages"]
+        reply = messages[-1]
+        notes = _content(reply)
+        if EVIDENCE_ID.search(notes):
+            return None
+        figures = set(FIGURE.findall(notes))
+        seen: dict[str, tuple[int, str]] = {}
+        for msg in messages:
+            if getattr(msg, "type", "") != "tool":
+                continue
+            for eid, title, text in PASSAGE.findall(_content(msg)):
+                score = sum(f in text for f in figures)
+                if score and score >= seen.get(eid, (0, ""))[0]:
+                    seen[eid] = (score, f"{title.strip()}: {' '.join(text.split())[:200]}")
+        if not seen:
+            return None
+        best = sorted(seen.items(), key=lambda kv: -kv[1][0])[: self.limit]
+        listing = "\n".join(f"- [{eid}] {line}" for eid, (_, line) in best)
+        reply = reply.model_copy(
+            update={"content": f"{notes}\n\nEvidence for these notes (cite these IDs):\n{listing}"}
+        )
+        return {"messages": [reply]}
+
+
 @dataclass
 class Result:
     report: str
@@ -103,8 +150,11 @@ class DeepAgentsHarness:
             "system_prompt": RESEARCHER.format(calls=self.max_tool_calls),
             "tools": research,
             "middleware": [
-                ToolCallLimitMiddleware(tool_name=t.name, run_limit=self.max_tool_calls)
-                for t in research
+                *(
+                    ToolCallLimitMiddleware(tool_name=t.name, run_limit=self.max_tool_calls)
+                    for t in research
+                ),
+                EvidenceNotes(),
             ],
         }
         return create_deep_agent(
