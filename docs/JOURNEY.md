@@ -152,3 +152,10 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 **Result:** with patch 0005 nothing stalled (`ttdr jobs` never showed more than 4 idle minutes), but the job hit AI-Q's 3-hour limit (`DeepResearchExecutionTimeout`) still researching: 33 researcher runs, 656 searches, 1,720 page fetches, 688 model calls, no report. The orchestrator kept planning new research batches (the patched budget allows 60 queries) and never reached the writing step. The budgets we raised to stop early runs from ending empty-handed were now too generous for ~16 s per model call.
 
 - Fix: `patches/aiq/0006` gives research half the job's time. After that, `run_research_batch` returns "research time is used up, write the report now" instead of starting researchers, so the job always finishes with a report from what it found.
+
+## Deep run 9: the first deep report (2026-10-29)
+
+**Result:** a 2,500-word cited report in **1 h 55 min** ([reports/deep-aiq-blackhole-blackwell-mi350.md](reports/deep-aiq-blackhole-blackwell-mi350.md)). Timeline: source routing and planning 20 min; three research batches (15 researchers, 276 searches, 260 page fetches, 336 model calls) 90 min; a fourth batch at 1 h 50 min got patch 0006's "write now" reply, and the writer finished 5 minutes later. No stalls.
+
+- AI-Q's writer cites with numbered URLs ([1]…[26]), not our evidence IDs, so `ttdr verify` can't check its claims directly. Mapping URLs back to evidence IDs (or asking the writer for IDs) is open.
+- Time is dominated by research batches of ~30 min each. The forced-tool-call slow path (open question 2) is the obvious lever; the auto-tool-choice A/B measures it.
