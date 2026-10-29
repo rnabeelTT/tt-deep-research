@@ -76,7 +76,7 @@ class Decider:
                 f"{self.base_url}/v1/systemone/batch",
                 json={"states": states, "questions": questions},
             )
-            if r.status_code != 404:
+            if r.status_code not in (404, 405):
                 r.raise_for_status()
                 return [res["answers"] for res in r.json()["results"]]
             self.batch = False
