@@ -159,3 +159,18 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 
 - AI-Q's writer cites with numbered URLs ([1]…[26]), not our evidence IDs, so `ttdr verify` can't check its claims directly. Mapping URLs back to evidence IDs (or asking the writer for IDs) is open.
 - Time is dominated by research batches of ~30 min each. The forced-tool-call slow path (open question 2) is the obvious lever; the auto-tool-choice A/B measures it.
+
+## Stage 11 and wrap-up: harnesses and the tool-call lever (2026-10-29)
+
+**Result:** every stage's gate is met (status in [PLAN.md](PLAN.md)). The stack runs from one recipe on one QB2: the LLM, embedder and decision model on the chips, and engine, harness, UI and OCR in containers. Two harnesses and Hermes drive the same MCP engine. Numbers are in [LOG.md](LOG.md).
+
+**For managers:**
+- **The biggest speedup came from the harness, not the model.** One forced tool call or JSON-schema request takes the whole batch off Blackhole's fused sampler (~118 → ~13 tok/s). AI-Q forces one on every agent turn. Letting the model choose cut an AI-Q deep report from 1 h 55 min to 18 min, with accuracy unchanged. Deep Agents never forces a call and writes the same report in 3 min. Guided decoding on device would remove this trap for every customer harness; worth raising with the inference-server team.
+- **An off-the-shelf harness beat the reference one.** LangChain Deep Agents over our MCP engine tied AI-Q on FinanceBench (74.7% each, fewer confident wrong answers) and wrote the deep report that both blinded graders preferred (7 vs 4–5). AI-Q's report misidentified one of the three chips. One deep question, so this is indicative; DeepResearch Bench is next.
+- **Agent jobs need wall-clock budgets, not only call budgets.** Deep runs 1–8 produced no report: they stalled, looped or ran out of time. Patches 0005 (truncation guard) and 0006 (research gets half the time, then write) made every later run finish.
+
+Details:
+- Deep Agents needed three fixes before it was fair to compare. Researchers left evidence IDs out of their notes (fixed with a format example, plus a middleware that attaches the passages behind the notes). They called Deep Agents' built-in `grep`/`ls` file tools as if they searched the corpus ("I have no search access"); now only the engine's tools are offered. The model's own preamble and Sources list are dropped.
+- `ttdr verify` found 0 claims in the first Deep Agents report: its citations follow the full stop ("… 10 TB/s. [W586efbd0.8]"), and the sentence splitter cut before the bracket. Fixed; 42% of its 26 claims verify with Laya (a lower bound, given Laya's weakness).
+- AI-Q's deep writer cites numbered URLs, not evidence IDs, so its deep reports can't be verified claim by claim yet (open question 4).
+- The OCR backfill finished: all 44 image-only pages have text.

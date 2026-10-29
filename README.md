@@ -13,9 +13,9 @@ The UI is at `http://<host>:3000`. `ttdr up` reads everything from `recipe.toml`
 | Command | What |
 |---|---|
 | `ttdr up` / `ttdr down` | Whole stack from the recipe |
-| `ttdr research "…"` [`--shallow`] | Research through AI-Q's job API, with live progress |
+| `ttdr research "…"` [`--shallow`] [`--harness deepagents`] | Research through AI-Q's job API (default) or LangChain Deep Agents, with live progress |
 | `ttdr verify report.md` [`--revise`] | Check each cited claim against its source with the decision model |
-| `ttdr jobs` | Recent research jobs |
+| `ttdr jobs` | Recent research jobs, with progress (agents done, searches, fetches, idle minutes) |
 | `ttdr corpus fetch\|index\|search\|recall\|ocr-backfill` | Private documents |
 | `ttdr eval run\|ab\|compare\|check …` | Evals ([docs/EVALS.md](docs/EVALS.md)) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
@@ -27,10 +27,26 @@ The UI is at `http://<host>:3000`. `ttdr up` reads everything from `recipe.toml`
 | `src/ttdr/` | `recipe` loader, `clients` (LLM, embeddings, Laya), `health`, `cli` |
 | `src/ttdr/corpus/` | Private documents: PDF text and page flags, chunks, Qdrant store ([SETUP.md](docs/SETUP.md#documents)) |
 | `src/ttdr/engine/` | Research engine: web + corpus search, page fetch, evidence store |
+| `src/ttdr/harness.py` | LangChain Deep Agents over the engine's MCP tools (the second harness) |
 | `src/ttdr/mcp_server.py` | The engine as MCP tools: `search`, `fetch_page`, `get_evidence`, `verify` |
 | `src/ttdr/evals/` | Eval harness ([EVALS.md](docs/EVALS.md)) |
 | `patches/aiq/` | Small patches to the pinned AI-Q clone |
+| `docs/reports/` | Sample deep reports from each harness |
 | `docker/`, `workers/ocr/` | Engine and OCR worker images; AI-Q and UI images build from the patched clone |
 | `.github/workflows/` | CI: lint and unit tests on push; nightly evals on a self-hosted QB2 runner |
+
+## Results so far
+
+On one QB2 (Ornith 1.5 35B-A3B as the LLM), graded by blinded Claude subagents; details in [docs/LOG.md](docs/LOG.md).
+
+| | Result |
+|---|---|
+| FinanceBench (150 questions, 10-K filings + web) | LLM alone 17%; naive RAG 73%; AI-Q 76–79%; Deep Agents 75% |
+| Deep report (3 accelerators compared, ~2,500–3,500 words, cited) | Deep Agents 3 min; AI-Q 18 min (1 h 55 min with forced tool calls) |
+| Deep report quality (two blinded graders, 1–10) | Deep Agents 7–7.5; AI-Q 4–5.5 |
+| Shallow research throughput | ~245 reports/hour (saturates at 2 concurrent jobs) |
+| Fresh clone to first report | 35 s (models served, images cached) |
+
+FinanceBench (CC BY-NC 4.0) is used for internal evaluation only.
 
 Third-party credits are in [NOTICE.md](NOTICE.md).

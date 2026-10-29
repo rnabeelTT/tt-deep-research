@@ -49,35 +49,37 @@ Each stage ends with something you can run and check. Done: **0a–10**. Results
 | 9 | Perf + CI | Load test at 1–16 jobs, A/B command, QB2 runner | Reports per hour; prefill/decode split |
 | 10 | Packaging | Images, recipe, pip, `tt launch deep-research` | Fresh install to first report |
 
-## Status at stage 10 (2026-10-28)
+## Status (2026-10-29)
 
 | # | Gate | Result |
 |---|---|---|
 | 1 | B0 recorded | FinanceBench 17%, SimpleQA 12% (Ornith) |
 | 2 | recall@k; B1 vs B0 | recall@10 75%; B1 73% (+56) |
 | 3 | Tool tests; B1 through MCP | 30 unit tests; `b1mcp` system |
-| 4 | One job end to end; suite vs B0/B1; time per report | AI-Q shallow 75% (ties B1); shallow p50 26 s idle; deep: see LOG |
+| 4 | One job end to end; suite vs B0/B1; time per report | AI-Q shallow 75–79% (ties B1); shallow p50 26 s idle; deep report 18 min (AI-Q, auto tool choice) or 3 min (Deep Agents) |
 | 5 | Scripted demo | `ttdr research`, branded UI |
 | 6 | Citation validity vs stage 4 | 27% → 39% after revision, accuracy unchanged; Laya weak (42–49% on pairs) |
 | 7 | Triage on vs off | Off: Laya reranking lowers recall |
-| 8 | Scanned pages | Found by page image before OCR; OCR text served after |
+| 8 | Scanned pages | Found by page image before OCR; OCR text served after; backfill done (44/44 pages) |
 | 9 | Reports/hour; prefill/decode split | ~245 shallow reports/h, saturating at 2 jobs |
 | 10 | Fresh install to first report | 35 s warm (models up, images cached) |
+| 11 | Deep Agents vs AI-Q; Hermes | FinanceBench tie (74.7% each); deep report 3 min vs 1 h 55 min, graded 7 vs 4–5; Hermes answers with our MCP |
 
 ## Open questions
 
 1. **Decision model.** Laya is near chance on claim support. Kev-9B didn't serve; get it running (or another 64K-state model) and re-run `ttdr eval claims-run`, then re-test triage.
-2. **Forced tool calls.** Guided decoding takes the whole batch off the fused sampler (~9× slower). Fix on the server (guided decoding on device) or in the harness (auto tool choice with a text fallback for AI-Q's structured outputs).
+2. **Forced tool calls.** Guided decoding takes the whole batch off the fused sampler (~9× slower). Harness side done: auto tool choice is the default (AI-Q deep report 1 h 55 min → 18 min, accuracy unchanged). Server side (guided decoding on device) still matters for any client that forces tools or JSON output.
 3. **Abstention.** AI-Q's shallow researcher never says "I don't know"; B1 does. Prompt for it and measure wrong answers, not only accuracy.
-4. **Citations to our corpus.** AI-Q cites public filing URLs we can't fetch; map them to corpus documents so every claim is checkable.
+4. **Citations to our corpus.** AI-Q cites public filing URLs we can't fetch, and its deep writer cites numbered URLs rather than evidence IDs; map them to corpus documents and evidence IDs so every claim is checkable. Deep Agents cites evidence IDs directly.
 5. `nat eval` and DeepResearch Bench (English half) aren't wired in yet. Decided: grade it with our blinded Claude judge (scores not comparable with the public leaderboard).
 6. `tt launch deep-research` needs a plugin hook in tt-cli; `ttdr up` is the entry point it would call.
 7. Hand-grade ~30 answers to calibrate the Claude judge (design doc).
+8. **Default harness.** Deep Agents ties AI-Q on FinanceBench and wrote a better deep report 6–40× faster. Confirm on more deep questions (DeepResearch Bench), then decide whether it becomes the default behind the UI (AI-Q's UI talks to AI-Q's job API, so Deep Agents would need a job-API adapter).
 
 ## Stage 11 (stretch)
 
 - Hermes skill: `.hermes/skills/qb2-deep-research/` (done).
-- Deep Agents harness over MCP: `ttdr research --harness deepagents` (built); comparison with AI-Q on FinanceBench and one deep question pending.
+- Deep Agents harness over MCP: `ttdr research --harness deepagents` (done). Compared with AI-Q on FinanceBench and one deep question ([LOG.md](LOG.md)).
 
 ## Later (after the stack is settled)
 
