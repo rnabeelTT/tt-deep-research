@@ -25,6 +25,7 @@ from mcp import Client
 from ttdr.recipe import Recipe
 
 RESEARCH_TOOLS = ("search", "fetch_page", "get_evidence")
+MAIN_TOOLS = ("write_todos", "task", "verify")
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
 PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\n(?:URL: .*\n)?((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
@@ -34,6 +35,10 @@ FIGURE = re.compile(r"\d[\d,.]*\d|\b[A-Z][a-z]{3,}\b")
 INSTRUCTIONS = """You write cited research reports using the research engine's tools.
 Every factual sentence in your final report must end with the evidence IDs it rests on, in
 square brackets, copied from the researchers' notes. A sentence without an ID is not allowed.
+
+You have no search tools yourself: the researcher subagent does (web search, the private document
+corpus and page fetching). Always delegate research to it before answering, even for simple
+questions.
 
 1. Plan: break the request into 2-{subs} sub-questions with write_todos. Note for each whether it
    needs private documents (search sources="corpus", e.g. company 10-K filings), the web
@@ -88,6 +93,24 @@ def chat_model(recipe: Recipe, thinking: bool, max_tokens: int) -> ChatOpenAI:
         timeout=1800,
         **m.request_settings(thinking),
     )
+
+
+class OnlyTools(AgentMiddleware):
+    """Hide Deep Agents' built-in file tools: researchers used `grep` as if it searched the corpus."""
+
+    def __init__(self, names):
+        super().__init__()
+        self.names = set(names)
+
+    def _keep(self, request):
+        tools = [t for t in request.tools if getattr(t, "name", None) in self.names]
+        return request.override(tools=tools)
+
+    def wrap_model_call(self, request, handler):
+        return handler(self._keep(request))
+
+    async def awrap_model_call(self, request, handler):
+        return await handler(self._keep(request))
 
 
 class EvidenceNotes(AgentMiddleware):
@@ -155,6 +178,7 @@ class DeepAgentsHarness:
                     for t in research
                 ),
                 EvidenceNotes(),
+                OnlyTools(RESEARCH_TOOLS),
             ],
         }
         return create_deep_agent(
@@ -162,7 +186,10 @@ class DeepAgentsHarness:
             tools=[t for t in tools if t.name == "verify"],
             system_prompt=INSTRUCTIONS.format(subs=self.max_subquestions),
             subagents=[researcher],
-            middleware=[ModelCallLimitMiddleware(run_limit=self.max_model_calls)],
+            middleware=[
+                ModelCallLimitMiddleware(run_limit=self.max_model_calls),
+                OnlyTools(MAIN_TOOLS),
+            ],
         )
 
     async def run(self, question: str, log=lambda _: None) -> Result:
