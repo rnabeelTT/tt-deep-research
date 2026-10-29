@@ -2,6 +2,7 @@
 
 import hmac
 import os
+import time
 
 from mcp.server.mcpserver import MCPServer
 
@@ -9,6 +10,7 @@ from ttdr.engine import Engine
 from ttdr.engine.evidence import Evidence
 from ttdr.recipe import Recipe
 
+REPEAT_WINDOW_S = 600
 REPEAT_NOTE = (
     "You already ran this exact search; the results below are unchanged. "
     "Search for something different, or stop searching and give your answer.\n\n"
@@ -34,7 +36,9 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
             "[3M_2018_10K#p59.0]."
         ),
     )
-    state: dict = {"engine": engine, "seen": set()}
+    # Streamable HTTP is stateless here, so there's no per-client session to key on: a repeat is
+    # the same search within REPEAT_WINDOW_S, which keeps one client's loop from tripping another.
+    state: dict = {"engine": engine, "seen": {}}
 
     def eng() -> Engine:
         if state["engine"] is None:
@@ -50,8 +54,11 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
         corpus narrows to one collection (e.g. "financebench").
         Returns passages with evidence IDs, titles, URLs and snippets."""
         key = _key(query, sources, max_results)
-        repeat = key in state["seen"]
-        state["seen"].add(key)
+        now, seen = time.monotonic(), state["seen"]
+        for k in [k for k, t in seen.items() if now - t > REPEAT_WINDOW_S]:
+            del seen[k]
+        repeat = key in seen
+        seen[key] = now
         items = await eng().search(query, sources, max_results, corpus)
         note = REPEAT_NOTE if repeat else ""
         if sources in ("web", "all") and not recipe.services.searxng:

@@ -93,3 +93,12 @@ def test_token_guard_rejects_missing_or_wrong_tokens():
     assert call([]) == 401
     assert call([(b"authorization", b"Bearer nope")]) == 401
     assert call([(b"authorization", b"Bearer s3cret")]) == 200 and seen == ["/mcp"]
+
+
+def test_repeat_nudge_expires(monkeypatch):
+    server = mcp_server.build(RECIPE, FakeEngine())
+    clock = [1000.0]
+    monkeypatch.setattr(mcp_server.time, "monotonic", lambda: clock[0])
+    _call(server, "search", {"query": "blackhole memory"})
+    clock[0] += mcp_server.REPEAT_WINDOW_S + 1
+    assert "already ran" not in _call(server, "search", {"query": "blackhole memory"})

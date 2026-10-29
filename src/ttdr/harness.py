@@ -53,12 +53,16 @@ questions.
    first, then supporting detail. Every factual sentence ends with the evidence IDs it rests on,
    in square brackets, exactly as the notes print them (web passages look like [W1a2b3c4d.2],
    filings like [3M_2018_10K#p59.0]). If something wasn't found, say so ("I don't know" is fine).
+   Always write the report from what the notes do cover; never reply with a request for other
+   tools or sources.
 4. If the verify tool is available, check the sentences whose figures matter most and fix or
    drop any that come back contradicted or not_enough_info.
 Reply with the final report only; a Sources list is added for you."""
 
 RESEARCHER = """You research one sub-question. Use search with short keyword queries and
-fetch_page (with focus set to the sub-question) on the most promising URLs. Every passage has an
+fetch_page (with focus set to the sub-question) on the most promising URLs. You have web search:
+use sources="web" for anything outside the private filings, and rephrase if a search finds
+nothing useful. Every passage has an
 evidence ID in square brackets. Never repeat a search. When you have enough, or after about
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
 evidence IDs it comes from, e.g.
