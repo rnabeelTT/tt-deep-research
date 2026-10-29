@@ -164,3 +164,16 @@ The UI runs as a production build: `npm run dev` (Turbopack) hits the OS file-wa
 - `0003-tenstorrent-branding`: the web UI as "Tenstorrent Deep Research": the Tenstorrent mark (from `tenstorrent/tt-metal` docs, see `configs/branding/SOURCE`) instead of NVIDIA's, page title, and the brand colour moved from NVIDIA green to Tenstorrent purple (#7c68fa).
 
 The MCP server answers a repeated search from cache, with a note telling the model it already ran that search.
+
+## Kev-9B (decision model challenger)
+
+`tt-hous/kev-9b` hangs at 100% CPU after loading its weights when it boots from its own tensor cache: the tt-metal version in the image needs `TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES=0` (the CLM bundle sets it; Kev's doesn't), and `tt serve` can't pass an environment variable. Until the bundle sets it, start Kev from tt-model's own launch command with the variable added and the chip narrowed to chip 3:
+
+```bash
+tt-model serve tt-hous/kev-9b --print --port 8008   # the docker run line tt would use
+# run it with: --device /dev/tenstorrent/3 (instead of /dev/tenstorrent)
+#              --env TT_MESH_GRAPH_DESC_PATH=/opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto
+#              --env TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES=0  -d
+```
+
+It's up in under a minute. Kev and CLM have no `/v1/systemone/batch`; the decision client falls back to one request per state.

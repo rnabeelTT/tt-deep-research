@@ -174,3 +174,10 @@ Details:
 - `ttdr verify` found 0 claims in the first Deep Agents report: its citations follow the full stop ("… 10 TB/s. [W586efbd0.8]"), and the sentence splitter cut before the bracket. Fixed; 42% of its 26 claims verify with Laya (a lower bound, given Laya's weakness).
 - AI-Q's deep writer cites numbered URLs, not evidence IDs, so its deep reports can't be verified claim by claim yet (open question 4).
 - The OCR backfill finished: all 44 image-only pages have text.
+
+## Decision-model bake-off (2026-10-29)
+
+- **Friction (Kev bundle):** Kev-9B hangs at 100% CPU after loading weights when it boots from its own tensor cache. The CLM card documents the cause, a tt-metal version that needs `TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES=0`; CLM's bundle sets it, Kev's doesn't. With it, Kev is up in under a minute (it hung for 50+ minutes at stage 6). `tt serve` can't pass an environment variable, so the workaround is tt-model's printed `docker run` line (SETUP.md). The bundle should set it.
+- **Friction (API drift):** Laya has `/v1/systemone/batch`; Kev returns 404 and CLM 405 for it. The client now falls back to one request per state.
+- CLM's server answered `/v1/models` within minutes, but `tt serve` kept waiting on its own readiness check for 10+ minutes.
+- **Callout:** none of the three tt-hous decision models beats the LLM we already serve at checking claims (Ornith 69%, Kev 69%, Laya 49%, CLM 35%), and verify-then-revise didn't improve answers with any of them. A fourth chip spent on a decision model doesn't pay for itself yet.
