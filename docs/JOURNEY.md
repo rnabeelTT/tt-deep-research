@@ -146,3 +146,9 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 
 - Fix: `patches/aiq/0005` (thinking off after a truncated reply, "return your result now" after three, 40 model calls per agent run).
 - Lesson for operations: a job needs a progress signal (last tool call, last finished agent) surfaced in `ttdr jobs`, not just "running".
+
+## Deep run 8: no stall, but out of time (2026-10-29)
+
+**Result:** with patch 0005 nothing stalled (`ttdr jobs` never showed more than 4 idle minutes), but the job hit AI-Q's 3-hour limit (`DeepResearchExecutionTimeout`) still researching: 33 researcher runs, 656 searches, 1,720 page fetches, 688 model calls, no report. The orchestrator kept planning new research batches (the patched budget allows 60 queries) and never reached the writing step. The budgets we raised to stop early runs from ending empty-handed were now too generous for ~16 s per model call.
+
+- Fix: `patches/aiq/0006` gives research half the job's time. After that, `run_research_batch` returns "research time is used up, write the report now" instead of starting researchers, so the job always finishes with a report from what it found.
