@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 
 import httpx
@@ -58,6 +59,7 @@ class Decider:
     http: httpx.AsyncClient
     base_url: str
     model: str = ""
+    batch: bool = True
 
     async def ask(self, state: str, questions: dict[str, dict]) -> dict:
         r = await self.http.post(
@@ -67,12 +69,70 @@ class Decider:
         return r.json()["answers"]
 
     async def ask_batch(self, states: list[str], questions: dict[str, dict]) -> list[dict]:
-        """Many states, one set of questions, shared forward passes."""
-        r = await self.http.post(
-            f"{self.base_url}/v1/systemone/batch", json={"states": states, "questions": questions}
+        """Many states, one set of questions, shared forward passes (Laya); servers without the
+        batch route (Kev, CLM) get one request per state."""
+        if self.batch:
+            r = await self.http.post(
+                f"{self.base_url}/v1/systemone/batch",
+                json={"states": states, "questions": questions},
+            )
+            if r.status_code != 404:
+                r.raise_for_status()
+                return [res["answers"] for res in r.json()["results"]]
+            self.batch = False
+        return list(await asyncio.gather(*(self.ask(s, questions) for s in states)))
+
+
+CHAT_DECIDE = """Read the state and answer the question with exactly one of the options, nothing else.
+
+Question: {instructions}
+
+Options:
+{options}"""
+
+
+@dataclass
+class ChatDecider:
+    """A chat model behind the decision models' typed questions, so `decide` can point at the LLM.
+
+    Choice questions get the chosen option's probability 1.0; noul (yes/no) questions get 1.0
+    or 0.0. No thinking and a few tokens per answer, with no forced output format.
+    """
+
+    llm: LLM
+
+    async def _one(self, state: str, q: dict) -> dict:
+        if q["type"] == "noul":
+            options = {"yes": "Yes", "no": "No"}
+        else:
+            options = q["criteria"]
+        listing = "\n".join(f"- {k}: {v}" for k, v in options.items())
+        r = await self.llm.chat(
+            [
+                {
+                    "role": "system",
+                    "content": CHAT_DECIDE.format(instructions=q["instructions"], options=listing),
+                },
+                {"role": "user", "content": state},
+            ],
+            max_tokens=16,
+            temperature=0,
+            **reasoning_params(thinking=False),
         )
-        r.raise_for_status()
-        return [res["answers"] for res in r.json()["results"]]
+        said = (r["choices"][0]["message"]["content"] or "").strip().lower()
+        pick = next((k for k in sorted(options, key=len, reverse=True) if k in said), None)
+        if q["type"] == "noul":
+            return {"noul": 1.0 if pick == "yes" else 0.0}
+        probs = {k: float(k == pick) for k in options}
+        return {"choice": pick, "probabilities": probs}
+
+    async def ask(self, state: str, questions: dict[str, dict]) -> dict:
+        names = list(questions)
+        answers = await asyncio.gather(*(self._one(state, questions[n]) for n in names))
+        return dict(zip(names, answers, strict=True))
+
+    async def ask_batch(self, states: list[str], questions: dict[str, dict]) -> list[dict]:
+        return list(await asyncio.gather(*(self.ask(s, questions) for s in states)))
 
 
 # kind -> client. A new kind of model is one client class plus one entry here (and a role).
@@ -87,11 +147,15 @@ def client(http: httpx.AsyncClient, m: Model):
     return KINDS[m.kind](http, m)
 
 
+def _decider(http: httpx.AsyncClient, m: Model):
+    return ChatDecider(client(http, m)) if m.kind == "chat" else client(http, m)
+
+
 @dataclass
 class Clients:
     llm: LLM
     embed: Embedder
-    decide: Decider | None
+    decide: Decider | ChatDecider | None
     corpus: Corpus
 
 
@@ -101,6 +165,6 @@ def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
     return Clients(
         client(http, recipe.llm),
         embed,
-        client(http, decide) if decide else None,
+        _decider(http, decide) if decide else None,
         Corpus(embed, Store(recipe.services.qdrant)),
     )

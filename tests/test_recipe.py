@@ -22,8 +22,10 @@ def test_minimal_overlay_removes_roles_services_and_features():
 
 def test_roles_are_checked_against_model_kinds():
     data = RECIPE.model_dump()
-    with pytest.raises(ValidationError, match="needs a decide model"):
-        recipe.Recipe.model_validate({**data, "roles": {**data["roles"], "decide": "ornith"}})
+    with pytest.raises(ValidationError, match="needs a decide or chat model"):
+        recipe.Recipe.model_validate(
+            {**data, "roles": {**data["roles"], "decide": "embeddinggemma"}}
+        )
     with pytest.raises(ValidationError, match="missing required roles: embed"):
         recipe.Recipe.model_validate({**data, "roles": {"llm": "ornith"}})
     with pytest.raises(ValidationError, match="unknown role"):
@@ -63,3 +65,9 @@ def test_features_reach_compose_through_env():
     forced = recipe.load(ROOT / "recipes" / "forced-tool-choice.toml")
     assert compose_env(forced)["AIQ_AUTO_TOOL_CHOICE"] == "0"
     assert compose_env(RECIPE)["TTDR_OCR_BACKEND"] == "paddle"
+
+
+def test_decide_can_be_the_llm():
+    r = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-verify.toml")
+    assert r.decide.kind == "chat" and r.decide.model == r.llm.model
+    assert "laya" not in r.served()

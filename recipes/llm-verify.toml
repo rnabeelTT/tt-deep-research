@@ -1,0 +1,9 @@
+extends = "../recipe.toml"
+
+# No decision model: the LLM answers verify's typed questions (frees chip 3). Ornith reads the whole
+# passage at once, so states aren't windowed to a decision model's limit.
+[models.ornith]
+max_state_tokens = 8192
+
+[roles]
+decide = "ornith"
