@@ -195,6 +195,9 @@ class DeepAgentsHarness:
                     ToolCallLimitMiddleware(tool_name=t.name, run_limit=self.max_tool_calls)
                     for t in research
                 ),
+                # Past its tool limits a researcher can retry the blocked call forever (DRB: 100+
+                # model calls on one ~98k-token context); end it, EvidenceNotes keeps its passages.
+                ModelCallLimitMiddleware(run_limit=3 * self.max_tool_calls, exit_behavior="end"),
                 EvidenceNotes(),
                 OnlyTools(RESEARCH_TOOLS),
             ],
