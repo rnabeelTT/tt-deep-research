@@ -17,7 +17,7 @@ NUMBERED = re.compile(r"\[(\d+(?:\s*[,–-]\s*\d+)*)\]")
 EVIDENCE = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
 SOURCE_LINE = re.compile(r"^\s*(?:[-*]\s*)?\[(\d+)\].*?(\S+://\S+?)[)\].,]*\s*$")
 CORPUS_URL = re.compile(r"corpus://([^#\s]+)#page=(\d+)")
-SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(\[*])")
+SENTENCE = re.compile(r"(?<=[.!?])\s+(?=[A-Z(*])")
 BADGE = {"supported": "✓", "contradicted": "✗", "not_enough_info": "?"}
 FETCH_PASSAGES = 3
 FALLBACK_PASSAGES = 3
