@@ -190,3 +190,20 @@ A tie on accuracy, with fewer confident wrong answers from Deep Agents. Four of 
 Both graders preferred the Deep Agents report. AI-Q's report misidentified MI350 ("a companion chip to the MI300X") and so mostly described MI300X, put TensorRT-LLM in AMD's stack, and leaked planning residue into the text. The Deep Agents report had correct core specs for all three chips and a deeper prefill/decode analysis; its errors were smaller (H100's CUDA-core count for B200, MI350X FP4 "not published", Infinity Fabric per-link vs per-GPU). Reports: [reports/](reports/).
 
 **Why so different in time:** Deep Agents asks for no structured output, so every request stays on Ornith's fast decode path (~118 tok/s); AI-Q forces a tool call on every planner and researcher turn (~13 tok/s for the whole batch) and runs ~10× more model calls. One question each, so the quality gap is indicative, not measured; the time gap is large enough not to need more samples.
+
+## 2026-10-29 · AI-Q with auto tool choice vs forced tool calls (stage 9 lever)
+
+`recipes/forced-tool-choice.toml` (AI-Q as shipped) vs the default with `features.auto_tool_choice = true` (`patches/aiq/0004`). Same stack and patches (0001–0006), 8 jobs at a time, run back to back; one blinded Claude queue for both runs (6 chunks).
+
+| | Forced tool calls | Auto tool choice |
+|---|---|---|
+| FinanceBench accuracy (150) | 76.0% | **78.7%** (+2.7, CI [−3.3, +8.7]; +12/−8) |
+| Wrong / abstained | 34 / 2 (both empty reports) | 31 / 1 |
+| Shallow p50 / p95 | 100 s / 170 s | **90 s / 140 s** |
+| Deep report (Blackhole question) | 1 h 55 min | **18 min** |
+| Deep: researchers / model calls / searches / fetches | 15 / 336 / 276 / 260 | 8 / 123 / 44 / 90 |
+| Deep: Claude graders, overall (two graders, three reports blinded) | 5.5, 5 | 5, 4 |
+
+**Kept as the default.** Accuracy holds (the difference is inside the CI), shallow jobs are 10–18% faster, and deep jobs 6× faster because no request in the batch falls off the fused sampler. The deep report from the auto run did less research (8 researchers instead of 15) and graded slightly lower: its prefill/decode section was short and uncited. One sample each, so that gap is within noise, but AI-Q deep reports trail Deep Agents' (7, 7.5 from the same graders) either way.
+
+The forced baseline here (76.0%) is 1.3 points above the earlier AI-Q run (74.7%, patches 0001–0003); the two differ by patches 0004–0006 (off), the containerized stack, and run-to-run noise.

@@ -1,0 +1,7 @@
+extends = "../recipe.toml"
+
+# AI-Q as shipped: LangChain forces the structured-output tool on every planner and researcher
+# turn. Forced calls are served with guided decoding (~13 tok/s for the whole batch on Ornith).
+# The A/B against the default is in docs/LOG.md (2026-10-29).
+[features]
+auto_tool_choice = false

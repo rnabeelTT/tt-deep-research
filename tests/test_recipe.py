@@ -59,7 +59,7 @@ def test_aiq_config_follows_the_llm_and_its_reasoning_control():
 def test_features_reach_compose_through_env():
     from ttdr.stack import compose_env
 
-    assert compose_env(RECIPE)["AIQ_AUTO_TOOL_CHOICE"] == "0"
-    on = recipe.load(ROOT / "recipes" / "auto-tool-choice.toml")
-    assert compose_env(on)["AIQ_AUTO_TOOL_CHOICE"] == "1"
+    assert compose_env(RECIPE)["AIQ_AUTO_TOOL_CHOICE"] == "1"
+    forced = recipe.load(ROOT / "recipes" / "forced-tool-choice.toml")
+    assert compose_env(forced)["AIQ_AUTO_TOOL_CHOICE"] == "0"
     assert compose_env(RECIPE)["TTDR_OCR_BACKEND"] == "paddle"
