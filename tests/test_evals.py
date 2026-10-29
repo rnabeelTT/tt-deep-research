@@ -139,3 +139,22 @@ def test_race_total_and_relative():
     assert race.relative(t, ref)["overall"] == pytest.approx(0.5)
     with pytest.raises(ValueError):
         race.total({d: [8] for d in race.DIMENSIONS}, criteria)
+
+
+def test_chat_decider_answers_typed_questions():
+    import asyncio
+
+    from ttdr.clients import ChatDecider
+    from ttdr.engine.verify import QUESTION
+
+    class FakeLLM:
+        async def chat(self, messages, **params):
+            said = "Not_enough_info" if "Paris" in messages[1]["content"] else "supported"
+            return {"choices": [{"message": {"content": said}}]}
+
+    d = ChatDecider(FakeLLM())
+    a, b = asyncio.run(d.ask_batch(["Passage: x\nClaim: Paris", "Passage: y\nClaim: z"], QUESTION))
+    assert a["support"]["probabilities"]["not_enough_info"] == 1.0
+    assert b["support"]["choice"] == "supported"
+    yes = asyncio.run(d.ask("s", {"q": {"type": "noul", "instructions": "?"}}))
+    assert yes["q"]["noul"] == 0.0

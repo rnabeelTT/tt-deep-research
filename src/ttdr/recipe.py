@@ -15,13 +15,14 @@ from pydantic import BaseModel, model_validator
 Kind = Literal["chat", "embed", "decide"]
 Reasoning = Literal["enable_thinking", "reasoning_effort"]
 
-# role -> (kind it needs, required?)
-ROLES: dict[str, tuple[str, bool]] = {
-    "llm": ("chat", True),  # plan, read, write
-    "embed": ("embed", True),  # queries, chunks, page images
-    "judge": ("chat", False),  # on-box judge for quick checks
-    "decide": ("decide", False),  # verify claims, triage; without it both are off
-    "ocr": ("chat", False),  # vision model for OCR; without it the CPU OCR backend is used
+# role -> (kinds it accepts, required?)
+ROLES: dict[str, tuple[tuple[str, ...], bool]] = {
+    "llm": (("chat",), True),  # plan, read, write
+    "embed": (("embed",), True),  # queries, chunks, page images
+    "judge": (("chat",), False),  # on-box judge for quick checks
+    # verify claims, triage; a chat model answers the same typed questions; without it both are off
+    "decide": (("decide", "chat"), False),
+    "ocr": (("chat",), False),  # vision model for OCR; without it the CPU OCR backend is used
 }
 
 
@@ -116,8 +117,9 @@ class Recipe(BaseModel):
                 raise ValueError(f"unknown role {role!r}; known: {', '.join(ROLES)}")
             if name not in self.models:
                 raise ValueError(f"role {role!r} names model {name!r}, which isn't in [models]")
-            if self.models[name].kind != ROLES[role][0]:
-                raise ValueError(f"role {role!r} needs a {ROLES[role][0]} model, {name!r} is not")
+            if self.models[name].kind not in ROLES[role][0]:
+                kinds = " or ".join(ROLES[role][0])
+                raise ValueError(f"role {role!r} needs a {kinds} model, {name!r} is not")
         missing = [r for r, (_, required) in ROLES.items() if required and r not in self.roles]
         if missing:
             raise ValueError(f"missing required roles: {', '.join(missing)}")
