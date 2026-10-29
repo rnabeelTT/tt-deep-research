@@ -69,3 +69,14 @@ def test_researcher_notes_without_ids_get_the_passages_behind_them():
     assert "Wdeadbeef" not in reply.content
     state["messages"][-1] = AIMessage("- capex $1,577 million [3M_2018_10K#p59.2]")
     assert harness.EvidenceNotes().after_agent(state, None) is None
+
+
+def test_only_tools_hides_the_built_in_file_tools():
+    from types import SimpleNamespace as NS
+
+    request = NS(
+        tools=[NS(name=n) for n in ("grep", "search", "read_file", "fetch_page")],
+        override=lambda tools: NS(tools=tools),
+    )
+    seen = harness.OnlyTools(harness.RESEARCH_TOOLS).wrap_model_call(request, lambda r: r)
+    assert [t.name for t in seen.tools] == ["search", "fetch_page"]
