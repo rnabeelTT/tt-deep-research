@@ -124,3 +124,18 @@ def test_external_judge_roundtrip(tmp_path):
     }
     assert grades["a"].method == "exact" and grades["b"].grade == "incorrect"
     assert json.loads((run / "judge.json").read_text())["model"] == "test-judge"
+
+
+def test_race_total_and_relative():
+    from ttdr.evals import race
+
+    criteria = {
+        "dimension_weight": {d: 0.25 for d in race.DIMENSIONS},
+        "criterions": {d: [{"weight": 0.75}, {"weight": 0.25}] for d in race.DIMENSIONS},
+    }
+    t = race.total({d: [8, 4] for d in race.DIMENSIONS}, criteria)
+    assert t["overall"] == pytest.approx(7.0)
+    ref = race.total({d: [7, 7] for d in race.DIMENSIONS}, criteria)
+    assert race.relative(t, ref)["overall"] == pytest.approx(0.5)
+    with pytest.raises(ValueError):
+        race.total({d: [8] for d in race.DIMENSIONS}, criteria)

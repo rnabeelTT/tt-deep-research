@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from ttdr import recipe
-from ttdr.evals import claims, datasets, grading, report, runner
+from ttdr.evals import claims, datasets, grading, race, report, runner
 
 app = typer.Typer(no_args_is_help=True, help="Build suites, run systems, grade and compare.")
 console = Console()
@@ -155,6 +155,40 @@ def judge_import(
     for run_dir in grading.import_verdicts(queue, judge):
         console.print(f"[bold]{run_dir}[/]")
         _print_summary(report.summarize(run_dir))
+
+
+@app.command("race-export")
+def race_export(
+    runs: list[Path],
+    out: Annotated[Path, typer.Option(help="Queue directory")] = Path("data/judge/race"),
+    per_chunk: int = 5,
+) -> None:
+    """DeepResearch Bench: one blinded task file per task (each run's report and the reference)."""
+    n = race.export(runs, out, per_chunk)
+    console.print(
+        f"{n} tasks → {out}/task-*.md, chunks in {out}/chunks.json (rubric: {out}/rubric.md)"
+    )
+
+
+@app.command("race-import")
+def race_import(
+    queue: Path, judge: Annotated[str, typer.Option(help="Judge name to record")]
+) -> None:
+    """Merge RACE verdicts (verdicts-*.jsonl) into scores relative to the reference (0.5 = on par)."""
+    results = race.score(queue, judge)
+    table = Table("run", "n", "overall", *race.DIMENSIONS)
+    for run, r in results.items():
+        m = r["mean"]
+        table.add_row(run, str(r["n"]), *(f"{m[k]:.3f}" for k in ("overall", *race.DIMENSIONS)))
+    console.print(table)
+    if len(results) == 2:
+        a, b = results.values()
+        c = race.compare(a, b)
+        lo, hi = c["ci95"]
+        console.print(
+            f"second − first: {c['diff']:+.3f} [{lo:+.3f}, {hi:+.3f}], "
+            f"wins {c['wins']} / losses {c['losses']} of {c['n']}"
+        )
 
 
 @app.command("claims-build")
