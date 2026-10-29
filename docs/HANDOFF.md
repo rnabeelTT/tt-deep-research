@@ -9,14 +9,13 @@ Stages 0–11 are done. Defaults: Ornith on chips 0–1, embeddinggemma-2 on chi
 ### In progress
 
 1. **DeepResearch Bench, both harnesses** (English half, 50 tasks, `-s deepresearch_bench`).
-   - Deep Agents: `runs/20261029-164839-deepagents`. The first 8 tasks ran 6 at a time; the rest are being finished with `ttdr eval retry … --concurrency 2`. Six at a time thrashed Ornith's prefix cache on ~100k-token researcher contexts (14 min per report vs 3 min at 2 at a time), so latencies of the first 8 aren't comparable.
-   - AI-Q: starts after it, `ttdr eval run aiq -s deepresearch_bench -p agent=deep_researcher -p timeout_s=10800 --concurrency 2`.
+   - Deep Agents: `runs/20261029-193856-deepagents` (started 19:38 UTC, 2 tasks at a time, ~3–5 min per report). Earlier attempts are superseded: one lost 27 tasks to an engine segfault (fixed: pdfium pages closed inside the lock); one ran 6 at a time, which thrashed Ornith's prefix cache on ~100k-token researcher contexts (14 min per report); one was hurt by the engine's repeat-search nudge being global across clients (fixed: 10-minute window).
+   - AI-Q: starts after it (same script, 2 at a time), `ttdr eval run aiq -s deepresearch_bench -p agent=deep_researcher -p timeout_s=10800 --concurrency 2`.
    - Then grade: `ttdr eval race-export <deepagents run> <aiq run> --out data/judge/race-drb`, one Claude subagent per entry in `chunks.json` (it reads `rubric.md` and its `task-*.md` files and writes `verdicts-NN.jsonl`), then `ttdr eval race-import data/judge/race-drb --judge claude-opus-5-5`. Log in LOG.md and JOURNEY.md.
 2. **Decision-model bake-off on chip 3** (approved, runs after the benchmark): Kev-9B (`recipes/kev.toml`) and CLM-v0.1-8B (`recipes/clm.toml`) against Laya on the 113 claim-passage pairs (`ttdr eval claims-run --recipe …`). Stop Laya, serve the challenger, run, swap back. Kev's server hung after loading weights last time (JOURNEY, stage 6). The engine's `verify` calls `/v1/systemone/batch`; Kev's and CLM's cards don't list it, so the client may need a fallback to single calls. Clef needs two chips and is out of scope.
 
 ### Known issues to fix next
 
-- Deep Agents researchers sometimes search only the corpus, find nothing and report "no web search" (drb_61). Researcher prompt should say to fall back to `sources="web"`.
 - Ornith still invents evidence IDs in long reports; the harness's citation guard catches them (one rewrite, then removal). A real ID on an unsupported claim needs a working decision model to catch.
 - AI-Q cites numbered URLs, not evidence IDs, so its claims can't be checked claim by claim.
 
