@@ -5,6 +5,7 @@ import random
 from collections.abc import Callable
 from pathlib import Path
 
+import httpx
 from huggingface_hub import hf_hub_download
 
 from ttdr.evals.schema import Evidence, Item
@@ -15,6 +16,42 @@ SEED = 0
 
 def _fetch(repo: str, filename: str, revision: str) -> Path:
     return Path(hf_hub_download(repo, filename, repo_type="dataset", revision=revision))
+
+
+def _fetch_github(repo: str, path: str, revision: str) -> Path:
+    out = SUITES_DIR / "raw" / repo.replace("/", "__") / revision / path
+    if not out.exists():
+        out.parent.mkdir(parents=True, exist_ok=True)
+        url = f"https://raw.githubusercontent.com/{repo}/{revision}/{path}"
+        r = httpx.get(url, follow_redirects=True, timeout=120)
+        r.raise_for_status()
+        out.write_bytes(r.content)
+    return out
+
+
+DRB = ("Ayanami0730/deep_research_bench", "f2735b5c3636759c22f9e936c0232de8bf545b67")
+
+
+def drb_file(path: str) -> dict[int, dict]:
+    """A DeepResearch Bench data file (prompts, RACE criteria or reference reports) by task id."""
+    rows = map(json.loads, _fetch_github(DRB[0], path, DRB[1]).read_text().splitlines())
+    return {r["id"]: r for r in rows}
+
+
+def deepresearch_bench() -> list[Item]:
+    """The English half (tasks 51-100). Graded with RACE against the reference reports."""
+    tasks = drb_file("data/prompt_data/query.jsonl")
+    return [
+        Item(
+            id=f"drb_{t['id']}",
+            suite="deepresearch_bench",
+            question=t["prompt"],
+            answer="",
+            tags={"topic": t["topic"]},
+        )
+        for t in tasks.values()
+        if t["language"] == "en"
+    ]
 
 
 def financebench() -> list[Item]:
@@ -69,6 +106,7 @@ def simpleqa(n: int = 150) -> list[Item]:
 BUILDERS: dict[str, Callable[[], list[Item]]] = {
     "financebench": financebench,
     "simpleqa": simpleqa,
+    "deepresearch_bench": deepresearch_bench,
 }
 
 
