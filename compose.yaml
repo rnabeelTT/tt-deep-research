@@ -34,6 +34,7 @@ services:
     environment:   # remote clients: TTDR_MCP_HOST=0.0.0.0 ttdr up (token optional)
       TTDR_MCP_HOST: ${TTDR_MCP_HOST:-}
       TTDR_MCP_TOKEN: ${TTDR_MCP_TOKEN:-}
+      PYTHONFAULTHANDLER: "1"   # a native crash prints the Python stack of every thread
     depends_on: [qdrant, searxng, redis]
     restart: unless-stopped
 

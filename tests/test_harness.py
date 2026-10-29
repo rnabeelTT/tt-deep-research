@@ -165,3 +165,28 @@ def test_web_ids_in_filing_style_are_normalized():
     stats = Counter()
     out = asyncio.run(h.check_citations(EvidenceClient(), "A [W1a2b3c4d#p2].", {}, stats))
     assert out == "A [W1a2b3c4d.2]." and stats["invented ids"] == 0
+
+
+def test_engine_retries_until_the_server_is_back(monkeypatch):
+    attempts = []
+
+    class Flaky:
+        def __init__(self, url):
+            pass
+
+        async def __aenter__(self):
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise ConnectionError("engine restarting")
+            return FakeClient()
+
+        async def __aexit__(self, *exc):
+            return False
+
+    async def no_sleep(_):
+        pass
+
+    monkeypatch.setattr(harness, "Client", Flaky)
+    monkeypatch.setattr(harness.asyncio, "sleep", no_sleep)
+    r = asyncio.run(harness.Engine("http://x").call_tool("search", {"query": "q"}))
+    assert r.content[0].text == "search ok" and len(attempts) == 3
