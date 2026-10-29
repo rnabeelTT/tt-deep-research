@@ -165,3 +165,28 @@ Throughput saturates at ~245 reports/hour from 2 concurrent jobs; beyond that jo
 **Accuracy after revision: 74.7% → 74.7%** (+1 / −1 question, CI [−2.0, +2.0]; Claude judge, blinded). Revision removes or narrows unsupported claims without losing correct answers. Kept, with two caveats:
 - Laya scores 42–49% on our claim pairs, so "not enough info" often means "Laya couldn't tell". Validity numbers are a lower bound until a stronger decision model passes the pair set.
 - 50 of 128 claims cite pages the engine can't fetch (sec.gov and some mirrors block scripted clients). AI-Q cites the public URL it found on the web rather than our corpus page for the same filing, so the claim can't be checked against the copy we have.
+
+## 2026-10-29 · Harnesses: Deep Agents vs AI-Q on the same engine and chips (stage 11)
+
+Same Ornith, same MCP engine, same corpus; only the harness differs. FinanceBench graded by blinded Claude subagents (4 chunks, `judge-export`).
+
+| FinanceBench (150) | AI-Q shallow | Deep Agents |
+|---|---|---|
+| Accuracy | 74.7% | **74.7%** (+0.0, CI [−7.3, +7.3]; +16/−16) |
+| Wrong / abstained | 38 / 0 | **29** / 9 |
+| p50 / p95 latency | 85 s / 306 s | 106 s / 299 s |
+| Answers citing evidence IDs | — | 118 / 150 |
+
+A tie on accuracy, with fewer confident wrong answers from Deep Agents. Four of its nine abstentions were "I have no search access": researchers called Deep Agents' built-in `grep`/`ls` file tools as if they searched the corpus. Fixed after this run (only the engine's tools are offered now), so the abstention count is an upper bound.
+
+| Deep question (Blackhole vs Blackwell vs MI350) | AI-Q deep | Deep Agents |
+|---|---|---|
+| Time to report | 1 h 55 min | **3 min** |
+| Model calls / searches / fetches | 336 / 276 / 260 | 30 / 15 / 33 |
+| Words / cited evidence IDs | 2,537 / numbered URLs | 3,428 / 72 |
+| Claude grader, overall (two graders, order swapped) | 4, 4 | **7, 7** |
+| Citation validity (Laya, `ttdr verify`) | n/a (no evidence IDs) | 42% (11 supported, 1 contradicted, 14 not enough info) |
+
+Both graders preferred the Deep Agents report. AI-Q's report misidentified MI350 ("a companion chip to the MI300X") and so mostly described MI300X, put TensorRT-LLM in AMD's stack, and leaked planning residue into the text. The Deep Agents report had correct core specs for all three chips and a deeper prefill/decode analysis; its errors were smaller (H100's CUDA-core count for B200, MI350X FP4 "not published", Infinity Fabric per-link vs per-GPU). Reports: [reports/](reports/).
+
+**Why so different in time:** Deep Agents asks for no structured output, so every request stays on Ornith's fast decode path (~118 tok/s); AI-Q forces a tool call on every planner and researcher turn (~13 tok/s for the whole batch) and runs ~10× more model calls. One question each, so the quality gap is indicative, not measured; the time gap is large enough not to need more samples.
