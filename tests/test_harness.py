@@ -49,3 +49,23 @@ def test_deep_agent_builds_with_a_researcher_subagent():
 def test_evidence_ids_in_reports():
     report = "Capex was $1,577M [3M_2018_10K#p59.0]; see also [Wdeadbeef.2] and [1]."
     assert harness.EVIDENCE_ID.findall(report) == ["3M_2018_10K#p59.0", "Wdeadbeef.2"]
+
+
+def test_researcher_notes_without_ids_get_the_passages_behind_them():
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    found = (
+        "[3M_2018_10K#p59.2] 3M 2018 10-K\nURL: file://3M\nPurchases of PP&E (1,577) (1,373)\n\n"
+        "[Wdeadbeef] Unrelated\nURL: https://x\nNothing relevant here"
+    )
+    state = {
+        "messages": [
+            ToolMessage(found, tool_call_id="1", name="search"),
+            AIMessage("- 3M's 2018 capex was $1,577 million"),
+        ]
+    }
+    [reply] = harness.EvidenceNotes().after_agent(state, None)["messages"]
+    assert "- [3M_2018_10K#p59.2] 3M 2018 10-K: Purchases of PP&E" in reply.content
+    assert "Wdeadbeef" not in reply.content
+    state["messages"][-1] = AIMessage("- capex $1,577 million [3M_2018_10K#p59.2]")
+    assert harness.EvidenceNotes().after_agent(state, None) is None

@@ -36,8 +36,10 @@ def test_annotate_and_summary():
 
 
 def test_verdict_rules_and_windows():
-    probs = [{"supported": 0.2, "contradicted": 0.7, "not_enough_info": 0.1},
-             {"supported": 0.6, "contradicted": 0.1, "not_enough_info": 0.3}]
+    probs = [
+        {"supported": 0.2, "contradicted": 0.7, "not_enough_info": 0.1},
+        {"supported": 0.6, "contradicted": 0.1, "not_enough_info": 0.3},
+    ]
     assert decide(probs).label == "supported"
     assert decide(probs[:1]).label == "contradicted"
     assert window_chars(512) < 1200 < window_chars(65536)

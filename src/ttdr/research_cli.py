@@ -147,9 +147,7 @@ def jobs(
             "AND event_type IN ('workflow.start','workflow.end','tool.start','llm.end')",
             (job,),
         ).fetchall()
-        tools = Counter(
-            json.loads(d).get("name", "") for t, d, _ in ev if t == "tool.start"
-        )
+        tools = Counter(json.loads(d).get("name", "") for t, d, _ in ev if t == "tool.start")
         started = sum(t == "workflow.start" for t, _, _ in ev)
         done = sum(t == "workflow.end" for t, _, _ in ev)
         last = max((c for _, _, c in ev), default=None)

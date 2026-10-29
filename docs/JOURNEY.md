@@ -138,7 +138,7 @@ Findings and friction, logged at the end of each stage. **Friction** marks somet
 **Result:** the stack follows the recipe: a model registry with roles, optional components that switch off cleanly, AI-Q's config rendered from the recipe, and a second top layer verified. Hermes, with Ornith and our MCP server as its only tools, answered a FinanceBench question with a correct cited figure in 65 s ([CLIENTS.md](CLIENTS.md), [ARCHITECTURE.md](ARCHITECTURE.md)).
 
 - `tt launch hermes` configures the model but not MCP servers; one `hermes mcp add` connects the engine. A tt-cli option to attach MCP servers at launch would make the engine a first-class tt client.
-- The MCP server has no authentication, so it stays on localhost; remote use goes through an SSH tunnel until a token-checking proxy is added.
+- The MCP server has no authentication by default, so it stays on localhost; for remote use, an SSH tunnel or the optional bearer token (`TTDR_MCP_TOKEN`).
 
 ## Deep run 7: one researcher stalled the job (2026-10-28)
 
