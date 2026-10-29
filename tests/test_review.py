@@ -69,3 +69,8 @@ def test_corpus_fallback_is_reported_apart_from_citation_validity():
     s = review.summary(checked)
     assert s["citation_validity"] == 0.5
     assert s["fallback_checked"] == 1 and s["fallback_supported"] == 1
+
+
+def test_citations_after_the_full_stop_stay_with_their_sentence():
+    [c] = review.claims("Blackwell has two dies joined at 10 TB/s. [W586efbd0.8]")
+    assert c.refs == ["W586efbd0.8"] and c.text.startswith("Blackwell has two dies")

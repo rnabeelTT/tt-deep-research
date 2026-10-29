@@ -80,3 +80,17 @@ def test_only_tools_hides_the_built_in_file_tools():
     )
     seen = harness.OnlyTools(harness.RESEARCH_TOOLS).wrap_model_call(request, lambda r: r)
     assert [t.name for t in seen.tools] == ["search", "fetch_page"]
+
+
+def test_report_starts_at_its_first_heading():
+    assert (
+        harness._without_preamble("Let me write it.\n\n---\n\n# Report\nText") == "# Report\nText"
+    )
+    assert harness._without_preamble("Short answer [W1a2b3c4d]") == "Short answer [W1a2b3c4d]"
+
+
+def test_the_models_sources_list_is_replaced():
+    assert (
+        harness._without_sources("# R\nFact [W1a2b3c4d].\n\n## Sources\n- [1] x")
+        == "# R\nFact [W1a2b3c4d]."
+    )

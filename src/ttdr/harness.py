@@ -209,10 +209,23 @@ class DeepAgentsHarness:
                         _count(msg, stats, log)
                         if not namespace and _is_answer(msg):
                             final = msg
-            report = _content(final)
+            report = _without_sources(_without_preamble(_content(final)))
             report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
         return Result(report, stats)
+
+
+def _without_preamble(report: str) -> str:
+    """Drop the "Let me write the report now" lines before the report's first heading."""
+    m = re.search(r"^# ", report, re.MULTILINE)
+    return report[m.start() :] if m else report
+
+
+def _without_sources(report: str) -> str:
+    """Drop the model's own Sources list; the one built from the evidence store replaces it."""
+    return re.split(r"^#+\s*(?:Sources|References)\b", report, flags=re.MULTILINE | re.IGNORECASE)[
+        0
+    ].rstrip()
 
 
 def _is_answer(msg) -> bool:
