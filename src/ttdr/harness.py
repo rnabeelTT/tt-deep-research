@@ -31,10 +31,14 @@ PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\n(?:URL: .*\n)?((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
 )
 FIGURE = re.compile(r"\d[\d,.]*\d|\b[A-Z][a-z]{3,}\b")
+CITATION = re.compile(r" ?\[([^\[\]]*(?:#|\bW[0-9a-f]{8})[^\[\]]*)\]")
 
 INSTRUCTIONS = """You write cited research reports using the research engine's tools.
 Every factual sentence in your final report must end with the evidence IDs it rests on, in
-square brackets, copied from the researchers' notes. A sentence without an ID is not allowed.
+square brackets, copied character for character from the researchers' notes. Evidence IDs are
+issued by the tools: never make one up, shorten it, give a range, or build one from a source's
+name. State only facts the notes support; don't add figures, dates or names from memory. If no
+note supports a sentence, leave it out.
 
 You have no search tools yourself: the researcher subagent does (web search, the private document
 corpus and page fetching). Always delegate research to it before answering, even for simple
@@ -47,8 +51,8 @@ questions.
    Ask each researcher for bullet facts that end with evidence IDs.
 3. Write the final answer yourself from the researchers' notes: answer the request directly
    first, then supporting detail. Every factual sentence ends with the evidence IDs it rests on,
-   in square brackets, e.g. [3M_2018_10K#p59.0] or [W1a2b3c4d.2]. Only cite IDs from the notes.
-   If something wasn't found, say so ("I don't know" is fine).
+   in square brackets, exactly as the notes print them (web passages look like [W1a2b3c4d.2],
+   filings like [3M_2018_10K#p59.0]). If something wasn't found, say so ("I don't know" is fine).
 4. If the verify tool is available, check the sentences whose figures matter most and fix or
    drop any that come back contradicted or not_enough_info.
 Reply with the final report only; a Sources list is added for you."""
@@ -59,7 +63,16 @@ evidence ID in square brackets. Never repeat a search. When you have enough, or 
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
 evidence IDs it comes from, e.g.
 - 3M's 2018 capital expenditure was $1,577 million [3M_2018_10K#p59.2]
-Only cite IDs the tools returned. Say what you could not find."""
+Copy IDs exactly as the tools print them; never make one up. Say what you could not find."""
+
+FIX_CITATIONS = """Some citations in this report are not real evidence IDs: {invented}
+
+For every sentence that cites one of them, replace it with the real ID below whose passage
+supports the sentence, or delete the sentence if none does. Change nothing else and reply with
+the whole report.
+
+Real evidence IDs from the research:
+{listing}"""
 
 
 def _text(result) -> str:
@@ -197,7 +210,7 @@ class DeepAgentsHarness:
         start = time.perf_counter()
         async with Client(self.recipe.services.mcp) as client:
             agent = self.agent(mcp_tools(client, (await client.list_tools()).tools))
-            final = None
+            final, seen = None, {}
             async for namespace, update in agent.astream(
                 {"messages": [{"role": "user", "content": question}]},
                 stream_mode="updates",
@@ -207,12 +220,68 @@ class DeepAgentsHarness:
                 for node in update.values():
                     for msg in node.get("messages", []) if isinstance(node, dict) else []:
                         _count(msg, stats, log)
+                        _collect(msg, seen)
                         if not namespace and _is_answer(msg):
                             final = msg
-            report = _without_sources(_without_preamble(_content(final)))
+            report = _clean(_content(final))
+            report = await self.check_citations(client, report, seen, stats)
             report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
         return Result(report, stats)
+
+    async def check_citations(self, client: Client, report: str, seen: dict, stats: Counter) -> str:
+        """Every cited ID must exist in the evidence store. Invented ones get one rewrite with the
+        real IDs the research returned; any left after it are removed."""
+        known = await _known(client, citations(report))
+        invented = citations(report) - known
+        stats["invented ids"] = len(invented)
+        if invented and seen:
+            listing = "\n".join(f"- [{eid}] {line}" for eid, line in list(seen.items())[:200])
+            prompt = FIX_CITATIONS.format(invented=", ".join(sorted(invented)), listing=listing)
+            fixed = await chat_model(self.recipe, False, 8192).ainvoke(
+                [{"role": "system", "content": prompt}, {"role": "user", "content": report}]
+            )
+            report = _clean(_content(fixed)) or report
+            known = await _known(client, citations(report))
+            stats["invented after rewrite"] = len(citations(report) - known)
+        stats["cited ids"] = len(known)
+        return strip_citations(report, known)
+
+
+def citations(report: str) -> set[str]:
+    """Every ID-like token in the report's citation brackets, real or not."""
+    return {t for group in CITATION.findall(report) for t in _tokens(group)}
+
+
+def strip_citations(report: str, keep: set[str]) -> str:
+    """Remove cited IDs not in KEEP (and brackets left empty)."""
+
+    def sub(m: re.Match) -> str:
+        kept = [t for t in _tokens(m.group(1)) if t in keep]
+        return f" [{', '.join(kept)}]" if kept else ""
+
+    return CITATION.sub(sub, report)
+
+
+def _tokens(group: str) -> list[str]:
+    return [t.strip() for t in re.split(r"[;,]", group) if t.strip()]
+
+
+async def _known(client: Client, ids: set[str]) -> set[str]:
+    if not ids:
+        return set()
+    found = _text(await client.call_tool("get_evidence", {"ids": sorted(ids)}))
+    return set(re.findall(r"^\[([^\]]+)\] ", found, re.MULTILINE)) & ids
+
+
+def _collect(msg, seen: dict) -> None:
+    if getattr(msg, "type", "") == "tool":
+        for eid, title, text in PASSAGE.findall(_content(msg)):
+            seen.setdefault(eid, f"{title.strip()}: {' '.join(text.split())[:150]}")
+
+
+def _clean(report: str) -> str:
+    return _without_sources(_without_preamble(report))
 
 
 def _without_preamble(report: str) -> str:

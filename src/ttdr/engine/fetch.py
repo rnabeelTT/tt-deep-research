@@ -27,12 +27,20 @@ _PDFIUM = threading.Lock()  # pdfium isn't thread-safe; concurrent parses segfau
 
 
 def _pdf_text(data: bytes) -> str:
+    """Pages and text pages are closed inside the lock, not left to the GC on another thread."""
     with _PDFIUM:
         doc = pdfium.PdfDocument(data)
+        texts = []
         try:
-            return "\n\n".join(doc[i].get_textpage().get_text_bounded() for i in range(len(doc)))
+            for i in range(len(doc)):
+                page = doc[i]
+                textpage = page.get_textpage()
+                texts.append(textpage.get_text_bounded())
+                textpage.close()
+                page.close()
         finally:
             doc.close()
+        return "\n\n".join(texts)
 
 
 async def extract(http: httpx.AsyncClient, url: str) -> tuple[str, str]:

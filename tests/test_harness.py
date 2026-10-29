@@ -94,3 +94,34 @@ def test_the_models_sources_list_is_replaced():
         harness._without_sources("# R\nFact [W1a2b3c4d].\n\n## Sources\n- [1] x")
         == "# R\nFact [W1a2b3c4d]."
     )
+
+
+def test_citations_finds_real_and_invented_ids():
+    report = (
+        "Capex was $1,577 million [3M_2018_10K#p59.2]. Benchmarks vary [Dakota_10K#p3–p5; W1a2b3c4d.2]."
+        " See [the docs](https://x.org/a#b)."
+    )
+    assert harness.citations(report) == {"3M_2018_10K#p59.2", "Dakota_10K#p3–p5", "W1a2b3c4d.2"}
+
+
+def test_strip_citations_keeps_only_known_ids():
+    report = "A [W1a2b3c4d.2; Fake_10K#p1]. B [Made_Up#p2]. C."
+    assert harness.strip_citations(report, {"W1a2b3c4d.2"}) == "A [W1a2b3c4d.2]. B. C."
+
+
+class EvidenceClient(FakeClient):
+    async def call_tool(self, name, args):
+        found = [i for i in args["ids"] if i.startswith("W")]
+        text = "\n\n".join(f"[{i}] Title\nURL: https://x.org\nbody" for i in found)
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+
+
+def test_check_citations_counts_and_drops_invented_ids_when_nothing_to_rewrite_with():
+    from collections import Counter
+
+    h = harness.DeepAgentsHarness(RECIPE)
+    stats = Counter()
+    report = "A [W1a2b3c4d.2]. B [Fake_10K#p1]."
+    out = asyncio.run(h.check_citations(EvidenceClient(), report, {}, stats))
+    assert out == "A [W1a2b3c4d.2]. B."
+    assert stats["invented ids"] == 1 and stats["cited ids"] == 1
