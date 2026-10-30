@@ -22,7 +22,7 @@ def test_minimal_overlay_removes_roles_services_and_features():
 
 def test_roles_are_checked_against_model_kinds():
     data = RECIPE.model_dump()
-    with pytest.raises(ValidationError, match="needs a decide or chat model"):
+    with pytest.raises(ValidationError, match="needs a decide or chat or check model"):
         recipe.Recipe.model_validate(
             {**data, "roles": {**data["roles"], "decide": "embeddinggemma"}}
         )
@@ -71,3 +71,12 @@ def test_decide_can_be_the_llm():
     r = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-verify.toml")
     assert r.decide.kind == "chat" and r.decide.model == r.llm.model
     assert "laya" not in r.served()
+
+
+def test_claim_checker_verifies_but_cannot_triage():
+    r = recipe.load(ROOT / "recipes" / "minicheck.toml")
+    assert r.decide.kind == "check" and r.decide.bundle is None
+    assert "laya" not in r.served()
+    data = r.model_dump()
+    with pytest.raises(ValidationError, match="triage needs a decide or chat model"):
+        recipe.Recipe.model_validate({**data, "features": {**data["features"], "triage": True}})

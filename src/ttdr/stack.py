@@ -51,7 +51,10 @@ def serve_models(recipe: Recipe, log) -> None:
     up = {c.name.split(" ")[0]: c.ok for c in asyncio.run(health.run(recipe))}
     for name, m in recipe.served().items():
         if up.get(name):
-            log(f"{name}: already serving ({m.bundle})")
+            log(f"{name}: already serving ({m.bundle or m.url})")
+            continue
+        if not m.bundle:
+            log(f"{name}: no bundle, not served by tt; start it at {m.url}")
             continue
         for snap in m.prefetch:
             repo, rev = snap.split("@")

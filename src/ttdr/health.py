@@ -45,7 +45,12 @@ async def _decide(decider) -> str:
     return f"noul {a['q']['noul']:.2f}"
 
 
-PROBES = {"chat": _chat, "embed": _embed, "decide": _decide}
+async def _check(checker) -> str:
+    [p] = await checker.support([("The sky is blue.", "The sky is blue.")])
+    return f"support {p:.2f}"
+
+
+PROBES = {"chat": _chat, "embed": _embed, "decide": _decide, "check": _check}
 
 
 async def _qdrant(http: httpx.AsyncClient, url: str) -> str:

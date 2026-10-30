@@ -83,6 +83,21 @@ class Decider:
         return list(await asyncio.gather(*(self.ask(s, questions) for s in states)))
 
 
+@dataclass
+class Checker:
+    """Claim checkers (MiniCheck): the probability that a passage supports a claim."""
+
+    http: httpx.AsyncClient
+    base_url: str
+    model: str = ""
+
+    async def support(self, pairs: list[tuple[str, str]]) -> list[float]:
+        body = {"pairs": [{"passage": p, "claim": c} for p, c in pairs]}
+        r = await self.http.post(f"{self.base_url}/check", json=body)
+        r.raise_for_status()
+        return r.json()["support"]
+
+
 CHAT_DECIDE = """Read the state and answer the question with exactly one of the options, nothing else.
 
 Question: {instructions}
@@ -140,6 +155,7 @@ KINDS = {
     "chat": lambda http, m: LLM(http, m.url, m.model, m.sampling),
     "embed": lambda http, m: Embedder(http, m.url, m.model),
     "decide": lambda http, m: Decider(http, m.url, m.model),
+    "check": lambda http, m: Checker(http, m.url, m.model),
 }
 
 
@@ -155,7 +171,7 @@ def _decider(http: httpx.AsyncClient, m: Model):
 class Clients:
     llm: LLM
     embed: Embedder
-    decide: Decider | ChatDecider | None
+    decide: Decider | ChatDecider | Checker | None
     corpus: Corpus
 
 

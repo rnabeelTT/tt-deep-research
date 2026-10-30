@@ -158,3 +158,28 @@ def test_chat_decider_answers_typed_questions():
     assert b["support"]["choice"] == "supported"
     yes = asyncio.run(d.ask("s", {"q": {"type": "noul", "instructions": "?"}}))
     assert yes["q"]["noul"] == 0.0
+
+
+def test_checker_verifies_through_windows():
+    import asyncio
+
+    import httpx
+
+    from ttdr.clients import Checker
+    from ttdr.engine.verify import Verifier
+
+    def handler(request):
+        pairs = json.loads(request.content)["pairs"]
+        return httpx.Response(
+            200, json={"support": [0.9 if "42" in p["passage"] else 0.1 for p in pairs]}
+        )
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+            v = Verifier(Checker(http, "http://checker"), window=200)
+            passage = " ".join(["Filler sentence about nothing."] * 20) + " Revenue was 42."
+            return await v.check("Revenue was 42.", passage), await v.check("x", "nothing here")
+
+    hit, miss = asyncio.run(go())
+    assert hit.label == "supported" and hit.window > 0
+    assert miss.label == "not_enough_info" and miss.contradicted == 0.0
