@@ -181,3 +181,12 @@ Details:
 - **Friction (API drift):** Laya has `/v1/systemone/batch`; Kev returns 404 and CLM 405 for it. The client now falls back to one request per state.
 - CLM's server answered `/v1/models` within minutes, but `tt serve` kept waiting on its own readiness check for 10+ minutes.
 - **Callout:** none of the three tt-hous decision models beats the LLM we already serve at checking claims (Ornith 69%, Kev 69%, Laya 49%, CLM 35%), and verify-then-revise didn't improve answers with any of them. A fourth chip spent on a decision model doesn't pay for itself yet.
+
+## Retrieval on the CPU while the chips are lent out (2026-10-30)
+
+Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's vectors, cosine ≈ 1.000), with numbers in [LOG.md](LOG.md).
+
+- **A reranker is the retrieval lever; nothing else we tried is.** Qwen3-Reranker-0.6B: recall@10 76% → 84%. Qdrant's built-in hybrid search (BM25 + dense): 76% → 68%. Docling's layout-aware chunking: a wash. MiniCheck as a claim checker: 44% vs Ornith's 69%. The reranker is wired (`rerank` role, `recipes/rerank.toml`) and waits for its chip.
+- **Import, don't build, held up:** every candidate was an off-the-shelf tool run as shipped (Qdrant's server-side BM25, Docling's own pipeline and chunker, published rerankers). None needed code of ours beyond a scratch eval harness.
+- **Friction (Docling):** it can't share our environment (it needs huggingface-hub < 2 and pillow < 13; we pin newer), so it runs in its own venv or as docling-serve. ~1.7 s per page on 8 CPU threads; a full re-ingest of the corpus would take most of a working day without a GPU.
+- **Friction (ours):** loading the A/B's Docling chunks as a second corpus overwrote 10,979 live FinanceBench points: point IDs are keyed by evidence ID (`DOC#pN.M`) without the corpus. Restored from the PDFs on the CPU (10 page-image points wait for the chip embedder); `ttdr corpus index` now refuses a document name another corpus has. No snapshot existed to roll back to.
