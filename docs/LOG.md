@@ -250,3 +250,23 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - On the CPU it's slow: ~1–2 s per 2,048-token window, serialized, so ~11 s for a page-length passage.
 
 **Decision:** not adopted. A fair test would use real report sentences labeled by the Claude judge; it isn't worth chip time unless that test shows a clear win.
+
+## 2026-10-30 · Rerankers on the CPU: bge-reranker-v2-m3 vs Qwen3-Reranker-0.6B
+
+**Setup:** the 150 FinanceBench questions, top 30 chunks over the whole corpus by embeddinggemma-2 (run on the CPU; vectors match the chip's, cosine ≈ 1.000), reranked on the CPU; gold page in the top k. Script: a scratch harness, not in the engine yet. A 50/50 blend mixes the min-max-normalized embedding score with the reranker's rank percentile.
+
+| Ranking (whole corpus) | @1 | @5 | @10 | @30 | p50 per query (30 passages, CPU) |
+|---|---|---|---|---|---|
+| Embedding only | 32.7% | 62.7% | 76.0% | 90.0% | — |
+| Laya (stage 7) | 8% | 27% | 48% | | |
+| bge-reranker-v2-m3 alone | 33.3% | 64.0% | 78.7% | 90.0% | 13.2 s |
+| bge 50/50 blend | 40.7% | 70.0% | 82.0% | 90.0% | |
+| **Qwen3-Reranker-0.6B alone** | **38.0%** | **72.7%** | **84.0%** | 90.0% | 18.9 s |
+| Qwen3 50/50 blend | 36.7% | 70.7% | 84.0% | 90.0% | |
+
+- Paired against embedding only at k = 10: bge blend +13/−4 questions, Qwen3 blend +16/−4. At k = 5: +14/−3 and +15/−3.
+- Qwen3 needs no blend (it takes an instruction; ours names filings, metrics and periods). Within a known filing it reaches 87% at 10 (embedding 79%).
+- Expected answer gain for naive RAG from B1's split (84% correct when the gold page is retrieved, 41% when not): ~+5 correct answers, ~+3 points. Measured end to end once a reranker is on a chip.
+- The CPU is far too slow for agents (13–19 s per search); a reranker needs a chip.
+
+**Decision:** a reranker is worth a chip. Qwen3-Reranker family; 4B or the multimodal Qwen3-VL-Reranker for the general-purpose tool (text and page images in one model). Not tested at 4B/8B: the CPU would take hours, the chip minutes.
