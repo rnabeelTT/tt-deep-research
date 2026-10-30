@@ -26,3 +26,22 @@ def test_evidence_ids_match_gold_pages():
     )
     assert evidence_hits(item, ["X#p1.0", "3M_2018_10K#p59.3"])
     assert not evidence_hits(item, ["3M_2018_10K#p58.0"])
+
+
+def test_indexing_refuses_a_doc_name_another_corpus_has(tmp_path):
+    import asyncio
+
+    import pytest
+
+    from ttdr.corpus import Corpus
+
+    class Store:
+        async def ensure(self):
+            pass
+
+        async def docs(self, corpus=None):
+            return {"ACME_2020_10K", "OTHER"} if corpus is None else {"OTHER"}
+
+    (tmp_path / "ACME_2020_10K.pdf").write_bytes(b"")
+    with pytest.raises(ValueError, match="ACME_2020_10K"):
+        asyncio.run(Corpus(None, Store()).index_dir(tmp_path, "mine"))

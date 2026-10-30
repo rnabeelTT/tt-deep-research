@@ -75,6 +75,10 @@ class Corpus:
         await self.store.ensure()
         done = await self.store.docs(corpus)
         todo = [p for p in sorted(root.glob("*.pdf")) if p.stem not in done]
+        if clash := {p.stem for p in todo} & (await self.store.docs() - done):
+            raise ValueError(
+                f"already indexed in another corpus, and would overwrite it: {sorted(clash)}"
+            )
         sem = asyncio.Semaphore(concurrency)
         manifest = root / "pages.jsonl"
 
