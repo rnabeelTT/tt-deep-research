@@ -270,3 +270,26 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - The CPU is far too slow for agents (13–19 s per search); a reranker needs a chip.
 
 **Decision:** a reranker is worth a chip. Qwen3-Reranker family; 4B or the multimodal Qwen3-VL-Reranker for the general-purpose tool (text and page images in one model). Not tested at 4B/8B: the CPU would take hours, the chip minutes.
+
+## 2026-10-30 · Hybrid search: Qdrant's built-in BM25 + dense vs dense alone
+
+**Question:** does keyword search fused with the embeddings find more gold pages? Built with what Qdrant already has (1.19: server-side BM25 inference, `qdrant/bm25`, English stopwords and stemmer, IDF modifier; RRF or DBSF fusion over 50 candidates each), no code of our own. A copy of the collection with the same dense vectors plus a BM25 sparse vector per chunk (filing name + text); 150 FinanceBench questions, gold page in the top k.
+
+| Whole corpus | @1 | @5 | @10 | @20 | @30 |
+|---|---|---|---|---|---|
+| **Dense (embeddinggemma-2)** | **32.7%** | **62.0%** | **76.0%** | **86.0%** | **90.0%** |
+| BM25 alone | 8.7% | 14.0% | 19.3% | 24.7% | 28.7% |
+| RRF (dense + BM25) | 22.7% | 55.3% | 68.0% | 78.7% | 84.7% |
+| DBSF | 18.7% | 50.7% | 65.3% | 76.0% | 84.7% |
+
+| Known filing | @1 | @5 | @10 | @30 |
+|---|---|---|---|---|
+| **Dense** | **36.7%** | **66.0%** | **79.3%** | **92.0%** |
+| BM25 alone | 15.3% | 30.0% | 46.0% | 66.0% |
+| RRF | 35.3% | 64.7% | 75.3% | 88.7% |
+
+- Paired against dense at k = 10: RRF +3/−15 (whole corpus), +4/−10 (known filing). At 30, the reranker's pool, RRF never adds a page dense misses (+0/−8).
+- Why: FinanceBench questions are long, instruction-laden ("Assume that you are a public equities analyst… balance sheet…") and every 10-K shares the same vocabulary, so BM25 ranks other companies' cash-flow pages high; the filing name in the text didn't fix it. BM25 works as designed (checked by hand); it just has no edge here.
+- Caveat for the general-purpose tool: keyword search wins on exact identifiers (part numbers, error codes, rare names), which this suite doesn't test, and agents write shorter queries than these questions. Worth rechecking with a suite that has them.
+
+**Decision:** dense only. The reranker (+8 points at 10) is the retrieval lever; hybrid fusion would shrink its pool.
