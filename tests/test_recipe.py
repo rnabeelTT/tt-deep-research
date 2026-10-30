@@ -85,5 +85,7 @@ def test_claim_checker_verifies_but_cannot_triage():
 def test_rerank_overlay_adds_a_reranker_without_a_bundle():
     r = recipe.load(ROOT / "recipes" / "rerank.toml")
     assert r.rerank.kind == "rerank" and r.rerank.bundle is None
-    assert connect(r, httpx.AsyncClient()).rerank is not None
+    reranker = connect(r, httpx.AsyncClient()).rerank
+    assert "<Query>: q\n" in reranker.query_template.format(query="q")
+    assert reranker.document_template.startswith("<Document>: {document}")
     assert connect(RECIPE, httpx.AsyncClient()).rerank is None

@@ -100,10 +100,18 @@ class Checker:
 
 @dataclass
 class Reranker(OpenAICompat):
-    """Cross-encoder rerankers behind the Cohere/Jina-style rerank API (vLLM, TEI-compatible)."""
+    """Cross-encoder rerankers behind the Cohere/Jina-style rerank API (vLLM). Models that score
+    a prompt (Qwen3-Reranker) get theirs from the recipe's templates; vLLM doesn't add it."""
+
+    query_template: str = "{query}"
+    document_template: str = "{document}"
 
     async def scores(self, query: str, docs: list[str]) -> list[float]:
-        body = {"model": self.model, "query": query, "documents": docs}
+        body = {
+            "model": self.model,
+            "query": self.query_template.format(query=query),
+            "documents": [self.document_template.format(document=d) for d in docs],
+        }
         out = [0.0] * len(docs)
         for r in (await self._post("/rerank", body))["results"]:
             out[r["index"]] = r["relevance_score"]
@@ -168,7 +176,13 @@ KINDS = {
     "embed": lambda http, m: Embedder(http, m.url, m.model),
     "decide": lambda http, m: Decider(http, m.url, m.model),
     "check": lambda http, m: Checker(http, m.url, m.model),
-    "rerank": lambda http, m: Reranker(http, m.url, m.model),
+    "rerank": lambda http, m: Reranker(
+        http,
+        m.url,
+        m.model,
+        m.query_template or "{query}",
+        m.document_template or "{document}",
+    ),
 }
 
 
