@@ -293,3 +293,21 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - Caveat for the general-purpose tool: keyword search wins on exact identifiers (part numbers, error codes, rare names), which this suite doesn't test, and agents write shorter queries than these questions. Worth rechecking with a suite that has them.
 
 **Decision:** dense only. The reranker (+8 points at 10) is the retrieval lever; hybrid fusion would shrink its pool.
+
+## 2026-10-30 · Ingestion: Docling vs our pdfium extraction and character chunker
+
+**Question:** does Docling (IBM, MIT; layout model, table structure, OCR, HybridChunker) retrieve better than what we have, pdfium's text layer cut into 1,500-character chunks? If so it would replace our extraction, chunker and lazy OCR, and bring ~30 input formats with it. Docling's own pipeline end to end: `PdfPipelineOptions(do_ocr, do_table_structure)`, `HybridChunker` with embeddinggemma-2's tokenizer at 384 tokens (about our chunk size), each chunk embedded as `contextualize()` (section headings + text). 30 filings (3M 2018, Amcor 2020 and 28 random), the 47 FinanceBench questions on them, same CPU query vectors for both; current chunks use their stored chip vectors.
+
+| | @1 | @5 | @10 | @20 |
+|---|---|---|---|---|
+| Current, known filing | **46.8%** | 74.5% | **91.5%** | 91.5% |
+| Docling, known filing | 42.6% | **76.6%** | 89.4% | 91.5% |
+| Current, across the 30 filings | **44.7%** | 72.3% | **91.5%** | 91.5% |
+| Docling, across the 30 filings | 36.2% | **74.5%** | 85.1% | 91.5% |
+
+- Paired, Docling vs current: @5 +4/−3 and +5/−4, @10 +1/−2 and +0/−3. A wash at 5, slightly behind at 1 and 10; 47 questions can't separate them.
+- Docling makes more, smaller chunks (18,089 vs 12,309, ~4.3 per page vs ~2.9), so its top 10 carries less text than ours.
+- What it does well is visible in the output: tables come out as clean markdown with their headers, sections are labeled, figures are found. That may help the LLM *read* the passage even at equal recall, which retrieval recall doesn't measure.
+- Cost: ~1.7 s per page on 8 CPU threads (4,197 pages in 2 h with two workers), so ~5–6 h for the 12,013-page corpus, plus a full re-embed.
+
+**Decision:** not adopted for PDFs; by the rule set beforehand (adopt if it favours Docling) it doesn't. Open: an end-to-end B1 run on the 47 questions with Docling's chunks vs ours, to test whether markdown tables lift answer accuracy (staged in `data/ab/docling30`, needs Ornith). For formats we can't read today (docx, pptx, html, xlsx, scanned images), docling-serve (`quay.io/docling-project/docling-serve-cpu:v1.38.2`, pulled) is still the import to use when a corpus needs them.
