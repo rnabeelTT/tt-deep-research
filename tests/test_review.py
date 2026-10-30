@@ -74,3 +74,30 @@ def test_corpus_fallback_is_reported_apart_from_citation_validity():
 def test_citations_after_the_full_stop_stay_with_their_sentence():
     [c] = review.claims("Blackwell has two dies joined at 10 TB/s. [W586efbd0.8]")
     assert c.refs == ["W586efbd0.8"] and c.text.startswith("Blackwell has two dies")
+
+
+def test_reranker_reorders_by_relevance_score():
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    import httpx
+
+    from ttdr.clients import Reranker
+    from ttdr.engine.rerank import Rerank
+
+    def handler(request):
+        body = json.loads(request.content)
+        assert request.url.path == "/v1/rerank" and body["query"] == "q"
+        scores = {"a": 0.1, "b": 0.9, "c": 0.5}
+        results = [
+            {"index": i, "relevance_score": scores[d]} for i, d in enumerate(body["documents"])
+        ]
+        return httpx.Response(
+            200, json={"results": sorted(results, key=lambda r: -r["relevance_score"])}
+        )
+
+    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    items = [SimpleNamespace(text=t) for t in "abc"]
+    ranked = asyncio.run(Rerank(Reranker(http, "http://r/v1", "m")).rerank("q", items))
+    assert [i.text for i in ranked] == ["b", "c", "a"]

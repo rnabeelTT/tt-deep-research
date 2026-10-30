@@ -98,6 +98,18 @@ class Checker:
         return r.json()["support"]
 
 
+@dataclass
+class Reranker(OpenAICompat):
+    """Cross-encoder rerankers behind the Cohere/Jina-style rerank API (vLLM, TEI-compatible)."""
+
+    async def scores(self, query: str, docs: list[str]) -> list[float]:
+        body = {"model": self.model, "query": query, "documents": docs}
+        out = [0.0] * len(docs)
+        for r in (await self._post("/rerank", body))["results"]:
+            out[r["index"]] = r["relevance_score"]
+        return out
+
+
 CHAT_DECIDE = """Read the state and answer the question with exactly one of the options, nothing else.
 
 Question: {instructions}
@@ -156,6 +168,7 @@ KINDS = {
     "embed": lambda http, m: Embedder(http, m.url, m.model),
     "decide": lambda http, m: Decider(http, m.url, m.model),
     "check": lambda http, m: Checker(http, m.url, m.model),
+    "rerank": lambda http, m: Reranker(http, m.url, m.model),
 }
 
 
@@ -173,6 +186,7 @@ class Clients:
     embed: Embedder
     decide: Decider | ChatDecider | Checker | None
     corpus: Corpus
+    rerank: Reranker | None = None
 
 
 def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
@@ -183,4 +197,5 @@ def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
         embed,
         _decider(http, decide) if decide else None,
         Corpus(embed, Store(recipe.services.qdrant)),
+        client(http, recipe.rerank) if recipe.rerank else None,
     )

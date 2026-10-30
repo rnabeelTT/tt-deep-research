@@ -62,6 +62,9 @@ def recall(
     triage: Annotated[
         bool, typer.Option(help="Rerank 3x candidates with the decision model")
     ] = False,
+    rerank: Annotated[
+        bool, typer.Option(help="Rerank a pool of 30 with the recipe's rerank model")
+    ] = False,
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Share of questions with a gold evidence page in the top k: whole corpus vs the known doc."""
@@ -72,23 +75,30 @@ def recall(
 
     async def go(c):
         sem = asyncio.Semaphore(16)
-        t = None
-        if triage:
+        ranker, n = None, ks[-1]
+        if rerank:
+            from ttdr.engine.rerank import Rerank
+
+            if not r.rerank:
+                raise typer.BadParameter("the recipe has no rerank role")
+            ranker = Rerank(connect(r, c.embedder.http).rerank)
+            n = max(n, ranker.pool)
+        elif triage:
             from ttdr.engine.triage import OVERFETCH, Triage
             from ttdr.engine.verify import window_chars
 
             if not r.decide:
                 raise typer.BadParameter("the recipe has no decide role")
             decider = connect(r, c.embedder.http).decide
-            t = Triage(decider, window_chars(r.decide.max_state_tokens))
+            ranker = Triage(decider, window_chars(r.decide.max_state_tokens))
+            n = n * OVERFETCH
 
         async def one(item, doc):
             async with sem:
-                if t:
-                    hits = await c.search(item["question"], ks[-1] * OVERFETCH, suite, doc)
-                    hits = (await t.rerank(item["question"], hits))[: ks[-1]]
-                else:
-                    hits = await c.search(item["question"], ks[-1], suite, doc)
+                hits = await c.search(item["question"], n, suite, doc)
+                if ranker:
+                    hits = await ranker.rerank(item["question"], hits)
+            hits = hits[: ks[-1]]
             gold = {(e["doc"], e["page"]) for e in item["evidence"]}
             return next((r for r, h in enumerate(hits) if (h.doc, h.page) in gold), None)
 

@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
-Kind = Literal["chat", "embed", "decide", "check"]
+Kind = Literal["chat", "embed", "decide", "check", "rerank"]
 Reasoning = Literal["enable_thinking", "reasoning_effort"]
 
 # role -> (kinds it accepts, required?)
@@ -23,6 +23,7 @@ ROLES: dict[str, tuple[tuple[str, ...], bool]] = {
     # verify claims, triage; a chat model answers the same typed questions, a claim checker
     # (check) only verifies; without it both are off
     "decide": (("decide", "chat", "check"), False),
+    "rerank": (("rerank",), False),  # reorder search candidates; without it, embedding order
     "ocr": (("chat",), False),  # vision model for OCR; without it the CPU OCR backend is used
 }
 
@@ -147,6 +148,10 @@ class Recipe(BaseModel):
     @property
     def decide(self) -> Model | None:
         return self.role("decide")
+
+    @property
+    def rerank(self) -> Model | None:
+        return self.role("rerank")
 
     def served(self) -> dict[str, Model]:
         """Models some role uses, in serve order."""

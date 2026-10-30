@@ -29,7 +29,7 @@ def test_roles_are_checked_against_model_kinds():
     with pytest.raises(ValidationError, match="missing required roles: embed"):
         recipe.Recipe.model_validate({**data, "roles": {"llm": "ornith"}})
     with pytest.raises(ValidationError, match="unknown role"):
-        recipe.Recipe.model_validate({**data, "roles": {**data["roles"], "rerank": "laya"}})
+        recipe.Recipe.model_validate({**data, "roles": {**data["roles"], "summarize": "laya"}})
 
 
 def test_legacy_recipes_from_old_runs_still_load():
@@ -80,3 +80,10 @@ def test_claim_checker_verifies_but_cannot_triage():
     data = r.model_dump()
     with pytest.raises(ValidationError, match="triage needs a decide or chat model"):
         recipe.Recipe.model_validate({**data, "features": {**data["features"], "triage": True}})
+
+
+def test_rerank_overlay_adds_a_reranker_without_a_bundle():
+    r = recipe.load(ROOT / "recipes" / "rerank.toml")
+    assert r.rerank.kind == "rerank" and r.rerank.bundle is None
+    assert connect(r, httpx.AsyncClient()).rerank is not None
+    assert connect(RECIPE, httpx.AsyncClient()).rerank is None

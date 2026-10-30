@@ -50,7 +50,12 @@ async def _check(checker) -> str:
     return f"support {p:.2f}"
 
 
-PROBES = {"chat": _chat, "embed": _embed, "decide": _decide, "check": _check}
+async def _rerank(reranker) -> str:
+    s = await reranker.scores("What colour is the sky?", ["The sky is blue.", "Grass is green."])
+    return f"scores {s[0]:.2f} > {s[1]:.2f}" if s[0] > s[1] else f"misordered {s}"
+
+
+PROBES = {"chat": _chat, "embed": _embed, "decide": _decide, "check": _check, "rerank": _rerank}
 
 
 async def _qdrant(http: httpx.AsyncClient, url: str) -> str:
