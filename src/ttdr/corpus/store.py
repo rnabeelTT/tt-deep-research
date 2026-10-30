@@ -23,6 +23,7 @@ class Hit:
 
 
 def _point_id(evidence_id: str) -> str:
+    """Keyed by evidence ID alone, so a document name must be unique across corpora."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, evidence_id))
 
 
@@ -109,13 +110,13 @@ class Store:
         ]
         return sorted(hits, key=lambda h: int(h.id.rsplit(".", 1)[1]))
 
-    async def docs(self, corpus: str) -> set[str]:
+    async def docs(self, corpus: str | None = None) -> set[str]:
+        """Document names in a corpus, or in every corpus."""
+        must = [models.FieldCondition(key="corpus", match=models.MatchValue(value=corpus))]
         r = await self.client.facet(
             COLLECTION,
             "doc",
-            facet_filter=models.Filter(
-                must=[models.FieldCondition(key="corpus", match=models.MatchValue(value=corpus))]
-            ),
+            facet_filter=models.Filter(must=must) if corpus else None,
             limit=10_000,
         )
         return {h.value for h in r.hits}
