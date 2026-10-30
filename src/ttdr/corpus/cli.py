@@ -63,8 +63,9 @@ def recall(
         bool, typer.Option(help="Rerank 3x candidates with the decision model")
     ] = False,
     rerank: Annotated[
-        bool, typer.Option(help="Rerank a pool of 30 with the recipe's rerank model")
+        bool, typer.Option(help="Rerank a wider pool with the recipe's rerank model")
     ] = False,
+    pool: Annotated[int | None, typer.Option(help="Rerank pool size (default 30)")] = None,
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Share of questions with a gold evidence page in the top k: whole corpus vs the known doc."""
@@ -77,11 +78,11 @@ def recall(
         sem = asyncio.Semaphore(16)
         ranker, n = None, ks[-1]
         if rerank:
-            from ttdr.engine.rerank import Rerank
+            from ttdr.engine.rerank import POOL, Rerank
 
             if not r.rerank:
                 raise typer.BadParameter("the recipe has no rerank role")
-            ranker = Rerank(connect(r, c.embedder.http).rerank)
+            ranker = Rerank(connect(r, c.embedder.http).rerank, pool or POOL)
             n = max(n, ranker.pool)
         elif triage:
             from ttdr.engine.triage import OVERFETCH, Triage
