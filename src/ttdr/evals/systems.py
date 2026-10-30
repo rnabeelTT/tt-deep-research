@@ -9,6 +9,7 @@ from mcp import Client
 
 from ttdr import recipe
 from ttdr.clients import Clients, reasoning_params
+from ttdr.engine.rerank import Rerank
 from ttdr.evals.schema import Answer, Item
 
 
@@ -62,6 +63,8 @@ class B1(B0):
     k: int = 10
     corpus: str = "financebench"
     known_doc: bool = False
+    rerank: bool = False
+    """Rerank a wider pool with the recipe's rerank model before keeping the top k."""
     prompt: str = (
         "Answer the question using only the passages provided. Cite the passages you used by "
         "their ID in square brackets, e.g. [DOC#p12.0]. Be concise and give exact figures. "
@@ -71,7 +74,12 @@ class B1(B0):
     async def answer(self, item: Item, clients: Clients) -> Answer:
         start = time.perf_counter()
         doc = item.tags.get("doc") if self.known_doc else None
-        hits = await clients.corpus.search(item.question, self.k, self.corpus, doc)
+        if self.rerank and clients.rerank:
+            ranker = Rerank(clients.rerank)
+            hits = await clients.corpus.search(item.question, ranker.pool, self.corpus, doc)
+            hits = (await ranker.rerank(item.question, hits))[: self.k]
+        else:
+            hits = await clients.corpus.search(item.question, self.k, self.corpus, doc)
         passages = "\n\n".join(f"[{h.id}]\n{h.text}" for h in hits)
         a = await self._ask(
             clients,

@@ -1,0 +1,13 @@
+extends = "../recipe.toml"
+
+# A reranker on a chip reorders the top 30 embedding hits before the agent sees them (docs/LOG.md).
+# Any server with the Cohere/Jina-style `POST /v1/rerank` (vLLM, TEI) works; set the bundle,
+# model and port to whatever the bring-up uses.
+[models.reranker]
+kind = "rerank"
+model = "Qwen/Qwen3-Reranker-4B"
+url = "http://localhost:8004/v1"
+serve_order = 3
+
+[roles]
+rerank = "reranker"

@@ -29,7 +29,7 @@ How the pieces fit, what each one promises the others, and where a change goes. 
 ## The recipe
 
 ```toml
-[models.<name>]        # any number; kind = "chat" | "embed" | "decide"
+[models.<name>]        # any number; kind = "chat" | "embed" | "decide" | "check" | "rerank"
 kind = "chat"
 bundle = "..."         # tt bundle; plus profile, chat_template, prefetch, serve_order
 model = "..."          # model ID the server reports
@@ -40,7 +40,8 @@ reasoning = "enable_thinking"   # or "reasoning_effort": how thinking is switche
 [roles]                # which model does which job
 llm = "<name>"         # required: plan, read, write
 embed = "<name>"       # required
-decide = "<name>"      # optional: verify, triage
+decide = "<name>"      # optional: verify, triage (a "check" model only verifies)
+rerank = "<name>"      # optional: reorder the top 30 search hits before the agent sees them
 judge = "<name>"       # optional: on-box judge (defaults to llm)
 ocr = "<name>"         # optional: vision OCR on the chips instead of PaddleOCR on the CPU
 
@@ -56,6 +57,7 @@ Overlays (`extends = "../recipe.toml"`) change only what differs. Setting a role
 |---|---|---|
 | Swap a model for another of the same kind | Add `[models.x]`, point the role at it | No |
 | Remove the decision model | `decide = ""` | No: verify and triage switch off, the `verify` tool disappears |
+| Add a reranker | `rerank = "<rerank model>"` (`recipes/rerank.toml`) | No: search reranks a pool of 30; any `/v1/rerank` server |
 | Remove web search | `searxng = ""` | No: search covers the corpus and says web is off |
 | Remove OCR or the UI | `[features] ocr = false` / `ui = false` | No: their containers don't start; scanned pages are marked unverified |
 | OCR with a vision model on the chips | `ocr = "<chat model>"` | No: `ttdr up` points the worker at it |

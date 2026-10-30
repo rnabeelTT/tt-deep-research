@@ -11,6 +11,7 @@ from ttdr.clients import Clients, connect
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
 from ttdr.engine.ocr import NEEDS_OCR, OCR_OFF_NOTE, PENDING_NOTE, OcrQueue
+from ttdr.engine.rerank import Rerank
 from ttdr.engine.triage import OVERFETCH, Triage
 from ttdr.engine.verify import window_chars
 from ttdr.recipe import Recipe
@@ -31,6 +32,7 @@ class Engine:
             if recipe.features.triage and decide
             else None
         )
+        self.rerank = Rerank(self.clients.rerank) if self.clients.rerank else None
 
     @classmethod
     def open(cls, recipe: Recipe) -> "Engine":
@@ -74,15 +76,21 @@ class Engine:
     async def search(
         self, query: str, sources: str = "all", k: int = 8, corpus: str | None = None
     ) -> list[Evidence]:
-        n = k * OVERFETCH if self.triage else k
+        if self.rerank:
+            n = max(k, self.rerank.pool)
+        elif self.triage:
+            n = k * OVERFETCH
+        else:
+            n = k
         tasks = []
         if sources in ("web", "all"):
             tasks.append(self._web(query, n))
         if sources in ("corpus", "all"):
             tasks.append(self._corpus(query, n, corpus))
         batches = await asyncio.gather(*tasks)
-        if self.triage:
-            batches = [(await self.triage.rerank(query, b))[:k] for b in batches]
+        ranker = self.rerank or self.triage
+        if ranker:
+            batches = [(await ranker.rerank(query, b))[:k] for b in batches]
         items = [e for batch in batches for e in batch]
         await self.evidence.put(items)
         return items
