@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
-Kind = Literal["chat", "embed", "decide"]
+Kind = Literal["chat", "embed", "decide", "check"]
 Reasoning = Literal["enable_thinking", "reasoning_effort"]
 
 # role -> (kinds it accepts, required?)
@@ -20,15 +20,17 @@ ROLES: dict[str, tuple[tuple[str, ...], bool]] = {
     "llm": (("chat",), True),  # plan, read, write
     "embed": (("embed",), True),  # queries, chunks, page images
     "judge": (("chat",), False),  # on-box judge for quick checks
-    # verify claims, triage; a chat model answers the same typed questions; without it both are off
-    "decide": (("decide", "chat"), False),
+    # verify claims, triage; a chat model answers the same typed questions, a claim checker
+    # (check) only verifies; without it both are off
+    "decide": (("decide", "chat", "check"), False),
     "ocr": (("chat",), False),  # vision model for OCR; without it the CPU OCR backend is used
 }
 
 
 class Model(BaseModel):
     kind: Kind
-    bundle: str
+    bundle: str | None = None
+    """tt-model bundle `ttdr up` serves; models without one (CPU) run elsewhere."""
     model: str
     url: str
     profile: str | None = None
@@ -123,6 +125,8 @@ class Recipe(BaseModel):
         missing = [r for r, (_, required) in ROLES.items() if required and r not in self.roles]
         if missing:
             raise ValueError(f"missing required roles: {', '.join(missing)}")
+        if self.features.triage and self.decide and self.decide.kind == "check":
+            raise ValueError("triage needs a decide or chat model; a claim checker only verifies")
         return self
 
     def role(self, name: str) -> Model | None:

@@ -20,11 +20,22 @@ dependencies = [
     "typer>=0.15",
 ]
 
+[project.optional-dependencies]
+checker = ["torch>=2.6", "transformers>=4.57"]
+
 [project.scripts]
 ttdr = "ttdr.cli:app"
 
 [dependency-groups]
 dev = ["pytest>=8.3", "ruff>=0.8"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,12 @@
+extends = "../recipe.toml"
+
+# Verify claims with MiniCheck-Flan-T5-Large on the CPU (src/ttdr/checker.py) instead of a decision
+# model on a chip. Start it with `uv run --extra checker python -m ttdr.checker --port 8003`.
+[models.minicheck]
+kind = "check"
+model = "lytang/MiniCheck-Flan-T5-Large"
+url = "http://localhost:8003"
+max_state_tokens = 2048
+
+[roles]
+decide = "minicheck"

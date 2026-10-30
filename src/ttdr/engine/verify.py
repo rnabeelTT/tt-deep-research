@@ -1,12 +1,13 @@
 """Claim verification with the decision model: does a cited passage support the claim?
 
 Laya reads at most 512 tokens per state, so a passage is checked in windows and the
-strongest window decides.
+strongest window decides. A claim checker (MiniCheck) scores support only, so it never
+reports a contradiction.
 """
 
 from dataclasses import dataclass
 
-from ttdr.clients import Decider
+from ttdr.clients import Checker, Decider
 from ttdr.corpus.chunk import split
 
 WINDOW_CHARS = 1200
@@ -67,7 +68,7 @@ def from_recipe(recipe, decider) -> "Verifier":
 class Verifier:
     def __init__(
         self,
-        decider: Decider,
+        decider: Decider | Checker,
         min_support: float = 0.5,
         min_contra: float = 0.5,
         window: int = WINDOW_CHARS,
@@ -79,6 +80,11 @@ class Verifier:
 
     async def probs(self, claim: str, passage: str) -> list[dict[str, float]]:
         windows = split(passage, self.window, 200) or [""]
+        if isinstance(self.decider, Checker):
+            support = await self.decider.support([(w, claim) for w in windows])
+            return [
+                {"supported": s, "contradicted": 0.0, "not_enough_info": 1 - s} for s in support
+            ]
         states = [f"Passage: {w}\nClaim: {claim}" for w in windows]
         answers = await self.decider.ask_batch(states, QUESTION)
         return [a["support"]["probabilities"] for a in answers]

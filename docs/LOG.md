@@ -235,3 +235,18 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - Laya's earlier run (stage 6) also left accuracy flat. So on this corpus a decision model buys citation badges, not accuracy.
 
 **Recommendation:** no dedicated decision model for now. Point `decide` at Ornith for verify badges, don't auto-revise answers, and free chip 3. Revisit when a decision model clears ~85% on the pair set, and fix the reviser to always get the source text.
+
+## 2026-10-30 · MiniCheck-Flan-T5-Large on the CPU as the claim checker
+
+**Question:** can a dedicated claim checker on the CPU (no chip) beat Ornith's 69% on the pair set? MiniCheck-Flan-T5-Large (770M, MIT, `lytang/MiniCheck-Flan-T5-Large@96eafd0`) scores 74.7% on LLM-AggreFact, level with GPT-4. It's wired in as a new model kind, `check` (`src/ttdr/checker.py`, `recipes/minicheck.toml`); it only verifies (no triage) and never says "contradicted".
+
+| Verifier | Accuracy | Supported | Contradicted | Not enough info | p50 per pair |
+|---|---|---|---|---|---|
+| Ornith, thinking off | 69% | 70% | 36% | 95% | 3.8 s |
+| MiniCheck-FT5-L, CPU (8 threads) | 44% / 45% | 28% | 0% (can't) | 100% | 10.7 s |
+
+- The model works as published: "Revenue in 2022 was $5.2 billion" against a passage saying so scores 0.96, with $9.1 billion 0.01.
+- It fails on our pairs because their "claims" are FinanceBench gold answers, often terse and computed ("1.73", "$400,000,000 increase", "Yes, change in PPNE was positive"). MiniCheck checks a standalone sentence against the text; it doesn't do the arithmetic or know the question. Ornith does both. Even scored as supported vs not (where it can't lose on contradictions), it reaches 71%, missing 29 of 40 supported pairs.
+- On the CPU it's slow: ~1–2 s per 2,048-token window, serialized, so ~11 s for a page-length passage.
+
+**Decision:** not adopted. A fair test would use real report sentences labeled by the Claude judge; it isn't worth chip time unless that test shows a clear win.
