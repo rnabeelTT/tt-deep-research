@@ -269,6 +269,9 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - Expected answer gain for naive RAG from B1's split (84% correct when the gold page is retrieved, 41% when not): ~+5 correct answers, ~+3 points. Measured end to end once a reranker is on a chip.
 - The CPU is far too slow for agents (13–19 s per search); a reranker needs a chip.
 
+- The instruction needn't be domain-specific. With the general one the engine sends (`recipes/rerank.toml`: "Given a research question, retrieve passages that contain information needed to answer it"), Qwen3-0.6B scores 43.3% / 74.7% / 83.3% at 1 / 5 / 10, against 38.0% / 72.7% / 84.0% with the finance-specific one.
+- How deep the pool goes: dense recall is 89% at 30, 94% at 50 and 96% at 100, so a pool of 50 would give the reranker 5 more points to find (`ttdr corpus recall --rerank --pool 50` on the chip).
+
 **Decision:** a reranker is worth a chip. Qwen3-Reranker family; 4B or the multimodal Qwen3-VL-Reranker for the general-purpose tool (text and page images in one model). Not tested at 4B/8B: the CPU would take hours, the chip minutes.
 
 ## 2026-10-30 · Hybrid search: Qdrant's built-in BM25 + dense vs dense alone
