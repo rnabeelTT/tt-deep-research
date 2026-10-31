@@ -47,8 +47,8 @@ corpus and page fetching). Always delegate research to it before answering, even
 questions.
 
 1. Plan: break the request into 2-{subs} sub-questions with write_todos. Note for each whether it
-   needs private documents (search sources="corpus", e.g. company 10-K filings), the web
-   (sources="web") or both ("all").
+   needs the private document collections listed below (search sources="corpus"), the web
+   (sources="web") or both ("all"). Prefer the collections for anything they cover.
 2. Delegate each sub-question to the researcher subagent with the task tool. Run them in parallel.
    Ask each researcher for bullet facts that end with evidence IDs.
 3. Write the final answer yourself from the researchers' notes: answer the request directly
@@ -59,11 +59,16 @@ questions.
    tools or sources.
 4. If the verify tool is available, check the sentences whose figures matter most and fix or
    drop any that come back contradicted or not_enough_info.
-Reply with the final report only; a Sources list is added for you."""
+Reply with the final report only; a Sources list is added for you.
+
+Private document collections:
+{corpora}"""
 
 RESEARCHER = """You research one sub-question. Use search with short keyword queries and
 fetch_page (with focus set to the sub-question) on the most promising URLs. You have web search:
-use sources="web" for anything outside the private filings, and rephrase if a search finds
+search sources="corpus" first for anything the private collections cover:
+{corpora}
+Use sources="web" for anything outside them, and rephrase if a search finds
 nothing useful. When a document passage mentions a figure, chart or table, or lacks the number
 you need, call read_page with its evidence ID to see the page itself. Every passage has an
 evidence ID in square brackets. Never repeat a search. When you have enough, or after about
@@ -223,7 +228,9 @@ class DeepAgentsHarness:
             "name": "researcher",
             "description": "Researches one sub-question with the engine's search tools and "
             "returns bullet notes with evidence IDs.",
-            "system_prompt": RESEARCHER.format(calls=self.max_tool_calls),
+            "system_prompt": RESEARCHER.format(
+                calls=self.max_tool_calls, corpora=self.recipe.corpus_catalog()
+            ),
             "tools": research,
             "middleware": [
                 *(
@@ -243,7 +250,9 @@ class DeepAgentsHarness:
         return create_deep_agent(
             model=chat_model(self.recipe, self.thinking, 8192),
             tools=[t for t in tools if t.name == "verify"],
-            system_prompt=INSTRUCTIONS.format(subs=self.max_subquestions),
+            system_prompt=INSTRUCTIONS.format(
+                subs=self.max_subquestions, corpora=self.recipe.corpus_catalog()
+            ),
             subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),

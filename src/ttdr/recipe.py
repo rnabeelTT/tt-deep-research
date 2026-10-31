@@ -117,6 +117,8 @@ class Recipe(BaseModel):
     roles: dict[str, str]
     services: Services
     features: Features = Features()
+    corpora: dict[str, str] = {}
+    """Private document collections and what's in them, so agents know when to search them."""
 
     @model_validator(mode="before")
     @classmethod
@@ -139,6 +141,10 @@ class Recipe(BaseModel):
         if self.features.triage and self.decide and self.decide.kind == "check":
             raise ValueError("triage needs a decide or chat model; a claim checker only verifies")
         return self
+
+    def corpus_catalog(self) -> str:
+        """One line per collection: `- name: description`."""
+        return "\n".join(f"- {name}: {about}" for name, about in self.corpora.items())
 
     def role(self, name: str) -> Model | None:
         return self.models[self.roles[name]] if name in self.roles else None

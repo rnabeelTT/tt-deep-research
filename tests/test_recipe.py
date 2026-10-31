@@ -91,3 +91,16 @@ def test_rerank_overlay_serves_a_reranker_on_chip_3_with_ornith_verifying():
     reranker = connect(r, httpx.AsyncClient()).rerank
     assert reranker.instruction and reranker.query_template == "{query}"
     assert connect(RECIPE, httpx.AsyncClient()).rerank is None
+
+
+def test_corpus_catalog_reaches_mcp_harness_and_aiq():
+    import asyncio
+
+    from ttdr import mcp_server
+
+    assert "- unidoc: Energy and construction" in RECIPE.corpus_catalog()
+    tools = asyncio.run(mcp_server.build(RECIPE, object()).list_tools())
+    search = next(t for t in tools if t.name == "search")
+    assert "financebench: Annual and quarterly reports" in search.description
+    source = aiq_config.render(RECIPE)["functions"]["data_sources"]["sources"][0]
+    assert "unidoc:" in source["description"]

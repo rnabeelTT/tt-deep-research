@@ -25,6 +25,9 @@ def render(recipe: Recipe, base: Path = BASE) -> dict:
     cfg = yaml.safe_load(base.read_text())
     cfg["llms"] = {name: _llm(e, recipe.llm) for name, e in cfg["llms"].items()}
     cfg["function_groups"]["ttdr"]["server"]["url"] = recipe.services.mcp
+    for source in cfg["functions"]["data_sources"]["sources"]:
+        if source["id"] == "ttdr" and recipe.corpora:
+            source["description"] += "\nPrivate collections:\n" + recipe.corpus_catalog()
     return cfg
 
 
