@@ -343,6 +343,6 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - Ornith is multimodal: given a page, it reads chart and table values the text layer doesn't have, and stops swapping figures it saw only as flattened text. "I don't know" fell 46 → 26 on UniDoc.
 - Reference points (paper, Claude 4.5 Sonnet with their best retrieval, top 10 pages): 76.6% completeness on UniDoc, a different metric than ours.
 
-**Friction:** concurrent image requests killed Ornith's engine ("chunked prefill is not supported"): vLLM sized the image-encoder budget from the 2,048-token step budget before tt raised it, so it split a request's prefill at an image. `--max-num-batched-tokens 262144` at launch fixes it (`serve_args` in the recipe).
+**Friction:** concurrent image requests killed Ornith's engine ("chunked prefill is not supported"): vLLM sized the image-encoder budget from the 2,048-token step budget before tt raised it, so it split a request's prefill at an image. `--max-num-batched-tokens 262144` at launch fixes it (`serve_args` in the recipe). A second crash came mid-agent-run ("image prompts are prefilled whole"). The port's guard is batch-wide: a fresh image prompt batched with any text prompt that has a prefix-cache hit kills the engine. Ornith now launches with `--no-enable-prefix-caching`. A unique `cache_salt` per image request was tried first and doesn't help, because the hit is on the other request.
 
 **Decision:** rerank (chunk text, pool 30) on; page images to the LLM on for B1. Next: the same for agents, whose tools return text.
