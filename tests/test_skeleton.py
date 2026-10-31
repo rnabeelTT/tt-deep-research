@@ -101,5 +101,6 @@ def test_up_serves_models_from_the_recipe():
         "/hf/ttdr/ornith.jinja",
         "--max-num-batched-tokens",
         "262144",
+        "--no-enable-prefix-caching",
     ]
     assert serve_command(RECIPE.embed)[-2:] == ["--port", "8001"]

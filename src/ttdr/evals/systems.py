@@ -8,7 +8,7 @@ import httpx
 from mcp import Client
 
 from ttdr import recipe
-from ttdr.clients import Clients, image_params, reasoning_params
+from ttdr.clients import Clients, reasoning_params
 from ttdr.corpus.store import Hit
 from ttdr.engine.rerank import Rerank
 from ttdr.evals.schema import Answer, Item
@@ -34,19 +34,12 @@ class B0:
         return await self._ask(clients, item, item.question, time.perf_counter())
 
     async def _ask(
-        self,
-        clients: Clients,
-        item: Item,
-        user: str | list[dict],
-        start: float,
-        params: dict | None = None,
-        **extra,
+        self, clients: Clients, item: Item, user: str | list[dict], start: float, **extra
     ) -> Answer:
         r = await clients.llm.chat(
             [{"role": "system", "content": self.prompt}, {"role": "user", "content": user}],
             max_tokens=self.max_tokens,
             **reasoning_params(self.reasoning_effort, self.thinking),
-            **(params or {}),
         )
         usage, choice = r["usage"], r["choices"][0]
         return Answer(
@@ -113,8 +106,7 @@ class B1(B0):
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png}"}},
                 )
             ] + [{"type": "text", "text": user}]
-        params = image_params() if self.pages else None
-        a = await self._ask(clients, item, user, start, params, retrieved=[h.id for h in hits])
+        a = await self._ask(clients, item, user, start, retrieved=[h.id for h in hits])
         a.cited = sorted(set(CITE.findall(a.text)))
         return a
 
