@@ -46,6 +46,11 @@ searxng = "http://localhost:8888"   # optional: without it, search covers the co
 redis = "redis://localhost:6379"
 mcp = "http://localhost:9901/mcp"
 
+# What each private collection holds: agents read this to decide when to search the corpus.
+[corpora]
+financebench = "Annual and quarterly reports (10-K, 10-Q, 8-K) of about 40 large US public companies, 2015-2023"
+unidoc = "Energy and construction documents: technical and research reports, standards, manuals, safety and planning documents, with many charts, diagrams and tables"
+
 [features]
 triage = false       # Laya reranking lowers recall (docs/LOG.md)
 ocr = true

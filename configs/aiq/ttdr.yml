@@ -79,7 +79,7 @@ functions:
       - id: ttdr
         name: "QB2 Research Engine"
         description: >-
-          Web search plus private document collections (e.g. company 10-K filings), served by the QB2.
+          Web search plus private document collections (listed below), served by the QB2. Search the collections first for anything they cover.
           Tools: search (sources web, corpus or all), fetch_page, get_evidence. Passages carry evidence IDs.
         tools:
           - ttdr

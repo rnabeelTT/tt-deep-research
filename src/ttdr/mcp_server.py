@@ -27,13 +27,23 @@ def _key(*parts) -> str:
     return " ".join(" ".join(str(p).lower().split()) for p in parts)
 
 
+SEARCH_DOC = """Search the web and private document collections. Use short keyword queries.
+sources: "web", "corpus" (the private collections below) or "all"; corpus narrows to one
+collection by name. Returns passages with evidence IDs, titles, URLs and snippets.
+
+Private collections:
+{catalog}"""
+
+
 def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
+    catalog = recipe.corpus_catalog() or "- (none described)"
     server = MCPServer(
         "ttdr",
         instructions=(
             "Research tools on a Tenstorrent QB2. Every passage has an evidence ID in square "
             "brackets; cite claims with those IDs, e.g. [W1a2b3c4d], [W1a2b3c4d.3] or "
-            "[3M_2018_10K#p59.0]."
+            "[3M_2018_10K#p59.0]. Search the private collections first for anything they "
+            f"cover:\n{catalog}"
         ),
     )
     # Streamable HTTP is stateless here, so there's no per-client session to key on: a repeat is
@@ -45,14 +55,10 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
             state["engine"] = Engine.open(recipe)
         return state["engine"]
 
-    @server.tool()
+    @server.tool(description=SEARCH_DOC.format(catalog=catalog))
     async def search(
         query: str, sources: str = "all", max_results: int = 8, corpus: str | None = None
     ) -> str:
-        """Search the web and private document collections. Use short keyword queries.
-        sources: "web", "corpus" (private documents such as 10-K filings) or "all";
-        corpus narrows to one collection (e.g. "financebench").
-        Returns passages with evidence IDs, titles, URLs and snippets."""
         key = _key(query, sources, max_results)
         now, seen = time.monotonic(), state["seen"]
         for k in [k for k, t in seen.items() if now - t > REPEAT_WINDOW_S]:
