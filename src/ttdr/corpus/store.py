@@ -112,11 +112,14 @@ class Store:
 
     async def docs(self, corpus: str | None = None) -> set[str]:
         """Document names in a corpus, or in every corpus."""
-        must = [models.FieldCondition(key="corpus", match=models.MatchValue(value=corpus))]
+        flt = None
+        if corpus:
+            match = models.MatchValue(value=corpus)
+            flt = models.Filter(must=[models.FieldCondition(key="corpus", match=match)])
         r = await self.client.facet(
             COLLECTION,
             "doc",
-            facet_filter=models.Filter(must=must) if corpus else None,
+            facet_filter=flt,
             limit=10_000,
         )
         return {h.value for h in r.hits}

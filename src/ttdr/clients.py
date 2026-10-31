@@ -100,18 +100,30 @@ class Checker:
 
 @dataclass
 class Reranker(OpenAICompat):
-    """Cross-encoder rerankers behind the Cohere/Jina-style rerank API (vLLM). Models that score
-    a prompt (Qwen3-Reranker) get theirs from the recipe's templates; vLLM doesn't add it."""
+    """Cross-encoder rerankers behind the Cohere/Jina-style rerank API. Servers that build the
+    model's prompt take an `instruction` (tt-dit-server's Qwen3-VL-Reranker); vLLM serving the
+    original Qwen3-Reranker needs the prompt wrapped client-side (templates). A document is text,
+    or a dict with "text" and/or "image" (base64 PNG) for multimodal rerankers."""
 
     query_template: str = "{query}"
     document_template: str = "{document}"
+    instruction: str | None = None
 
-    async def scores(self, query: str, docs: list[str]) -> list[float]:
+    def _doc(self, d: str | dict) -> str | dict:
+        if isinstance(d, str):
+            return self.document_template.format(document=d)
+        return (
+            {**d, "text": self.document_template.format(document=d["text"])} if "text" in d else d
+        )
+
+    async def scores(self, query: str, docs: list[str | dict]) -> list[float]:
         body = {
             "model": self.model,
             "query": self.query_template.format(query=query),
-            "documents": [self.document_template.format(document=d) for d in docs],
+            "documents": [self._doc(d) for d in docs],
         }
+        if self.instruction:
+            body["instruction"] = self.instruction
         out = [0.0] * len(docs)
         for r in (await self._post("/rerank", body))["results"]:
             out[r["index"]] = r["relevance_score"]
@@ -182,6 +194,7 @@ KINDS = {
         m.model,
         m.query_template or "{query}",
         m.document_template or "{document}",
+        m.instruction,
     ),
 }
 

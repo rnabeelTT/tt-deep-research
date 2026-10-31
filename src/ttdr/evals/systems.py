@@ -9,6 +9,7 @@ from mcp import Client
 
 from ttdr import recipe
 from ttdr.clients import Clients, reasoning_params
+from ttdr.corpus.store import Hit
 from ttdr.engine.rerank import Rerank
 from ttdr.evals.schema import Answer, Item
 
@@ -32,7 +33,9 @@ class B0:
     async def answer(self, item: Item, clients: Clients) -> Answer:
         return await self._ask(clients, item, item.question, time.perf_counter())
 
-    async def _ask(self, clients: Clients, item: Item, user: str, start: float, **extra) -> Answer:
+    async def _ask(
+        self, clients: Clients, item: Item, user: str | list[dict], start: float, **extra
+    ) -> Answer:
         r = await clients.llm.chat(
             [{"role": "system", "content": self.prompt}, {"role": "user", "content": user}],
             max_tokens=self.max_tokens,
@@ -65,6 +68,11 @@ class B1(B0):
     known_doc: bool = False
     rerank: bool = False
     """Rerank a wider pool with the recipe's rerank model before keeping the top k."""
+    rerank_mode: str = "text"
+    """What the reranker sees: the chunk text, its rendered page, or both."""
+    pages: int = 0
+    """Also show the LLM the rendered pages of the top hits (up to this many distinct pages)."""
+    page_scale: float = 1.5
     prompt: str = (
         "Answer the question using only the passages provided. Cite the passages you used by "
         "their ID in square brackets, e.g. [DOC#p12.0]. Be concise and give exact figures. "
@@ -74,20 +82,31 @@ class B1(B0):
     async def answer(self, item: Item, clients: Clients) -> Answer:
         start = time.perf_counter()
         doc = item.tags.get("doc") if self.known_doc else None
+        corpus = clients.corpus
         if self.rerank and clients.rerank:
-            ranker = Rerank(clients.rerank)
-            hits = await clients.corpus.search(item.question, ranker.pool, self.corpus, doc)
+            ranker = Rerank(clients.rerank, mode=self.rerank_mode, pages=corpus.page_images)
+            hits = await corpus.search(item.question, ranker.pool, self.corpus, doc)
             hits = (await ranker.rerank(item.question, hits))[: self.k]
         else:
-            hits = await clients.corpus.search(item.question, self.k, self.corpus, doc)
+            hits = await corpus.search(item.question, self.k, self.corpus, doc)
         passages = "\n\n".join(f"[{h.id}]\n{h.text}" for h in hits)
-        a = await self._ask(
-            clients,
-            item,
-            f"Passages:\n\n{passages}\n\nQuestion: {item.question}",
-            start,
-            retrieved=[h.id for h in hits],
-        )
+        user: str | list[dict] = f"Passages:\n\n{passages}\n\nQuestion: {item.question}"
+        if self.pages:
+            first: dict[tuple[str, int], Hit] = {}
+            for h in hits:
+                first.setdefault((h.doc, h.page), h)
+            top = list(first.values())[: self.pages]
+            pngs = await corpus.page_images(top, self.page_scale)
+            user = [
+                part
+                for h, png in zip(top, pngs, strict=True)
+                if png
+                for part in (
+                    {"type": "text", "text": f"Page image of [{h.id}]:"},
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png}"}},
+                )
+            ] + [{"type": "text", "text": user}]
+        a = await self._ask(clients, item, user, start, retrieved=[h.id for h in hits])
         a.cited = sorted(set(CITE.findall(a.text)))
         return a
 
