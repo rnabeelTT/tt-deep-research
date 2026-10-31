@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 from dataclasses import dataclass, field
 
 import httpx
@@ -18,6 +19,13 @@ class OpenAICompat:
         r = await self.http.post(f"{self.base_url}{path}", json=body)
         r.raise_for_status()
         return r.json()
+
+
+def image_params() -> dict:
+    """For requests carrying images: a unique cache salt keeps them out of the prefix cache. A
+    cache hit inside an image prompt leaves a partial prefill, which tt's Ornith can't run (the
+    engine dies); text-only requests keep sharing prefixes."""
+    return {"cache_salt": uuid.uuid4().hex}
 
 
 def reasoning_params(effort: str | None = None, thinking: bool | None = None) -> dict:
