@@ -12,6 +12,9 @@ url = "http://localhost:8000/v1"
 sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
 reasoning = "enable_thinking"
 chat_template = "configs/chat_templates/ornith.jinja"
+# vLLM sizes the image-encoder budget from the step budget before tt raises it; at the default
+# 2,048 concurrent image requests get split mid-prefill, which this port can't run (docs/LOG.md).
+serve_args = ["--max-num-batched-tokens", "262144"]
 serve_order = 0
 
 [models.embeddinggemma]

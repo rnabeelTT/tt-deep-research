@@ -82,10 +82,10 @@ def test_claim_checker_verifies_but_cannot_triage():
         recipe.Recipe.model_validate({**data, "features": {**data["features"], "triage": True}})
 
 
-def test_rerank_overlay_adds_a_reranker_without_a_bundle():
+def test_rerank_overlay_serves_a_reranker_on_chip_3_with_ornith_verifying():
     r = recipe.load(ROOT / "recipes" / "rerank.toml")
-    assert r.rerank.kind == "rerank" and r.rerank.bundle is None
+    assert list(r.served()) == ["ornith", "embeddinggemma", "reranker"]
+    assert r.roles["decide"] == "ornith"
     reranker = connect(r, httpx.AsyncClient()).rerank
-    assert "<Query>: q\n" in reranker.query_template.format(query="q")
-    assert reranker.document_template.startswith("<Document>: {document}")
+    assert reranker.instruction and reranker.query_template == "{query}"
     assert connect(RECIPE, httpx.AsyncClient()).rerank is None

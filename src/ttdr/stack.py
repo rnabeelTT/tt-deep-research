@@ -39,6 +39,7 @@ def serve_command(m: Model) -> list[str]:
     extra = ["--profile", m.profile] if m.profile else []
     if m.chat_template:
         extra += ["--chat-template", f"/hf/{TEMPLATE_DIR}/{Path(m.chat_template).name}"]
+    extra += m.serve_args
     return ["tt", "serve", m.bundle, "--yes", "--port", port, *(["--", *extra] if extra else [])]
 
 

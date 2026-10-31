@@ -2,6 +2,7 @@ import ast
 import csv
 import json
 import random
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -103,10 +104,57 @@ def simpleqa(n: int = 150) -> list[Item]:
     return items
 
 
+UNIDOC = ("Salesforce/UniDoc-Bench", "2e22c592438d1e52c39bd769aab2901d596af746")
+UNIDOC_PER_TYPE = 25
+PAGE_PNG = re.compile(r"images/\w+/(\w+)/\1_page_(\d+)\.png")
+
+
+def unidoc() -> list[Item]:
+    """UniDoc-Bench, energy and construction: per domain 25 questions per answer type (text only,
+    table required, image only, image plus text), against both domains' ~1,490 PDFs. Gold pages
+    come from the page images (`_page_0001` is page 0)."""
+    return [i for d in ("energy", "construction") for i in _unidoc_domain(d)]
+
+
+def _unidoc_domain(domain: str) -> list[Item]:
+    import pyarrow.parquet as pq
+
+    path = _fetch(UNIDOC[0], f"data/{domain}-00000-of-00001.parquet", UNIDOC[1])
+    rows = pq.read_table(path).to_pylist()
+    rng = random.Random(SEED)
+    picked = []
+    for t in sorted({r["answer_type"] for r in rows}):
+        of_type = [i for i, r in enumerate(rows) if r["answer_type"] == t]
+        picked += rng.sample(of_type, min(UNIDOC_PER_TYPE, len(of_type)))
+    items = []
+    for i in sorted(picked):
+        r = rows[i]
+        evidence = [
+            Evidence(doc=d, page=int(n) - 1) for d, n in PAGE_PNG.findall(str(r["gt_image_paths"]))
+        ]
+        items.append(
+            Item(
+                id=f"unidoc_{domain}_{i:03d}",
+                suite="unidoc",
+                question=r["question"],
+                answer=r["answer"],
+                tags={
+                    "domain": domain,
+                    "answer_type": r["answer_type"],
+                    "type": r["question_type"],
+                    "doc": evidence[0].doc,
+                },
+                evidence=evidence,
+            )
+        )
+    return items
+
+
 BUILDERS: dict[str, Callable[[], list[Item]]] = {
     "financebench": financebench,
     "simpleqa": simpleqa,
     "deepresearch_bench": deepresearch_bench,
+    "unidoc": unidoc,
 }
 
 

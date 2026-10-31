@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ttdr.corpus import chunk, pdf
+from ttdr.corpus.sources import CORPORA_DIR
 from ttdr.corpus.store import Hit, Store
 
 if TYPE_CHECKING:
@@ -20,12 +21,36 @@ QUERY_PROMPT = "task: question answering | query: {q}"
 DOC_PROMPT = "title: {doc} | text: {text}"
 BATCH = 32
 IMAGE_BATCH = 4
+PAGE_SCALE = 1.0
+PAGE_CACHE = 512
 
 
 class Corpus:
-    def __init__(self, embedder: Embedder, store: Store):
+    def __init__(self, embedder: Embedder, store: Store, root: Path = CORPORA_DIR):
         self.embedder = embedder
         self.store = store
+        self.root = root
+        self._pages: dict[tuple[str, str, int, float], str] = {}
+        self._render = asyncio.Lock()
+
+    async def page_images(self, hits: list[Hit], scale: float = PAGE_SCALE) -> list[str | None]:
+        """Each hit's page as a base64 PNG (None when its PDF isn't on disk). pdfium isn't
+        thread-safe, so pages render one document at a time; recent pages are cached."""
+        want: dict[tuple[str, str], set[int]] = {}
+        for h in hits:
+            if (h.corpus, h.doc, h.page, scale) not in self._pages:
+                want.setdefault((h.corpus, h.doc), set()).add(h.page)
+        for (corpus, doc), pages in want.items():
+            path = self.root / corpus / f"{doc}.pdf"
+            if not path.exists():
+                continue
+            async with self._render:
+                pngs = await asyncio.to_thread(pdf.render_png, path, sorted(pages), scale)
+            for page, png in zip(sorted(pages), pngs, strict=True):
+                self._pages[(corpus, doc, page, scale)] = base64.b64encode(png).decode()
+        while len(self._pages) > PAGE_CACHE:
+            self._pages.pop(next(iter(self._pages)))
+        return [self._pages.get((h.corpus, h.doc, h.page, scale)) for h in hits]
 
     async def search(
         self, query: str, k: int = 10, corpus: str | None = None, doc: str | None = None

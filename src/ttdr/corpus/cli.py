@@ -66,6 +66,10 @@ def recall(
         bool, typer.Option(help="Rerank a wider pool with the recipe's rerank model")
     ] = False,
     pool: Annotated[int | None, typer.Option(help="Rerank pool size (default 30)")] = None,
+    mode: Annotated[
+        str, typer.Option(help="What the reranker sees: text, page (image) or both")
+    ] = "text",
+    known_doc: Annotated[bool, typer.Option(help="Also search within each known doc")] = True,
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Share of questions with a gold evidence page in the top k: whole corpus vs the known doc."""
@@ -82,7 +86,7 @@ def recall(
 
             if not r.rerank:
                 raise typer.BadParameter("the recipe has no rerank role")
-            ranker = Rerank(connect(r, c.embedder.http).rerank, pool or POOL)
+            ranker = Rerank(connect(r, c.embedder.http).rerank, pool or POOL, mode, c.page_images)
             n = max(n, ranker.pool)
         elif triage:
             from ttdr.engine.triage import OVERFETCH, Triage
@@ -104,12 +108,16 @@ def recall(
             return next((r for r, h in enumerate(hits) if (h.doc, h.page) in gold), None)
 
         shared = await asyncio.gather(*(one(i, None) for i in items))
+        if not known_doc:
+            return shared, None
         single = await asyncio.gather(*(one(i, i["tags"]["doc"]) for i in items))
         return shared, single
 
     shared, single = _with_corpus(recipe_path, go)
     table = Table("setting", *(f"recall@{k}" for k in ks))
     for name, ranks in (("whole corpus", shared), ("known doc", single)):
+        if ranks is None:
+            continue
         table.add_row(
             name, *(f"{sum(r is not None and r < k for r in ranks) / len(ranks):.1%}" for k in ks)
         )

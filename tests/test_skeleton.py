@@ -99,5 +99,7 @@ def test_up_serves_models_from_the_recipe():
         "p300",
         "--chat-template",
         "/hf/ttdr/ornith.jinja",
+        "--max-num-batched-tokens",
+        "262144",
     ]
     assert serve_command(RECIPE.embed)[-2:] == ["--port", "8001"]

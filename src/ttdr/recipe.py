@@ -40,12 +40,16 @@ class Model(BaseModel):
     """How this model's thinking is switched: Qwen-style template flag or gpt-oss effort."""
     max_state_tokens: int | None = None
     """Decision models only: tokens per state (Laya 512, Kev 65,536)."""
+    serve_args: list[str] = []
+    """Extra server flags `ttdr up` passes through `tt serve` (vLLM's, for vLLM bundles)."""
     chat_template: str | None = None
     """Repo path of a chat template that `ttdr up` stages for the server and passes to it."""
     query_template: str | None = None
     """Rerankers only: how the query is wrapped ({query}), e.g. Qwen3-Reranker's instruct prompt."""
     document_template: str | None = None
     """Rerankers only: how each document is wrapped ({document})."""
+    instruction: str | None = None
+    """Rerankers only: the task instruction, for servers that build the model's prompt."""
     prefetch: list[str] = []
     """`repo@revision` snapshots `ttdr up` downloads into the model cache before serving."""
     serve_order: int = 0
