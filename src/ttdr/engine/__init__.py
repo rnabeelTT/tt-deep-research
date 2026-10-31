@@ -8,7 +8,7 @@ from dataclasses import asdict, replace
 import httpx
 from redis.asyncio import Redis
 
-from ttdr.clients import Clients, connect, image_params, reasoning_params
+from ttdr.clients import Clients, connect, reasoning_params
 from ttdr.corpus.store import Hit
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
@@ -133,7 +133,6 @@ class Engine:
             max_tokens=1024,
             temperature=0,
             **reasoning_params(thinking=False),
-            **image_params(),
         )
         return (r["choices"][0]["message"]["content"] or "").strip()
 
