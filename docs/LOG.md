@@ -346,3 +346,17 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 **Friction:** concurrent image requests killed Ornith's engine ("chunked prefill is not supported"): vLLM sized the image-encoder budget from the 2,048-token step budget before tt raised it, so it split a request's prefill at an image. `--max-num-batched-tokens 262144` at launch fixes it (`serve_args` in the recipe). A second crash came mid-agent-run ("image prompts are prefilled whole"). The port's guard is batch-wide: a fresh image prompt batched with any text prompt that has a prefix-cache hit kills the engine. Ornith now launches with `--no-enable-prefix-caching`. A unique `cache_salt` per image request was tried first and doesn't help, because the hit is on the other request.
 
 **Decision:** rerank (chunk text, pool 30) on; page images to the LLM on for B1. Next: the same for agents, whose tools return text.
+
+### Deep Agents on the new engine (2026-10-31)
+
+Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and the corpus catalog in prompts. Concurrency 4; 3 sub-questions, 8 tool calls. Graded by blinded Claude graders (`data/judge/queue_da2`). Compared with B1 + rerank + pages.
+
+| | FinanceBench | UniDoc | text | table | image+text | image only | p50 s |
+|---|---|---|---|---|---|---|---|
+| B1 + rerank + pages | 80.0% | 69.0% | 88% | 84% | 60% | 44% | 55 |
+| Deep Agents | **82.0%** | **72.0%** | 96% | 80% | 62% | 50% | 122 / 149 |
+
+- Paired: FinanceBench +2.0 [−4, +8] (+12/−9); UniDoc +3.0 [−3, +9] (+23/−17). Ahead on both, significant on neither.
+- Deep Agents never abstained (0 "I don't know" on FinanceBench). It wins on text questions and on image-only ones. It loses some table questions, where B1's page images show the whole table at once.
+- About 2.5× the latency of B1.
+- The run records don't say how often agents called `read_page`. The auto page-reading run (`recipes/rerank-read.toml`) tests whether pushing page readings into every search is better than leaving it to the agent.
