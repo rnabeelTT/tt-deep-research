@@ -46,10 +46,10 @@ judge = "<name>"       # optional: on-box judge (defaults to llm)
 ocr = "<name>"         # optional: vision OCR on the chips instead of PaddleOCR on the CPU
 
 [services]             # qdrant, redis, mcp required; searxng optional
-[features]             # triage, ocr, ui
+[features]             # triage, ocr, ui, auto_tool_choice, read_pages
 ```
 
-Overlays (`extends = "../recipe.toml"`) change only what differs. Setting a role or optional service to `""` removes it. Examples: `recipes/gpt-oss.toml` (another LLM), `recipes/kev.toml` (another decision model), `recipes/minimal.toml` (LLM and embedder only). The recipe is checked when loaded: unknown roles, missing required roles, and a role pointed at the wrong kind of model are all errors.
+Overlays (`extends = "../recipe.toml"`) change only what differs; `ttdr up --recipe <overlay>` hands the same file to the engine container (`TTDR_RECIPE`). Setting a role or optional service to `""` removes it. Examples: `recipes/gpt-oss.toml` (another LLM), `recipes/kev.toml` (another decision model), `recipes/minimal.toml` (LLM and embedder only). The recipe is checked when loaded: unknown roles, missing required roles, and a role pointed at the wrong kind of model are all errors.
 
 ## Making changes
 
@@ -57,6 +57,8 @@ Overlays (`extends = "../recipe.toml"`) change only what differs. Setting a role
 |---|---|---|
 | Swap a model for another of the same kind | Add `[models.x]`, point the role at it | No |
 | Remove the decision model | `decide = ""` | No: verify and triage switch off, the `verify` tool disappears |
+| Search shows the LLM's reading of the top pages | `[features] read_pages = 3` (`recipes/rerank-read.toml`) | No: one multimodal LLM call per page per search |
+| Pass extra server flags to a model | `serve_args = [...]` on the model | No: `ttdr up` passes them through `tt serve` |
 | Add a reranker | `rerank = "<rerank model>"` (`recipes/rerank.toml`) | No: search reranks a pool of 30; any `/v1/rerank` server |
 | Remove web search | `searxng = ""` | No: search covers the corpus and says web is off |
 | Remove OCR or the UI | `[features] ocr = false` / `ui = false` | No: their containers don't start; scanned pages are marked unverified |
@@ -74,7 +76,7 @@ After any change, `ttdr health` shows what's live and `ttdr up` brings the stack
 
 | Between | Contract |
 |---|---|
-| Engine ↔ harness | Streamable HTTP, no auth by default (optional bearer token via `TTDR_MCP_TOKEN`). MCP tools `search(query, sources, max_results, corpus)`, `fetch_page(url, focus, max_passages)`, `get_evidence(ids)`, `verify(claim, evidence_ids)` (only with a decide role). Every passage carries an evidence ID. |
+| Engine ↔ harness | Streamable HTTP, no auth by default (optional bearer token via `TTDR_MCP_TOKEN`). MCP tools `search(query, sources, max_results, corpus)`, `fetch_page(url, focus, max_passages)`, `read_page(evidence_id, question)` (the multimodal LLM reads the page behind a document passage: charts, figures, table cells), `get_evidence(ids)`, `verify(claim, evidence_ids)` (only with a decide role). Every passage carries an evidence ID. |
 | Evidence IDs | Corpus chunks `DOC#pPAGE.N` (0-based page). Web snippets `W<hash>`; passages of a fetched page `W<hash>.N`. Stored in Redis (`ev:<id>`, 7 days). |
 | Engine ↔ Qdrant | One collection `chunks`. Payload: corpus, eid, doc, page, text, flags. Image-only pages are stored as page-image vectors with empty text. |
 | Engine ↔ OCR worker | Redis list `ocr:queue` of `{corpus, doc, page}`; text in `ocr:text:DOC#pPAGE`; `ocr:pending` dedupes; `ocr:hits` ranks backfill. Workers resolve PDFs under their own `--corpus-dir`. |
