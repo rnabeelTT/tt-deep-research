@@ -1,0 +1,6 @@
+extends = "rerank.toml"
+
+# Search also attaches Ornith's reading of the top 3 document pages (figures, chart values, table
+# cells), so a harness that never calls read_page still sees them (docs/LOG.md).
+[features]
+read_pages = 3

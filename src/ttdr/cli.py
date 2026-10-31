@@ -55,7 +55,8 @@ def up_cmd(
     from ttdr import stack
 
     console = Console()
-    status = stack.up(recipe.load(recipe_path), build, lambda m: console.print(f"[dim]$ {m}[/]"))
+    log = lambda m: console.print(f"[dim]$ {m}[/]")
+    status = stack.up(recipe.load(recipe_path), build, log, recipe_path)
     for name, ok in status.items():
         console.print(f"{'[green]up[/]' if ok else '[red]down[/]'} {name}")
     console.print('UI http://<host>:3000 · jobs `ttdr jobs` · CLI `ttdr research "..."`')

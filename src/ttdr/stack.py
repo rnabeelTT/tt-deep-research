@@ -102,9 +102,11 @@ def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
     return status
 
 
-def compose_env(recipe: Recipe) -> dict[str, str]:
-    """Recipe values Compose needs, written to .env (Compose reads it automatically)."""
+def compose_env(recipe: Recipe, path: Path | None = None) -> dict[str, str]:
+    """Recipe values Compose needs, written to .env (Compose reads it automatically). The
+    engine loads the same recipe file, overlays included."""
     env = {
+        "TTDR_RECIPE": str(path or "recipe.toml"),
         "AIQ_AUTO_TOOL_CHOICE": "1" if recipe.features.auto_tool_choice else "0",
         "TTDR_UID": str(os.getuid()),
         "TTDR_GID": str(os.getgid()),
@@ -115,12 +117,12 @@ def compose_env(recipe: Recipe) -> dict[str, str]:
     return {**env, "TTDR_OCR_BACKEND": "llm", "TTDR_OCR_URL": ocr.url, "TTDR_OCR_MODEL": ocr.model}
 
 
-def up(recipe: Recipe, build: bool, log) -> dict[str, bool]:
+def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, bool]:
     serve_models(recipe, log)
     if not Path("external/aiq").exists():
         _run(["scripts/setup-aiq.sh"], log)
     log(f"rendered {aiq_config.write(recipe)}")
-    Path(".env").write_text("".join(f"{k}={v}\n" for k, v in compose_env(recipe).items()))
+    Path(".env").write_text("".join(f"{k}={v}\n" for k, v in compose_env(recipe, path).items()))
     for d in ("data/corpus", "data/aiq/app"):  # else Docker creates them as root
         Path(d).mkdir(parents=True, exist_ok=True)
     services = app_services(recipe)
