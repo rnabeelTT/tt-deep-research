@@ -314,3 +314,35 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - Cost: ~1.7 s per page on 8 CPU threads (4,197 pages in 2 h with two workers), so ~5–6 h for the 12,013-page corpus, plus a full re-embed.
 
 **Decision:** not adopted for PDFs; by the rule set beforehand (adopt if it favours Docling) it doesn't. Open: an end-to-end B1 run on the 47 questions with Docling's chunks vs ours, to test whether markdown tables lift answer accuracy (staged in `data/ab/docling30`, needs Ornith). For formats we can't read today (docx, pptx, html, xlsx, scanned images), docling-serve (`quay.io/docling-project/docling-serve-cpu:v1.38.2`, pulled) is still the import to use when a corpus needs them.
+
+## 2026-10-31 · Qwen3-VL-Reranker-8B on a chip, a multimodal suite, and page images for the LLM
+
+**Setup:** Qwen3-VL-Reranker-8B (`raahemnabeel/qwen3-vl-reranker-8b`, tt-dit-server) on chip 3 in Laya's place; Ornith on chips 0–1 also answers verify (`recipes/rerank.toml`). New suite **UniDoc-Bench** (DATASETS.md): 200 questions from the energy and construction domains, 50 each whose answer is text only, needs a table, is in an image only, or needs image and text, searched against both domains' 1,491 PDFs (16,946 pages; 973 image-only, 529 figure-heavy). B1 runs today on one stack; Claude graders, blinded across runs.
+
+**Retrieval** (gold page in top k, whole corpus, pool of 30 unless noted):
+
+| | FinanceBench @1 | @5 | @10 | UniDoc @1 | @5 | @10 |
+|---|---|---|---|---|---|---|
+| Embedding only | 33.3% | 62.7% | 76.0% | 56.5% | 86.5% | 90.0% |
+| Rerank, chunk text | **55.3%** | **82.7%** | **86.0%** | 73.0% | **91.0%** | 92.5% |
+| Rerank, chunk text, pool 50 | 56.7% | 82.7% | 89.3% | | | |
+| Rerank, page image | 46.7% | 71.3% | 80.0% | **80.0%** | 90.0% | **93.0%** |
+
+- The 8B VL reranker beats the 0.6B on the CPU (84% @10) and costs ~0.13 s per 3 passages, ~1.5 s per search under load; page images ~0.2 s each.
+- Page images win on UniDoc (figures, plans) and lose on FinanceBench (dense 10-K tables are hard to read at 72 dpi). Text stays the default; "both" (text and page together) is untested (it dropped connections under a 16-way load).
+
+**Answers (B1, top 10 passages):**
+
+| | FinanceBench | UniDoc | UniDoc text only | table | image + text | image only |
+|---|---|---|---|---|---|---|
+| B1 | 72.0% | 58.5% | 78% | 74% | 56% | 26% |
+| + rerank | 78.0% | 60.5% | 82% | 80% | 54% | 26% |
+| + rerank + top 3 pages as images to Ornith | **80.0%** | **69.0%** | 88% | 84% | 60% | **44%** |
+
+- Paired vs B1: FinanceBench +6.0 [0, +12.7] with rerank, **+8.0 [+2.0, +14.0]** (+18/−6) with pages; UniDoc +2.0 [−3, +7] with rerank, **+10.5 [+5.0, +16.0]** (+27/−6) with pages.
+- Ornith is multimodal: given a page, it reads chart and table values the text layer doesn't have, and stops swapping figures it saw only as flattened text. "I don't know" fell 46 → 26 on UniDoc.
+- Reference points (paper, Claude 4.5 Sonnet with their best retrieval, top 10 pages): 76.6% completeness on UniDoc, a different metric than ours.
+
+**Friction:** concurrent image requests killed Ornith's engine ("chunked prefill is not supported"): vLLM sized the image-encoder budget from the 2,048-token step budget before tt raised it, so it split a request's prefill at an image. `--max-num-batched-tokens 262144` at launch fixes it (`serve_args` in the recipe).
+
+**Decision:** rerank (chunk text, pool 30) on; page images to the LLM on for B1. Next: the same for agents, whose tools return text.
