@@ -32,6 +32,7 @@ services:
     volumes: ["${PWD}:${PWD}:ro"]
     command: ["ttdr", "mcp"]
     environment:   # remote clients: TTDR_MCP_HOST=0.0.0.0 ttdr up (token optional)
+      TTDR_RECIPE: ${TTDR_RECIPE:-recipe.toml}   # ttdr up --recipe <overlay>
       TTDR_MCP_HOST: ${TTDR_MCP_HOST:-}
       TTDR_MCP_TOKEN: ${TTDR_MCP_TOKEN:-}
       PYTHONFAULTHANDLER: "1"   # a native crash prints the Python stack of every thread

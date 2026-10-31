@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from typing import Annotated
 
@@ -86,6 +87,8 @@ def run(
 ) -> None:
     """Answer every item with SYSTEM, then grade and summarize."""
     r = recipe.load(recipe_path)
+    if recipe_path:  # harnesses that load the recipe themselves (deepagents) see the same one
+        os.environ["TTDR_RECIPE"] = str(recipe_path)
     suites = suites or list(datasets.BUILDERS)
     run_dir = runner.run(system, suites, r, _params(param or []), concurrency, limit)
     console.print(f"run: {run_dir}")

@@ -80,6 +80,8 @@ class Features(BaseModel):
     """Rerank search candidates with the decide model (stage 7)."""
     ocr: bool = True
     """Queue scanned pages for OCR and run the OCR worker."""
+    read_pages: int = 0
+    """Search attaches the LLM's reading of this many top corpus pages (figures, tables)."""
     ui: bool = True
     """Run the web UI container."""
     auto_tool_choice: bool = False

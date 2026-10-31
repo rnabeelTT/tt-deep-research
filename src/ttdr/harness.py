@@ -25,7 +25,7 @@ from mcp import Client
 
 from ttdr.recipe import Recipe
 
-RESEARCH_TOOLS = ("search", "fetch_page", "get_evidence")
+RESEARCH_TOOLS = ("search", "fetch_page", "read_page", "get_evidence")
 MAIN_TOOLS = ("write_todos", "task", "verify")
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
 PASSAGE = re.compile(
@@ -64,7 +64,8 @@ Reply with the final report only; a Sources list is added for you."""
 RESEARCHER = """You research one sub-question. Use search with short keyword queries and
 fetch_page (with focus set to the sub-question) on the most promising URLs. You have web search:
 use sources="web" for anything outside the private filings, and rephrase if a search finds
-nothing useful. Every passage has an
+nothing useful. When a document passage mentions a figure, chart or table, or lacks the number
+you need, call read_page with its evidence ID to see the page itself. Every passage has an
 evidence ID in square brackets. Never repeat a search. When you have enough, or after about
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
 evidence IDs it comes from, e.g.

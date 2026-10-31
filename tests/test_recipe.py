@@ -65,6 +65,8 @@ def test_features_reach_compose_through_env():
     forced = recipe.load(ROOT / "recipes" / "forced-tool-choice.toml")
     assert compose_env(forced)["AIQ_AUTO_TOOL_CHOICE"] == "0"
     assert compose_env(RECIPE)["TTDR_OCR_BACKEND"] == "paddle"
+    assert compose_env(RECIPE)["TTDR_RECIPE"] == "recipe.toml"
+    assert compose_env(RECIPE, Path("recipes/rerank.toml"))["TTDR_RECIPE"] == "recipes/rerank.toml"
 
 
 def test_decide_can_be_the_llm():

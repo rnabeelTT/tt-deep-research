@@ -2,12 +2,14 @@
 
 import asyncio
 import json
-from dataclasses import asdict
+import re
+from dataclasses import asdict, replace
 
 import httpx
 from redis.asyncio import Redis
 
-from ttdr.clients import Clients, connect
+from ttdr.clients import Clients, connect, reasoning_params
+from ttdr.corpus.store import Hit
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
 from ttdr.engine.ocr import NEEDS_OCR, OCR_OFF_NOTE, PENDING_NOTE, OcrQueue
@@ -17,6 +19,14 @@ from ttdr.engine.verify import window_chars
 from ttdr.recipe import Recipe
 
 SOURCES = ("web", "corpus", "all")
+PAGE_ID = re.compile(r"^(.+)#p(\d+)\.\d+$")
+READ_SCALE = 1.5
+READ_PAGE = """This is page {page} of the document {doc}. Question: {question}
+
+Report everything on this page that bears on the question: exact values from tables, charts and
+figures with their labels, units and periods, and what diagrams show. Quote numbers as printed.
+If the page has nothing relevant, say "Nothing relevant on this page." Do not answer from
+outside the page."""
 
 
 class Engine:
@@ -71,7 +81,7 @@ class Engine:
                 await self.ocr.request(h.corpus, h.doc, h.page)
                 text, flags = text or PENDING_NOTE, (*flags, "unverified")
         url = f"corpus://{h.doc}#page={h.page + 1}"
-        return Evidence(h.id, "corpus", h.doc, url, text, round(h.score, 3), flags)
+        return Evidence(h.id, h.corpus, h.doc, url, text, round(h.score, 3), flags)
 
     async def search(
         self, query: str, sources: str = "all", k: int = 8, corpus: str | None = None
@@ -93,6 +103,53 @@ class Engine:
             batches = [(await ranker.rerank(query, b))[:k] for b in batches]
         items = [e for batch in batches for e in batch]
         await self.evidence.put(items)
+        if self.recipe.features.read_pages:
+            items = await self._with_readings(query, items)
+        return items
+
+    async def read_page(self, evidence_id: str, question: str) -> str | None:
+        """The LLM (multimodal) reads the page behind a corpus passage for one question: figures,
+        charts and table cells the text layer doesn't carry. None for web evidence."""
+        m = PAGE_ID.match(evidence_id)
+        found = await self.get([evidence_id]) if m else []
+        if not found or found[0].source == "web":
+            return None
+        e = found[0]
+        hit = Hit(evidence_id, m[1], int(m[2]), e.text, list(e.flags), 0.0, e.source)
+        [png] = await self.clients.corpus.page_images([hit], READ_SCALE)
+        if not png:
+            return None
+        prompt = READ_PAGE.format(page=hit.page + 1, doc=hit.doc, question=question)
+        r = await self.clients.llm.chat(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{png}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            max_tokens=1024,
+            temperature=0,
+            **reasoning_params(thinking=False),
+        )
+        return (r["choices"][0]["message"]["content"] or "").strip()
+
+    async def _with_readings(self, query: str, items: list[Evidence]) -> list[Evidence]:
+        """Attach the LLM's reading of the top corpus pages (features.read_pages) to the first
+        passage from each page."""
+        first: dict[tuple[str, str], int] = {}
+        for i, e in enumerate(items):
+            if e.source != "web" and PAGE_ID.match(e.id):
+                first.setdefault((e.title, PAGE_ID.match(e.id)[2]), i)
+        picked = list(first.values())[: self.recipe.features.read_pages]
+        readings = await asyncio.gather(*(self.read_page(items[i].id, query) for i in picked))
+        items = list(items)
+        for i, reading in zip(picked, readings, strict=True):
+            if reading:
+                text = f"{items[i].text}\n\n[Page reading: {reading}]"
+                items[i] = replace(items[i], text=text, flags=(*items[i].flags, "page_read"))
         return items
 
     async def fetch(self, url: str, query: str | None = None, k: int = 5) -> list[Evidence]:

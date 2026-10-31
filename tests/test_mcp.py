@@ -67,7 +67,7 @@ def test_tools_follow_the_recipe():
     names = lambda r: {t.name for t in asyncio.run(mcp_server.build(r, FakeEngine()).list_tools())}
     assert "verify" in names(RECIPE)
     minimal = recipe.load(Path(__file__).parents[1] / "recipes" / "minimal.toml")
-    assert names(minimal) == {"search", "fetch_page", "get_evidence"}
+    assert names(minimal) == {"search", "fetch_page", "read_page", "get_evidence"}
     out = _call(mcp_server.build(minimal, FakeEngine()), "search", {"query": "x"})
     assert "Web search is off" in out
 

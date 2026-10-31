@@ -76,6 +76,17 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
         return _format(items)
 
     @server.tool()
+    async def read_page(evidence_id: str, question: str) -> str:
+        """Look at the page behind a document passage (by its evidence ID, e.g.
+        [3M_2018_10K#p59.0]) and report what it shows for your question: chart values, figures,
+        diagrams and table cells that the passage text may lack. Use it when a passage mentions a
+        figure, table or chart, or seems to be missing the number you need."""
+        reading = await eng().read_page(evidence_id, question)
+        if reading is None:
+            return f"No page to read for {evidence_id} (web passages and unknown IDs have none)."
+        return f"[{evidence_id}] page reading:\n{reading}"
+
+    @server.tool()
     async def get_evidence(ids: list[str]) -> str:
         """Full text of passages by evidence ID, e.g. to quote or check a claim."""
         return _format(await eng().get(ids))
