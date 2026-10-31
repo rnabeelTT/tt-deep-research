@@ -190,3 +190,18 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - **Import, don't build, held up:** every candidate was an off-the-shelf tool run as shipped (Qdrant's server-side BM25, Docling's own pipeline and chunker, published rerankers). None needed code of ours beyond a scratch eval harness.
 - **Friction (Docling):** it can't share our environment (it needs huggingface-hub < 2 and pillow < 13; we pin newer), so it runs in its own venv or as docling-serve. ~1.7 s per page on 8 CPU threads; a full re-ingest of the corpus would take most of a working day without a GPU.
 - **Friction (ours):** loading the A/B's Docling chunks as a second corpus overwrote 10,979 live FinanceBench points: point IDs are keyed by evidence ID (`DOC#pN.M`) without the corpus. Restored from the PDFs on the CPU (recall within 2 questions; a chip re-index and the 10 page-image points wait for the embedder); `ttdr corpus index` now refuses a document name another corpus has. No snapshot existed to roll back to.
+
+## Reranker on a chip, a multimodal suite, and the LLM looking at pages (2026-10-31)
+
+**Result:** naive RAG (B1) went from 72% to 80% on FinanceBench and from 58.5% to 69% on UniDoc-Bench, a new suite where half the answers live in figures and tables ([LOG.md](LOG.md)). Two changes did it: Qwen3-VL-Reranker-8B on chip 3, and showing Ornith the top 3 pages as images. Ornith turned out to be multimodal; it reads chart values the PDF text layer never had.
+
+**For managers:**
+- **The chips can see.** Image-only questions on UniDoc went from 26% to 44% correct once the LLM got the page images instead of extracted text. Reranking alone doesn't help them; looking does. This is the case for keeping a multimodal LLM as the default.
+- **A reranker on one chip is worth more than a bigger embedder:** retrieval @1 33% → 55% on FinanceBench at ~1.5 s per search.
+
+**Friction:**
+- Chip 2 wouldn't initialise firmware after another user's job on the box ("Try resetting the board"); `tt-smi -r` and a full re-serve fixed it. `tt serve` reports "opening the Tenstorrent device" failed without saying a reset is the fix.
+- Ornith's engine died on concurrent image requests: "chunked prefill is not supported". vLLM sized the image-encoder budget from its 2,048-token default before the tt platform raised the step budget, so it split prefills at image boundaries. Launching with `--max-num-batched-tokens 262144` fixes it; the bundle should set it. A crashed engine leaves the container up returning 500s, so health checks that only list models miss it.
+- `ttdr up --recipe <overlay>` never reached the engine container, which always loaded `recipe.toml`: agents' tools ran without the reranker. Fixed (`TTDR_RECIPE` in `.env`).
+- UniDoc's energy and construction archives share 11 identical PDFs; the new cross-corpus guard caught it, and the suite became one corpus.
+- Deep Agents at concurrency 16 thrashes Ornith (3 researchers per question, ~48 conversations for 32 sequence slots, prefills without chunking stall every decode): 67 s per question of throughput vs 28 s at concurrency 4.
