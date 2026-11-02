@@ -35,8 +35,12 @@ def test_indexing_refuses_a_doc_name_another_corpus_has(tmp_path):
 
     from ttdr.corpus import Corpus
 
+    class Embedder:
+        async def queries(self, texts):
+            return [[0.0] * 4 for _ in texts]
+
     class Store:
-        async def ensure(self):
+        async def ensure(self, dim):
             pass
 
         async def docs(self, corpus=None):
@@ -44,4 +48,4 @@ def test_indexing_refuses_a_doc_name_another_corpus_has(tmp_path):
 
     (tmp_path / "ACME_2020_10K.pdf").write_bytes(b"")
     with pytest.raises(ValueError, match="ACME_2020_10K"):
-        asyncio.run(Corpus(None, Store()).index_dir(tmp_path, "mine"))
+        asyncio.run(Corpus(Embedder(), Store()).index_dir(tmp_path, "mine"))

@@ -52,8 +52,11 @@ class FakeEmbedder:
     def __init__(self, vecs):
         self.vecs = vecs
 
-    async def embed(self, texts):
-        return self.vecs[: len(texts)]
+    async def queries(self, texts, task=None):
+        return self.vecs[:1]
+
+    async def documents(self, docs):
+        return self.vecs[1 : 1 + len(docs)]
 
 
 def test_rerank_drops_weak_and_duplicate_results():

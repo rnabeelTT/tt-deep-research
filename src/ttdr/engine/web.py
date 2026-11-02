@@ -13,8 +13,6 @@ import httpx
 from ttdr.clients import Embedder
 from ttdr.engine.evidence import Evidence, web_id
 
-QUERY_PROMPT = "task: search result | query: {q}"
-DOC_PROMPT = "title: {title} | text: {text}"
 MIN_SIMILARITY = 0.6
 MAX_BELOW_TOP = 0.2
 NEAR_DUPLICATE = 0.97
@@ -45,11 +43,10 @@ async def rerank(
 ) -> list[tuple[dict, float]]:
     if not results:
         return []
-    texts = [
-        DOC_PROMPT.format(title=r.get("title") or "none", text=r.get("content") or r.get("title"))
-        for r in results
-    ]
-    [qv, *vecs] = await embedder.embed([QUERY_PROMPT.format(q=query), *texts])
+    [qv] = await embedder.queries([query], task="search result")
+    vecs = await embedder.documents(
+        [(r.get("title") or "none", r.get("content") or r.get("title")) for r in results]
+    )
     scored = sorted(
         ((r, cosine(qv, v), v) for r, v in zip(results, vecs, strict=True)),
         key=lambda t: t[1],

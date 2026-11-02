@@ -18,8 +18,6 @@ USER_AGENT = (
 )
 TIMEOUT_S = 20
 MAX_BYTES = 20_000_000
-QUERY_PROMPT = "task: question answering | query: {q}"
-DOC_PROMPT = "title: {title} | text: {text}"
 EMBED_BATCH = 64
 
 
@@ -72,11 +70,11 @@ async def chunks(
     items = [Evidence(web_id(url, n), "web", title, url, t) for n, t in enumerate(parts)]
     if not query or len(items) <= k:
         return items[:k]
-    [qv] = await embedder.embed([QUERY_PROMPT.format(q=query)])
+    [qv] = await embedder.queries([query])
     vecs = []
     for i in range(0, len(items), EMBED_BATCH):
         batch = items[i : i + EMBED_BATCH]
-        vecs += await embedder.embed([DOC_PROMPT.format(title=title, text=e.text) for e in batch])
+        vecs += await embedder.documents([(title, e.text) for e in batch])
     for e, v in zip(items, vecs, strict=True):
         e.score = round(cosine(qv, v), 3)
     return sorted(items, key=lambda e: e.score, reverse=True)[:k]

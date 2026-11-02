@@ -1,4 +1,4 @@
-"""Chunks and their vectors in Qdrant: one collection, filtered by corpus."""
+"""Chunks and their vectors in Qdrant: one collection per embedder, filtered by corpus."""
 
 import uuid
 from dataclasses import dataclass
@@ -8,7 +8,6 @@ from qdrant_client import AsyncQdrantClient, models
 from ttdr.corpus.chunk import Chunk
 
 COLLECTION = "chunks"
-DIM = 768
 
 
 @dataclass
@@ -28,26 +27,27 @@ def _point_id(evidence_id: str) -> str:
 
 
 class Store:
-    def __init__(self, url: str):
+    def __init__(self, url: str, collection: str = COLLECTION):
         self.client = AsyncQdrantClient(url=url)
+        self.collection = collection
 
-    async def ensure(self) -> None:
-        if not await self.client.collection_exists(COLLECTION):
+    async def ensure(self, dim: int) -> None:
+        if not await self.client.collection_exists(self.collection):
             await self.client.create_collection(
-                COLLECTION,
-                vectors_config=models.VectorParams(size=DIM, distance=models.Distance.COSINE),
+                self.collection,
+                vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
             )
             for key in ("corpus", "doc"):
                 await self.client.create_payload_index(
-                    COLLECTION, key, models.PayloadSchemaType.KEYWORD
+                    self.collection, key, models.PayloadSchemaType.KEYWORD
                 )
             await self.client.create_payload_index(
-                COLLECTION, "page", models.PayloadSchemaType.INTEGER
+                self.collection, "page", models.PayloadSchemaType.INTEGER
             )
 
     async def upsert(self, corpus: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         await self.client.upsert(
-            COLLECTION,
+            self.collection,
             [
                 models.PointStruct(
                     id=_point_id(c.id),
@@ -74,7 +74,7 @@ class Store:
             if val
         ]
         r = await self.client.query_points(
-            COLLECTION,
+            self.collection,
             query=vector,
             limit=k,
             query_filter=models.Filter(must=must) if must else None,
@@ -95,7 +95,7 @@ class Store:
     async def page(self, doc: str, page: int) -> list[Hit]:
         """Every chunk of one page, in order."""
         points, _ = await self.client.scroll(
-            COLLECTION,
+            self.collection,
             scroll_filter=models.Filter(
                 must=[
                     models.FieldCondition(key="doc", match=models.MatchValue(value=doc)),
@@ -117,7 +117,7 @@ class Store:
             match = models.MatchValue(value=corpus)
             flt = models.Filter(must=[models.FieldCondition(key="corpus", match=match)])
         r = await self.client.facet(
-            COLLECTION,
+            self.collection,
             "doc",
             facet_filter=flt,
             limit=10_000,
