@@ -382,3 +382,23 @@ Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and th
 - Page-image search is the best by far on figure-heavy UniDoc, and the worst on text-dense filings. Fusing the two splits the difference. Choosing pages or chunks per corpus, or adding the reranker on top, is the follow-up.
 
 **Decision:** Qwen3-VL-Embedding-8B is the default embedder, indexing chunks (collection `chunks_qwen3vl`). embeddinggemma stays in the recipe and its index (`chunks`), so a rollback is one role change. Page-image search is not in the product yet; the vectors are in `pages_qwen3vl` (all of FinanceBench and part of UniDoc).
+
+## A/B: in-document tools from AgenticRAG (2026-11-02)
+
+**Technique:** Microsoft's AgenticRAG (arXiv 2605.05538) gets 92% on FinanceBench with four tools: search, find, open and summarize. We had search and our own read_page. We added `find_in_document` (exact terms inside one document, on Qdrant's full-text index) and `open_pages` (a passage's whole page and its neighbours).
+
+**Setup:** Deep Agents (3 sub-questions, 8 tool calls), recipe `rerank.toml` with the Qwen3-VL embedder. The baseline and the variant (`doc_tools=true`) ran at the same time on one engine, over the dev sets (40 FinanceBench, 40 UniDoc). Graded by blinded Claude graders (`data/judge/ab_doctools`). Runs `20261102-203018` (baseline) and `20261102-203023` (variant).
+
+| | Baseline | + doc tools | Diff [95% CI] | Fixed / broke | Median s |
+|---|---|---|---|---|---|
+| FinanceBench dev | 77.5% | **85.0%** | +7.5 [−2.5, +20] | +4 / −1 | 315 → 262 |
+| UniDoc dev | 72.5% | **77.5%** | +5.0 [−5, +15] | +3 / −1 | 345 → 349 |
+
+- Agents use the tools unprompted: 1.2 finds and 1.5 opens per question. They replace some searches (6.5 → 5.7) and page reads (2.1 → 1.6).
+- 6 of the 7 fixed questions used the tools:
+  - Ulta's registered debt securities: `find` reached the 10-K cover page list, and the agent answered "none".
+  - CVS capital intensity: `find` and `open` got the balance-sheet lines, and the agent computed ROA ≈ 1.8%.
+  - UniDoc G1 reflectance: `open` read the pages continuing the figure discussion.
+- The 2 broken questions look like noise. One used neither tool and flipped on a judgement call; the other is a UniDoc near-miss.
+
+**Decision: adopt.** The direction is consistent on both suites, the mechanism is visible in the traces, and the run is faster on FinanceBench. `doc_tools` now defaults to on, and AI-Q's data-source description lists the tools. The full-suite eval later confirms it.
