@@ -70,7 +70,14 @@ def test_tools_follow_the_recipe():
     names = lambda r: {t.name for t in asyncio.run(mcp_server.build(r, FakeEngine()).list_tools())}
     assert "verify" in names(RECIPE)
     minimal = recipe.load(Path(__file__).parents[1] / "recipes" / "minimal.toml")
-    assert names(minimal) == {"search", "fetch_page", "read_page", "get_evidence"}
+    assert names(minimal) == {
+        "search",
+        "fetch_page",
+        "read_page",
+        "get_evidence",
+        "find_in_document",
+        "open_pages",
+    }
     out = _call(mcp_server.build(minimal, FakeEngine()), "search", {"query": "x"})
     assert "Web search is off" in out
 
@@ -105,3 +112,28 @@ def test_repeat_nudge_expires(monkeypatch):
     _call(server, "search", {"query": "blackhole memory"})
     clock[0] += mcp_server.REPEAT_WINDOW_S + 1
     assert "already ran" not in _call(server, "search", {"query": "blackhole memory"})
+
+
+def test_researchers_get_document_tools_only_when_asked():
+    from langchain_core.tools import StructuredTool
+
+    from ttdr.harness import DeepAgentsHarness
+
+    names = ["search", "fetch_page", "read_page", "get_evidence", "find_in_document", "open_pages"]
+    tools = [StructuredTool.from_function(lambda: "", name=n, description=n) for n in names]
+
+    def researcher_tools(doc_tools):
+        h = DeepAgentsHarness(RECIPE, doc_tools=doc_tools)
+        captured = {}
+        from ttdr import harness
+
+        real = harness.create_deep_agent
+        harness.create_deep_agent = lambda **kw: captured.update(kw)
+        try:
+            h.agent(tools)
+        finally:
+            harness.create_deep_agent = real
+        return {t.name for t in captured["subagents"][0]["tools"]}
+
+    assert "find_in_document" not in researcher_tools(False)
+    assert {"find_in_document", "open_pages"} <= researcher_tools(True)

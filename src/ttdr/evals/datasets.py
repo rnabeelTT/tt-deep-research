@@ -150,11 +150,35 @@ def _unidoc_domain(domain: str) -> list[Item]:
     return items
 
 
+def dev(suite: str, n: int, strata: tuple[str, ...], seed: int = 0) -> Callable[[], list[Item]]:
+    """A fixed sample for quick A/Bs: n items spread evenly over the strata's tag combinations.
+    Items keep their suite, so they search the same corpus."""
+
+    def build_dev() -> list[Item]:
+        groups: dict[tuple, list[Item]] = {}
+        for i in load(suite):
+            groups.setdefault(tuple(i.tags.get(k, "") for k in strata), []).append(i)
+        rng = random.Random(seed)
+        for g in groups.values():
+            rng.shuffle(g)
+        picked: list[Item] = []
+        while len(picked) < n and any(groups.values()):
+            for key in sorted(groups):
+                if groups[key] and len(picked) < n:
+                    picked.append(groups[key].pop())
+        return sorted(picked, key=lambda i: i.id)
+
+    return build_dev
+
+
 BUILDERS: dict[str, Callable[[], list[Item]]] = {
     "financebench": financebench,
     "simpleqa": simpleqa,
     "deepresearch_bench": deepresearch_bench,
     "unidoc": unidoc,
+    "financebench-dev": dev("financebench", 40, ("type",)),
+    "unidoc-dev": dev("unidoc", 40, ("answer_type", "domain")),
+    "deepresearch_bench-dev": dev("deepresearch_bench", 8, ("topic",)),
 }
 
 

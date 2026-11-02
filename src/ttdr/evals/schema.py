@@ -30,6 +30,8 @@ class Answer(BaseModel):
     error: str | None = None
     retrieved: list[str] = []
     cited: list[str] = []
+    stats: dict[str, int] = {}
+    """Harness counters: LLM and tool calls by name, tokens."""
 
 
 class Graded(BaseModel):

@@ -21,6 +21,8 @@ from ttdr.recipe import Recipe
 SOURCES = ("web", "corpus", "all")
 PAGE_ID = re.compile(r"^(.+)#p(\d+)\.\d+$")
 READ_SCALE = 1.5
+FIND_K = 10
+OPEN_MAX = 2
 READ_PAGE = """This is page {page} of the document {doc}. Question: {question}
 
 Report everything on this page that bears on the question: exact values from tables, charts and
@@ -150,6 +152,26 @@ class Engine:
             if reading:
                 text = f"{items[i].text}\n\n[Page reading: {reading}]"
                 items[i] = replace(items[i], text=text, flags=(*items[i].flags, "page_read"))
+        return items
+
+    async def find(self, doc: str, terms: str, k: int = FIND_K) -> tuple[list[Evidence], int]:
+        """Passages of one corpus document containing every word of terms, in page order, and
+        how many matched in all."""
+        hits = await self.clients.corpus.store.find(doc, terms)
+        items = list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits[:k])))
+        await self.evidence.put(items)
+        return items, len(hits)
+
+    async def open_pages(self, evidence_id: str, before: int = 0, after: int = 1) -> list[Evidence]:
+        """Every passage of a corpus passage's page and its neighbours, in reading order."""
+        m = PAGE_ID.match(evidence_id)
+        if not m:
+            return []
+        page = int(m[2])
+        first, last = max(0, page - min(before, OPEN_MAX)), page + min(after, OPEN_MAX)
+        hits = await self.clients.corpus.store.pages(m[1], first, last)
+        items = list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits)))
+        await self.evidence.put(items)
         return items
 
     async def fetch(self, url: str, query: str | None = None, k: int = 5) -> list[Evidence]:
