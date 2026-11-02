@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 
 from ttdr import health, recipe
-from ttdr.clients import connect
+from ttdr.clients import client, connect
 
 RECIPE = recipe.load(Path(__file__).parents[1] / "recipe.toml")
 
@@ -32,8 +32,8 @@ def test_embedder_calls_endpoint_from_recipe():
 
     assert asyncio.run(go()) == [[0.1, 0.2]]
     req = seen[0]
-    assert str(req.url) == "http://localhost:8001/v1/embeddings"
-    assert b'"model":"google/embeddinggemma-2"' in req.read()
+    assert str(req.url) == "http://localhost:8005/v1/embeddings"
+    assert b'"model":"Qwen/Qwen3-VL-Embedding-8B"' in req.read()
 
 
 def test_decider_posts_systemone():
@@ -61,7 +61,7 @@ def test_recipe_overlay_swaps_llm_and_judge_follows():
     assert r.llm.model == "openai/gpt-oss-20b"
     assert r.llm.url == RECIPE.llm.url
     assert r.judge == r.llm
-    assert list(r.served()) == ["gpt-oss", "embeddinggemma", "laya"]
+    assert list(r.served()) == ["gpt-oss", "qwen3vl_embed", "laya"]
 
 
 def test_llm_applies_recipe_sampling_and_request_overrides():
@@ -103,7 +103,7 @@ def test_up_serves_models_from_the_recipe():
         "262144",
         "--no-enable-prefix-caching",
     ]
-    assert serve_command(RECIPE.embed)[-2:] == ["--port", "8001"]
+    assert serve_command(RECIPE.embed)[-2:] == ["--port", "8005"]
 
 
 def test_instructed_embedder_sends_the_instruction_with_queries_only():
@@ -113,11 +113,9 @@ def test_instructed_embedder_sends_the_instruction_with_queries_only():
         bodies.append(json.loads(req.read()))
         return httpx.Response(200, json={"data": [{"embedding": [1.0]}]})
 
-    r = recipe.load(Path(__file__).parents[1] / "recipes/qwen-embed.toml")
-
     async def go():
         async with _mock(handler) as http:
-            c = connect(r, http)
+            c = connect(RECIPE, http)
             await c.embed.queries(["what?"])
             await c.embed.documents([("ACME_2020_10K", "revenue")])
             return c.corpus.store.collection
@@ -136,7 +134,7 @@ def test_prompted_embedder_wraps_queries_and_documents():
 
     async def go():
         async with _mock(handler) as http:
-            e = connect(RECIPE, http).embed
+            e = client(http, RECIPE.models["embeddinggemma"])
             await e.queries(["what?"], task="search result")
             await e.documents([("ACME", "revenue")])
 

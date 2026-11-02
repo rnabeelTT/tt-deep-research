@@ -15,7 +15,7 @@ RECIPE = recipe.load(ROOT / "recipe.toml")
 def test_minimal_overlay_removes_roles_services_and_features():
     r = recipe.load(ROOT / "recipes" / "minimal.toml")
     assert r.decide is None and r.services.searxng is None
-    assert list(r.served()) == ["ornith", "embeddinggemma"]
+    assert list(r.served()) == ["ornith", "qwen3vl_embed"]
     assert app_services(r) == ["engine", "aiq"]
     assert connect(r, httpx.AsyncClient()).decide is None
 
@@ -86,7 +86,7 @@ def test_claim_checker_verifies_but_cannot_triage():
 
 def test_rerank_overlay_serves_a_reranker_on_chip_3_with_ornith_verifying():
     r = recipe.load(ROOT / "recipes" / "rerank.toml")
-    assert list(r.served()) == ["ornith", "embeddinggemma", "reranker"]
+    assert list(r.served()) == ["ornith", "qwen3vl_embed", "reranker"]
     assert r.roles["decide"] == "ornith"
     reranker = connect(r, httpx.AsyncClient()).rerank
     assert reranker.instruction and reranker.query_template == "{query}"

@@ -360,3 +360,25 @@ Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and th
 - Deep Agents never abstained (0 "I don't know" on FinanceBench). It wins on text questions and on image-only ones. It loses some table questions, where B1's page images show the whole table at once.
 - About 2.5× the latency of B1.
 - The run records don't say how often agents called `read_page`. The auto page-reading run (`recipes/rerank-read.toml`) tests whether pushing page readings into every search is better than leaving it to the agent.
+
+## Embedder: Qwen3-VL-Embedding-8B replaces embeddinggemma (2026-11-02)
+
+**Question:** does a larger, multimodal embedder find the gold page more often, and should we search page images?
+
+**Setup:** raahemnabeel/qwen3-vl-embedding-8b, 4,096-d, served on all four chips (p300x2) for indexing; about 85 chunks/s and 6 pages/s. Each embedder searches the same documents: all 84 FinanceBench filings, and a UniDoc subset of 346 documents (the 173 gold documents plus 173 random distractors, seed 0). Metric: rank of the first gold page among distinct pages. Scratch scripts: `qwen_embed/ab.py` and `gemma_cpu.py`. For UniDoc, embeddinggemma's queries were embedded on the CPU; on FinanceBench the CPU queries reproduce the on-chip numbers to within 0.7 points.
+
+| Page recall | @1 | @5 | @10 | @20 | @30 |
+|---|---|---|---|---|---|
+| FinanceBench, embeddinggemma chunks | 32.7 | 63.3 | 78.7 | 88.0 | 92.7 |
+| FinanceBench, Qwen chunks | **37.3** | **74.0** | **84.7** | **94.0** | **97.3** |
+| FinanceBench, Qwen page images | 36.7 | 62.7 | 76.7 | 83.3 | 87.3 |
+| FinanceBench, Qwen chunks + pages (RRF) | 44.0 | 71.3 | 83.3 | 90.0 | 94.7 |
+| UniDoc subset, embeddinggemma chunks | 60.5 | 89.5 | 92.5 | 95.5 | 96.0 |
+| UniDoc subset, Qwen chunks | 63.0 | 89.5 | 94.0 | 95.0 | 96.5 |
+| UniDoc subset, Qwen page images | **71.5** | **95.0** | **99.0** | **99.5** | **100.0** |
+| UniDoc subset, Qwen chunks + pages (RRF) | 68.5 | 93.5 | 95.0 | 97.5 | 99.5 |
+
+- Qwen chunks beat embeddinggemma on both suites. On FinanceBench, misses at @30 (the rerank pool) fall from 7.3% to 2.7%.
+- Page-image search is the best by far on figure-heavy UniDoc, and the worst on text-dense filings. Fusing the two splits the difference. Choosing pages or chunks per corpus, or adding the reranker on top, is the follow-up.
+
+**Decision:** Qwen3-VL-Embedding-8B is the default embedder, indexing chunks (collection `chunks_qwen3vl`). embeddinggemma stays in the recipe and its index (`chunks`), so a rollback is one role change. Page-image search is not in the product yet; the vectors are in `pages_qwen3vl` (all of FinanceBench and part of UniDoc).
