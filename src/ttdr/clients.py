@@ -40,16 +40,40 @@ class LLM(OpenAICompat):
         return await self._post("/chat/completions", body)
 
 
+@dataclass
 class Embedder(OpenAICompat):
-    async def embed(self, texts: list[str], dimensions: int | None = None) -> list[list[float]]:
-        body = {"model": self.model, "input": texts}
-        if dimensions:
-            body["dimensions"] = dimensions
+    """Prompted embedders (embeddinggemma) wrap queries and documents in templates; instructed
+    ones (Qwen3-VL-Embedding) take an `instruction` with queries and none with documents."""
+
+    query_template: str = "{query}"
+    document_template: str = "{document}"
+    instruction: str | None = None
+    dimensions: int | None = None
+
+    async def embed(
+        self, inputs: list[str | dict], instruction: str | None = None
+    ) -> list[list[float]]:
+        body = {"model": self.model, "input": inputs}
+        if self.dimensions:
+            body["dimensions"] = self.dimensions
+        if instruction:
+            body["instruction"] = instruction
         return [d["embedding"] for d in (await self._post("/embeddings", body))["data"]]
 
+    async def queries(
+        self, texts: list[str], task: str = "question answering"
+    ) -> list[list[float]]:
+        prompts = [self.query_template.format(query=t, task=task) for t in texts]
+        return await self.embed(prompts, self.instruction)
+
+    async def documents(self, docs: list[tuple[str, str]]) -> list[list[float]]:
+        """(title, text) pairs."""
+        return await self.embed(
+            [self.document_template.format(title=t, document=d) for t, d in docs]
+        )
+
     async def embed_images(self, images_b64: list[str]) -> list[list[float]]:
-        body = {"model": self.model, "input": [{"image": b} for b in images_b64]}
-        return [d["embedding"] for d in (await self._post("/embeddings", body))["data"]]
+        return await self.embed([{"image": b} for b in images_b64])
 
 
 @dataclass
@@ -185,7 +209,15 @@ class ChatDecider:
 # kind -> client. A new kind of model is one client class plus one entry here (and a role).
 KINDS = {
     "chat": lambda http, m: LLM(http, m.url, m.model, m.sampling),
-    "embed": lambda http, m: Embedder(http, m.url, m.model),
+    "embed": lambda http, m: Embedder(
+        http,
+        m.url,
+        m.model,
+        m.query_template or "{query}",
+        m.document_template or "{document}",
+        m.instruction,
+        m.dimensions,
+    ),
     "decide": lambda http, m: Decider(http, m.url, m.model),
     "check": lambda http, m: Checker(http, m.url, m.model),
     "rerank": lambda http, m: Reranker(
@@ -223,6 +255,6 @@ def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
         client(http, recipe.llm),
         embed,
         _decider(http, decide) if decide else None,
-        Corpus(embed, Store(recipe.services.qdrant)),
+        Corpus(embed, Store(recipe.services.qdrant, recipe.embed.collection)),
         client(http, recipe.rerank) if recipe.rerank else None,
     )

@@ -35,7 +35,7 @@ async def _chat(llm) -> str:
 
 
 async def _embed(embedder) -> str:
-    return f"dim {len((await embedder.embed(['health check']))[0])}"
+    return f"dim {len((await embedder.queries(['health check']))[0])}"
 
 
 async def _decide(decider) -> str:

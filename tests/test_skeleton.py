@@ -104,3 +104,42 @@ def test_up_serves_models_from_the_recipe():
         "--no-enable-prefix-caching",
     ]
     assert serve_command(RECIPE.embed)[-2:] == ["--port", "8001"]
+
+
+def test_instructed_embedder_sends_the_instruction_with_queries_only():
+    bodies = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(req.read()))
+        return httpx.Response(200, json={"data": [{"embedding": [1.0]}]})
+
+    r = recipe.load(Path(__file__).parents[1] / "recipes/qwen-embed.toml")
+
+    async def go():
+        async with _mock(handler) as http:
+            c = connect(r, http)
+            await c.embed.queries(["what?"])
+            await c.embed.documents([("ACME_2020_10K", "revenue")])
+            return c.corpus.store.collection
+
+    assert asyncio.run(go()) == "chunks_qwen3vl"
+    assert bodies[0]["input"] == ["what?"] and bodies[0]["instruction"].startswith("Given")
+    assert bodies[1]["input"] == ["ACME_2020_10K\nrevenue"] and "instruction" not in bodies[1]
+
+
+def test_prompted_embedder_wraps_queries_and_documents():
+    bodies = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(req.read()))
+        return httpx.Response(200, json={"data": [{"embedding": [1.0]}]})
+
+    async def go():
+        async with _mock(handler) as http:
+            e = connect(RECIPE, http).embed
+            await e.queries(["what?"], task="search result")
+            await e.documents([("ACME", "revenue")])
+
+    asyncio.run(go())
+    assert bodies[0]["input"] == ["task: search result | query: what?"]
+    assert bodies[1]["input"] == ["title: ACME | text: revenue"]

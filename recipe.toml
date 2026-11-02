@@ -22,6 +22,8 @@ kind = "embed"
 bundle = "tt-hous/embeddinggemma-2"
 model = "google/embeddinggemma-2"
 url = "http://localhost:8001/v1"
+query_template = "task: {task} | query: {query}"
+document_template = "title: {title} | text: {document}"
 serve_order = 1
 
 [models.laya]

@@ -45,11 +45,16 @@ class Model(BaseModel):
     chat_template: str | None = None
     """Repo path of a chat template that `ttdr up` stages for the server and passes to it."""
     query_template: str | None = None
-    """Rerankers only: how the query is wrapped ({query}), e.g. Qwen3-Reranker's instruct prompt."""
+    """Embedders and rerankers: how the query is wrapped ({query}; embedders also {task})."""
     document_template: str | None = None
-    """Rerankers only: how each document is wrapped ({document})."""
+    """Embedders and rerankers: how each document is wrapped ({document}; embedders also {title})."""
     instruction: str | None = None
-    """Rerankers only: the task instruction, for servers that build the model's prompt."""
+    """Embedders (with queries) and rerankers: the task instruction, for servers that build the
+    model's prompt."""
+    dimensions: int | None = None
+    """Embedders only: Matryoshka truncation; unset, the model's full size."""
+    collection: str = "chunks"
+    """Embedders only: the Qdrant collection holding this embedder's vectors."""
     prefetch: list[str] = []
     """`repo@revision` snapshots `ttdr up` downloads into the model cache before serving."""
     serve_order: int = 0

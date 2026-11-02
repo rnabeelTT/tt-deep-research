@@ -17,8 +17,6 @@ from ttdr.corpus.store import Hit, Store
 if TYPE_CHECKING:
     from ttdr.clients import Embedder
 
-QUERY_PROMPT = "task: question answering | query: {q}"
-DOC_PROMPT = "title: {doc} | text: {text}"
 BATCH = 32
 IMAGE_BATCH = 4
 PAGE_SCALE = 1.0
@@ -55,7 +53,7 @@ class Corpus:
     async def search(
         self, query: str, k: int = 10, corpus: str | None = None, doc: str | None = None
     ) -> list[Hit]:
-        [vec] = await self.embedder.embed([QUERY_PROMPT.format(q=query)])
+        [vec] = await self.embedder.queries([query])
         return await self.store.search(vec, k, corpus, doc)
 
     async def index_pdf(
@@ -66,9 +64,7 @@ class Corpus:
         chunks = [c for p in pages if "image_only" not in p.flags for c in chunk.chunks(p)]
         for i in range(0, len(chunks), BATCH):
             batch = chunks[i : i + BATCH]
-            vecs = await self.embedder.embed(
-                [DOC_PROMPT.format(doc=c.doc, text=c.text) for c in batch]
-            )
+            vecs = await self.embedder.documents([(c.doc, c.text) for c in batch])
             await self.store.upsert(corpus, batch, vecs)
         await self.index_images(path, [p for p in pages if "image_only" in p.flags], corpus, pool)
         return pages
@@ -97,7 +93,7 @@ class Corpus:
 
     async def index_dir(self, root: Path, corpus: str, concurrency: int = 4) -> dict:
         """Index every PDF under root; page flags go to root/pages.jsonl for the OCR stage."""
-        await self.store.ensure()
+        await self.store.ensure(len((await self.embedder.queries(["size"]))[0]))
         done = await self.store.docs(corpus)
         todo = [p for p in sorted(root.glob("*.pdf")) if p.stem not in done]
         if clash := {p.stem for p in todo} & (await self.store.docs() - done):
