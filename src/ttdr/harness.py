@@ -26,6 +26,7 @@ from mcp import Client
 from ttdr.recipe import Recipe
 
 RESEARCH_TOOLS = ("search", "fetch_page", "read_page", "get_evidence")
+DOC_TOOLS = ("find_in_document", "open_pages")
 MAIN_TOOLS = ("write_todos", "task", "verify")
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
 PASSAGE = re.compile(
@@ -70,12 +71,17 @@ search sources="corpus" first for anything the private collections cover:
 {corpora}
 Use sources="web" for anything outside them, and rephrase if a search finds
 nothing useful. When a document passage mentions a figure, chart or table, or lacks the number
-you need, call read_page with its evidence ID to see the page itself. Every passage has an
-evidence ID in square brackets. Never repeat a search. When you have enough, or after about
+you need, call read_page with its evidence ID to see the page itself.{doc_tools} Every passage
+has an evidence ID in square brackets. Never repeat a search. When you have enough, or after about
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
 evidence IDs it comes from, e.g.
 - 3M's 2018 capital expenditure was $1,577 million [3M_2018_10K#p59.2]
 Copy IDs exactly as the tools print them; never make one up. Say what you could not find."""
+
+DOC_TOOLS_HINT = """ Inside a document you
+found, find_in_document looks up exact words (a line item, a defined term, a note number) and
+open_pages reads the whole page around a passage and the pages after it, for tables and notes
+that continue."""
 
 FIX_CITATIONS = """Some citations in this report are not real evidence IDs: {invented}
 
@@ -211,6 +217,8 @@ class EvidenceNotes(AgentMiddleware):
 class Result:
     report: str
     stats: Counter = field(default_factory=Counter)
+    seen: list[str] = field(default_factory=list)
+    """Evidence IDs the researchers' tools returned, in order."""
 
 
 @dataclass
@@ -221,15 +229,20 @@ class DeepAgentsHarness:
     """Per researcher run and tool; past it the tool errors and the researcher wraps up."""
     max_model_calls: int = 60
     thinking: bool = False
+    doc_tools: bool = False
+    """In-document tools for researchers: exact-term find and reading neighbouring pages."""
 
     def agent(self, tools: list[StructuredTool]):
-        research = [t for t in tools if t.name in RESEARCH_TOOLS]
+        allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
+        research = [t for t in tools if t.name in allowed]
         researcher = {
             "name": "researcher",
             "description": "Researches one sub-question with the engine's search tools and "
             "returns bullet notes with evidence IDs.",
             "system_prompt": RESEARCHER.format(
-                calls=self.max_tool_calls, corpora=self.recipe.corpus_catalog()
+                calls=self.max_tool_calls,
+                corpora=self.recipe.corpus_catalog(),
+                doc_tools=DOC_TOOLS_HINT if self.doc_tools else "",
             ),
             "tools": research,
             "middleware": [
@@ -241,7 +254,7 @@ class DeepAgentsHarness:
                 # model calls on one ~98k-token context); end it, EvidenceNotes keeps its passages.
                 ModelCallLimitMiddleware(run_limit=3 * self.max_tool_calls, exit_behavior="end"),
                 EvidenceNotes(),
-                OnlyTools(RESEARCH_TOOLS),
+                OnlyTools(allowed),
             ],
         }
         # The planner sometimes picks Deep Agents' built-in general-purpose subagent, which has
@@ -282,7 +295,7 @@ class DeepAgentsHarness:
         report = await self.check_citations(client, report, seen, stats)
         report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
-        return Result(report, stats)
+        return Result(report, stats, list(seen))
 
     async def check_citations(self, client, report: str, seen: dict, stats: Counter) -> str:
         """Every cited ID must exist in the evidence store. Invented ones get one rewrite with the

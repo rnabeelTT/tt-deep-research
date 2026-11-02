@@ -206,13 +206,18 @@ class DeepAgents:
     max_subquestions: int = 3
     max_tool_calls: int = 8
     thinking: bool = False
+    doc_tools: bool = False
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
         from ttdr.harness import DeepAgentsHarness
 
         start = time.perf_counter()
         h = DeepAgentsHarness(
-            recipe.load(), self.max_subquestions, self.max_tool_calls, thinking=self.thinking
+            recipe.load(),
+            self.max_subquestions,
+            self.max_tool_calls,
+            thinking=self.thinking,
+            doc_tools=self.doc_tools,
         )
         r = await h.run(item.question)
         return Answer(
@@ -221,7 +226,9 @@ class DeepAgents:
             latency_s=time.perf_counter() - start,
             prompt_tokens=r.stats["input tokens"],
             completion_tokens=r.stats["output tokens"],
+            retrieved=r.seen,
             cited=sorted(set(CITE.findall(r.report))),
+            stats=dict(r.stats),
         )
 
 

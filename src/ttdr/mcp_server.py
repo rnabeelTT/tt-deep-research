@@ -93,6 +93,28 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
         return f"[{evidence_id}] page reading:\n{reading}"
 
     @server.tool()
+    async def find_in_document(doc: str, terms: str) -> str:
+        """Find exact words inside one private document: the passages containing every word of
+        terms, in page order. doc is the name before '#' in an evidence ID (3M_2018_10K for
+        [3M_2018_10K#p59.0]). Use it for line items, defined terms, names and numbers that
+        search ranks poorly, e.g. terms="capital expenditures" or "Note 7"."""
+        items, total = await eng().find(doc, terms)
+        if not items:
+            return f"No passage of {doc} contains all of: {terms}"
+        more = f" (first {len(items)} of {total})" if total > len(items) else ""
+        return f"{total} passages of {doc} contain {terms!r}{more}:\n\n" + _format(items)
+
+    @server.tool()
+    async def open_pages(evidence_id: str, before: int = 0, after: int = 1) -> str:
+        """Read the full text of a private document around a passage: its whole page plus up
+        to 2 pages before or after, in reading order. Use it when a table, list or argument
+        continues past the passage, or to read the notes under a table."""
+        items = await eng().open_pages(evidence_id, before, after)
+        if not items:
+            return f"No pages to open for {evidence_id} (web passages and unknown IDs have none)."
+        return _format(items)
+
+    @server.tool()
     async def get_evidence(ids: list[str]) -> str:
         """Full text of passages by evidence ID, e.g. to quote or check a claim."""
         return _format(await eng().get(ids))
