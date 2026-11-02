@@ -147,7 +147,11 @@ def mcp_tools(client, tools) -> list[StructuredTool]:
     return [wrap(t) for t in tools]
 
 
-def chat_model(recipe: Recipe, thinking: bool, max_tokens: int) -> ChatOpenAI:
+def chat_model(
+    recipe: Recipe, thinking: bool, max_tokens: int, context_tokens: int | None = None
+) -> ChatOpenAI:
+    """context_tokens is the budget Deep Agents sizes its summarization from (85% triggers it,
+    the last 10% is kept); unset, it summarizes only past 170k tokens."""
     m = recipe.llm
     return ChatOpenAI(
         model=m.model,
@@ -155,6 +159,7 @@ def chat_model(recipe: Recipe, thinking: bool, max_tokens: int) -> ChatOpenAI:
         api_key="none",
         max_tokens=max_tokens,
         timeout=1800,
+        profile={"max_input_tokens": context_tokens} if context_tokens else None,
         **m.request_settings(thinking),
     )
 
@@ -229,8 +234,10 @@ class DeepAgentsHarness:
     """Per researcher run and tool; past it the tool errors and the researcher wraps up."""
     max_model_calls: int = 60
     thinking: bool = False
-    doc_tools: bool = False
+    doc_tools: bool = True
     """In-document tools for researchers: exact-term find and reading neighbouring pages."""
+    context_tokens: int | None = None
+    """Condense agent histories past 85% of this many tokens (see chat_model)."""
 
     def agent(self, tools: list[StructuredTool]):
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
@@ -261,7 +268,7 @@ class DeepAgentsHarness:
         # no search tools and reports "no web search"; under that name it gets the researcher's.
         general = {**researcher, "name": "general-purpose", "description": "Same as researcher."}
         return create_deep_agent(
-            model=chat_model(self.recipe, self.thinking, 8192),
+            model=chat_model(self.recipe, self.thinking, 8192, self.context_tokens),
             tools=[t for t in tools if t.name == "verify"],
             system_prompt=INSTRUCTIONS.format(
                 subs=self.max_subquestions, corpora=self.recipe.corpus_catalog()

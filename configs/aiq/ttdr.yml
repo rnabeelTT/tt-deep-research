@@ -80,7 +80,7 @@ functions:
         name: "QB2 Research Engine"
         description: >-
           Web search plus private document collections (listed below), served by the QB2. Search the collections first for anything they cover.
-          Tools: search (sources web, corpus or all), fetch_page, get_evidence. Passages carry evidence IDs.
+          Tools: search (sources web, corpus or all), fetch_page, get_evidence; for private documents, read_page (see a page's figures and tables), find_in_document (exact words inside one document) and open_pages (read a passage's page and the pages after it). Passages carry evidence IDs.
         tools:
           - ttdr
 

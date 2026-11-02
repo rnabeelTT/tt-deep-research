@@ -206,7 +206,8 @@ class DeepAgents:
     max_subquestions: int = 3
     max_tool_calls: int = 8
     thinking: bool = False
-    doc_tools: bool = False
+    doc_tools: bool = True
+    context_tokens: int | None = None
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
         from ttdr.harness import DeepAgentsHarness
@@ -218,6 +219,7 @@ class DeepAgents:
             self.max_tool_calls,
             thinking=self.thinking,
             doc_tools=self.doc_tools,
+            context_tokens=self.context_tokens,
         )
         r = await h.run(item.question)
         return Answer(
