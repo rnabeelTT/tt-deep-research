@@ -26,6 +26,18 @@ query_template = "task: {task} | query: {query}"
 document_template = "title: {title} | text: {document}"
 serve_order = 1
 
+# Default embedder (docs/LOG.md): text chunks and page images in one 4,096-d space. Queries carry an
+# instruction, documents don't. Its vectors live in their own collection.
+[models.qwen3vl_embed]
+kind = "embed"
+bundle = "raahemnabeel/qwen3-vl-embedding-8b"
+model = "Qwen/Qwen3-VL-Embedding-8B"
+url = "http://localhost:8005/v1"
+serve_order = 1
+document_template = "{title}\n{document}"
+instruction = "Given a research question, retrieve passages and document pages that help answer it"
+collection = "chunks_qwen3vl"
+
 [models.laya]
 kind = "decide"
 bundle = "tt-hous/laya"
@@ -37,7 +49,7 @@ serve_order = 2
 
 [roles]
 llm = "ornith"
-embed = "embeddinggemma"
+embed = "qwen3vl_embed"      # embeddinggemma: the previous default (collection chunks)
 # judge = ...        # optional on-box judge for quick checks (defaults to llm); decisions use the Claude judge
 decide = "laya"      # optional: without it, verify and triage are off
 # ocr = "ornith"     # optional: OCR with a vision model on the chips instead of PaddleOCR on the CPU
