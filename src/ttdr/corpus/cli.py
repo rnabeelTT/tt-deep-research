@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from ttdr import recipe
+from ttdr import jsonl, recipe
 from ttdr.clients import connect
 from ttdr.corpus import sources
 
@@ -74,7 +74,7 @@ def recall(
 ) -> None:
     """Share of questions with a gold evidence page in the top k: whole corpus vs the known doc."""
     ks = sorted(ks or [1, 5, 10, 20])
-    items = [json.loads(x) for x in Path(f"data/suites/{suite}.jsonl").read_text().splitlines()]
+    items = [json.loads(x) for x in jsonl.lines(Path(f"data/suites/{suite}.jsonl"))]
 
     r = recipe.load(recipe_path)
 
@@ -140,7 +140,7 @@ def ocr_backfill(name: str, recipe_path: RecipeOpt = None) -> None:
     root = sources.CORPORA_DIR / name
     pages = [
         (name, p["doc"], p["page"])
-        for p in map(json.loads, (root / "pages.jsonl").read_text().splitlines())
+        for p in map(json.loads, jsonl.lines(root / "pages.jsonl"))
         if NEEDS_OCR & set(p["flags"])
     ]
     console.print(f"queued {asyncio.run(_ocr_queue(recipe_path).backfill(pages))} of {len(pages)}")

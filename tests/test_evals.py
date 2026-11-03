@@ -183,3 +183,13 @@ def test_checker_verifies_through_windows():
     hit, miss = asyncio.run(go())
     assert hit.label == "supported" and hit.window > 0
     assert miss.label == "not_enough_info" and miss.contradicted == 0.0
+
+
+def test_jsonl_lines_keep_unicode_separators_inside_strings(tmp_path):
+    import json
+
+    from ttdr import jsonl
+
+    path = tmp_path / "answers.jsonl"
+    path.write_text(json.dumps({"text": "a b"}, ensure_ascii=False) + "\n\n")
+    assert [json.loads(x)["text"] for x in jsonl.lines(path)] == ["a b"]

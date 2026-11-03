@@ -4,6 +4,7 @@ import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from ttdr import jsonl
 from ttdr.evals.schema import Answer, Graded, Item
 
 BOOTSTRAP = 10_000
@@ -11,7 +12,7 @@ BOOTSTRAP = 10_000
 
 def _load(run_dir: Path) -> tuple[dict[str, Item], dict[str, Answer], dict[str, Graded]]:
     def read(name, model):
-        lines = (run_dir / name).read_text().splitlines()
+        lines = jsonl.lines(run_dir / name)
         return {r.id: r for r in (model.model_validate_json(x) for x in lines)}
 
     return read("items.jsonl", Item), read("answers.jsonl", Answer), read("grades.jsonl", Graded)

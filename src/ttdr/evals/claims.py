@@ -13,6 +13,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
+from ttdr import jsonl
 from ttdr.corpus import pdf
 from ttdr.corpus.sources import CORPORA_DIR
 from ttdr.engine.verify import LABELS, Verifier, decide
@@ -33,7 +34,7 @@ def _perturb(text: str, rng: random.Random) -> str | None:
 
 def build(n_questions: int = 40, seed: int = 0) -> Path:
     rng = random.Random(seed)
-    items = [json.loads(x) for x in Path("data/suites/financebench.jsonl").read_text().splitlines()]
+    items = [json.loads(x) for x in jsonl.lines(Path("data/suites/financebench.jsonl"))]
     items = [i for i in items if len(i["evidence"]) == 1 and len(i["answer"]) < 400]
     rng.shuffle(items)
     pages: dict[str, list[pdf.Page]] = {}
@@ -63,7 +64,7 @@ def build(n_questions: int = 40, seed: int = 0) -> Path:
 
 
 async def score(verifier: Verifier, concurrency: int = 8) -> dict:
-    pairs = [json.loads(x) for x in PAIRS.read_text().splitlines()]
+    pairs = [json.loads(x) for x in jsonl.lines(PAIRS)]
     sem = asyncio.Semaphore(concurrency)
 
     async def one(p):

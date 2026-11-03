@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 from huggingface_hub import hf_hub_download
 
+from ttdr import jsonl
 from ttdr.evals.schema import Evidence, Item
 
 SUITES_DIR = Path("data/suites")
@@ -35,7 +36,7 @@ DRB = ("Ayanami0730/deep_research_bench", "f2735b5c3636759c22f9e936c0232de8bf545
 
 def drb_file(path: str) -> dict[int, dict]:
     """A DeepResearch Bench data file (prompts, RACE criteria or reference reports) by task id."""
-    rows = map(json.loads, _fetch_github(DRB[0], path, DRB[1]).read_text().splitlines())
+    rows = map(json.loads, jsonl.lines(_fetch_github(DRB[0], path, DRB[1])))
     return {r["id"]: r for r in rows}
 
 
@@ -62,7 +63,7 @@ def financebench() -> list[Item]:
         "e04404e3a97f69f79c14d42f24981a1c9c3bcd18",
     )
     items = []
-    for row in map(json.loads, path.read_text().splitlines()):
+    for row in map(json.loads, jsonl.lines(path)):
         items.append(
             Item(
                 id=row["financebench_id"],
@@ -193,4 +194,4 @@ def load(name: str) -> list[Item]:
     path = SUITES_DIR / f"{name}.jsonl"
     if not path.exists():
         build(name)
-    return [Item.model_validate_json(line) for line in path.read_text().splitlines()]
+    return [Item.model_validate_json(line) for line in jsonl.lines(path)]
