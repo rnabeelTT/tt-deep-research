@@ -208,7 +208,7 @@ class DeepAgents:
     thinking: bool = False
     doc_tools: bool = True
     context_tokens: int | None = None
-    sections: bool = False
+    sections: bool = True
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
         from ttdr.harness import DeepAgentsHarness
