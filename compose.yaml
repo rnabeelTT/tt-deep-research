@@ -35,6 +35,7 @@ services:
       TTDR_RECIPE: ${TTDR_RECIPE:-recipe.toml}   # ttdr up --recipe <overlay>
       TTDR_MCP_HOST: ${TTDR_MCP_HOST:-}
       TTDR_MCP_TOKEN: ${TTDR_MCP_TOKEN:-}
+      TTDR_PAGES_URL: ${TTDR_PAGES_URL:-}   # page links for document passages: <UI address>/pages
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}   # keyed web search: services.web_search in the recipe
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
       SERPER_API_KEY: ${SERPER_API_KEY:-}
@@ -65,8 +66,31 @@ services:
     build: { context: external/aiq/frontends/ui, dockerfile: deploy/Dockerfile }
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
-    environment: { BACKEND_URL: "http://127.0.0.1:8100", PORT: "3000", REQUIRE_AUTH: "false" }
+    environment:   # PAGES_URL: citations' page links (/pages/*) are served by the engine
+      { BACKEND_URL: "http://127.0.0.1:8100", PORT: "3000", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
     depends_on: [aiq]
+    restart: unless-stopped
+
+  # The Deep Agents harness behind the same UI (ttdr ui-server): UI on :3001, API on :8200.
+  deepagents:
+    profiles: [app]
+    image: ttdr/engine:${TTDR_VERSION:-dev}
+    network_mode: host
+    working_dir: ${PWD}
+    volumes: ["${PWD}:${PWD}:ro"]
+    command: ["ttdr", "ui-server"]
+    environment: { TTDR_RECIPE: "${TTDR_RECIPE:-recipe.toml}" }
+    depends_on: [engine]
+    restart: unless-stopped
+
+  ui-deepagents:
+    profiles: [app]
+    image: ttdr/ui:${TTDR_VERSION:-dev}
+    network_mode: host
+    environment:
+      { BACKEND_URL: "http://127.0.0.1:8200", PORT: "3001", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:3001/"] }
+    depends_on: [deepagents]
     restart: unless-stopped
 
   ocr:

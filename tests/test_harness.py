@@ -2,6 +2,10 @@ import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+from langchain_core.messages import AIMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+
 from ttdr import harness, recipe
 
 RECIPE = recipe.load(Path(__file__).parents[1] / "recipe.toml")
@@ -233,3 +237,91 @@ def test_writer_outline_and_material():
     notes = ["- Sales grew 5% [3M_2018_10K#p59.0]\n- Unrelated [W9999aaaa.1]"]
     m = writer.material(["3M_2018_10K#p59.0"], notes, {"3M_2018_10K#p59.0": "3M: sales table"})
     assert "Sales grew" in m and "Unrelated" not in m and "sales table" in m
+
+
+class ScriptedModel(GenericFakeChatModel):
+    """The planner writes todos, starts two researchers, then answers; each researcher searches
+    once and replies with notes."""
+
+    messages: object = iter(())
+
+    def bind_tools(self, tools, **kw):
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **kw):
+        ask = next(m for m in messages if m.type == "human").content
+        turn = sum(m.type == "ai" for m in messages)
+        if ask.startswith("sub"):
+            search = {"name": "search", "args": {"query": ask, "sources": "web"}, "id": f"s{ask}"}
+            replies = [AIMessage("", tool_calls=[search]), AIMessage(f"- {ask} fact [W1a2b3c4d.1]")]
+        else:
+            todos = {"todos": [{"content": "sub A", "status": "in_progress"}]}
+            tasks = [
+                {"name": "task", "args": {"description": d, "subagent_type": "researcher"}, "id": i}
+                for d, i in (("sub A", "tA"), ("sub B", "tB"))
+            ]
+            replies = [
+                AIMessage("", tool_calls=[{"name": "write_todos", "args": todos, "id": "td"}]),
+                AIMessage("", tool_calls=tasks),
+                AIMessage("# Report\nFact [W1a2b3c4d.1]."),
+            ]
+        return ChatResult(generations=[ChatGeneration(message=replies[turn])])
+
+
+class ResearchEngine:
+    def __init__(self, url=None):
+        self.calls = []
+
+    async def list_tools(self):
+        schema = {"type": "object", "properties": {"query": {"type": "string"}}}
+        return [SimpleNamespace(name="search", description="d", input_schema=schema)]
+
+    async def call_tool(self, name, args):
+        self.calls.append((name, args))
+        if name == "get_evidence":
+            text = "[W1a2b3c4d.1] Title\nURL: https://x.org\nbody"
+        else:
+            text = f"[W1a2b3c4d.1] Title\nURL: https://x.org\nresult for {args['query']}"
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+
+
+def _run_scripted(monkeypatch, **kw):
+    engines = []
+
+    def engine(url):
+        engines.append(ResearchEngine())
+        return engines[-1]
+
+    monkeypatch.setattr(harness, "chat_model", lambda *a, **k: ScriptedModel())
+    monkeypatch.setattr(harness, "Engine", engine)
+    events = []
+    h = harness.DeepAgentsHarness(RECIPE, sections=False, **kw)
+    result = asyncio.run(h.run("Q", events=lambda kind, data: events.append((kind, data))))
+    return result, events, engines[0]
+
+
+def test_run_reports_plan_todos_researchers_tools_and_report(monkeypatch):
+    result, events, _ = _run_scripted(monkeypatch)
+    kinds = [k for k, _ in events]
+    assert kinds[0] == "plan" and kinds[-1] == "report"
+    assert events[0][1] == {"report": True, "subquestions": 5, "tool_calls": 12}
+    assert ("todos", {"todos": [{"content": "sub A", "status": "in_progress"}]}) in events
+    starts = {d["id"]: d["question"] for k, d in events if k == "researcher.start"}
+    assert starts == {"tA": "sub A", "tB": "sub B"}
+    ends = {d["id"]: d["notes"] for k, d in events if k == "researcher.end"}
+    assert ends["tA"].startswith("- sub A fact") and ends["tB"].startswith("- sub B fact")
+    tools = [d for k, d in events if k == "tool.end"]
+    assert {(t["agent"], t["output"].splitlines()[-1]) for t in tools} == {
+        ("tA", "result for sub A"),
+        ("tB", "result for sub B"),
+    }
+    assert kinds.index("researcher.start") < kinds.index("tool.start") < kinds.index("tool.end")
+    assert events[-1][1]["report"] == result.report and "## Sources" in result.report
+
+
+def test_sources_pins_the_search_scope(monkeypatch):
+    _, _, engine = _run_scripted(monkeypatch, sources="corpus")
+    searches = [a for n, a in engine.calls if n == "search"]
+    assert searches and all(a["sources"] == "corpus" for a in searches)
+    _, _, engine = _run_scripted(monkeypatch)
+    assert all(a["sources"] == "web" for n, a in engine.calls if n == "search")

@@ -25,8 +25,11 @@ APP = {
     "engine": None,
     "aiq": "http://127.0.0.1:8100/health",
     "ui": "http://127.0.0.1:3000",
+    "deepagents": "http://127.0.0.1:8200/health",
+    "ui-deepagents": "http://127.0.0.1:3001",
     "ocr": None,
 }
+UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
 
 
 def _run(cmd: list[str], log) -> None:
@@ -45,7 +48,7 @@ def serve_command(m: Model) -> list[str]:
 
 def app_services(recipe: Recipe) -> list[str]:
     f = recipe.features
-    return [s for s in APP if (s != "ui" or f.ui) and (s != "ocr" or f.ocr)]
+    return [s for s in APP if (s not in UI_SERVICES or f.ui) and (s != "ocr" or f.ocr)]
 
 
 def serve_models(recipe: Recipe, log) -> None:

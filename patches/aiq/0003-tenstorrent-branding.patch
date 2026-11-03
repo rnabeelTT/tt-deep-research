@@ -761,3 +761,16 @@ index c887b8c..ffe8089 100644
      --color-green-950: #0d1a00;
      --color-teal-050: #adfcf8;
      --color-teal-100: #9aefe5;
+diff --git a/frontends/ui/src/features/layout/components/AppBar.spec.tsx b/frontends/ui/src/features/layout/components/AppBar.spec.tsx
+index a2a17cf..95ff4f7 100644
+--- a/frontends/ui/src/features/layout/components/AppBar.spec.tsx
++++ b/frontends/ui/src/features/layout/components/AppBar.spec.tsx
+@@ -45,7 +45,7 @@ describe('AppBar', () => {
+   test('renders logo and title', () => {
+     render(<AppBar />)
+ 
+-    expect(screen.getByText('AI-Q')).toBeInTheDocument()
++    expect(screen.getByText('Deep Research')).toBeInTheDocument()
+   })
+ 
+   test('renders sessions label beside the menu button', () => {

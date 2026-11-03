@@ -11,6 +11,7 @@ import asyncio
 import re
 import time
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from deepagents import create_deep_agent
@@ -86,6 +87,12 @@ found, find_in_document looks up exact words (a line item, a defined term, a not
 open_pages reads the whole page around a passage and the pages after it, for tables and notes
 that continue."""
 
+SCOPE = {"web": "web search", "corpus": "the private document collections"}
+SCOPE_NOTE = """
+
+Search is limited to {scope} for this request: search returns only that, whatever sources you
+pass."""
+
 FIX_CITATIONS = """Some citations in this report section are not real evidence IDs: {invented}
 
 For every sentence that cites one of them, replace it with the real ID below whose passage
@@ -133,12 +140,15 @@ async def _tools(c: Client):
     return (await c.list_tools()).tools
 
 
-def mcp_tools(client, tools) -> list[StructuredTool]:
-    """The engine's MCP tools as LangChain tools (langchain-mcp-adapters lacks MCP 2.x support)."""
+def mcp_tools(client, tools, fixed: dict[str, dict] | None = None) -> list[StructuredTool]:
+    """The engine's MCP tools as LangChain tools (langchain-mcp-adapters lacks MCP 2.x support).
+
+    FIXED maps a tool name to arguments that override whatever the model passes."""
+    fixed = fixed or {}
 
     def wrap(t) -> StructuredTool:
         async def call(**kwargs) -> str:
-            return _text(await client.call_tool(t.name, kwargs))
+            return _text(await client.call_tool(t.name, {**kwargs, **fixed.get(t.name, {})}))
 
         return StructuredTool(
             name=t.name,
@@ -245,11 +255,14 @@ class DeepAgentsHarness:
     """Rewrite report requests outline-first, one section at a time (ttdr.writer)."""
     quick: tuple[int, int] | None = None
     """(sub-questions, tool calls) for short-answer requests; None plans them like reports."""
+    sources: str = "all"
+    """Search scope: "web" or "corpus" pins search's sources argument; "all" lets agents choose."""
 
     def agent(self, tools: list[StructuredTool], subs: int | None = None, calls: int | None = None):
         subs, calls = subs or self.max_subquestions, calls or self.max_tool_calls
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
         research = [t for t in tools if t.name in allowed]
+        scope = SCOPE_NOTE.format(scope=SCOPE[self.sources]) if self.sources in SCOPE else ""
         researcher = {
             "name": "researcher",
             "description": "Researches one sub-question with the engine's search tools and "
@@ -258,7 +271,8 @@ class DeepAgentsHarness:
                 calls=calls,
                 corpora=self.recipe.corpus_catalog(),
                 doc_tools=DOC_TOOLS_HINT if self.doc_tools else "",
-            ),
+            )
+            + scope,
             "tools": research,
             "middleware": [
                 *(ToolCallLimitMiddleware(tool_name=t.name, run_limit=calls) for t in research),
@@ -275,7 +289,8 @@ class DeepAgentsHarness:
         return create_deep_agent(
             model=chat_model(self.recipe, self.thinking, 8192, self.context_tokens),
             tools=[t for t in tools if t.name == "verify"],
-            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=self.recipe.corpus_catalog()),
+            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=self.recipe.corpus_catalog())
+            + scope,
             subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),
@@ -283,8 +298,12 @@ class DeepAgentsHarness:
             ],
         )
 
-    async def run(self, question: str, log=lambda _: None) -> Result:
+    async def run(
+        self, question: str, log=lambda _: None, events: Callable[[str, dict], None] | None = None
+    ) -> Result:
+        """EVENTS, if given, hears the run as it happens (see Progress)."""
         stats: Counter = Counter()
+        progress = Progress(events or (lambda *_: None))
         start = time.perf_counter()
         client = Engine(self.recipe.services.mcp)
         writer_model = chat_model(self.recipe, self.thinking, 8192)
@@ -293,16 +312,23 @@ class DeepAgentsHarness:
         )
         stats["report request"] = int(report_kind)
         budget = self.quick if self.quick and not report_kind else ()
-        agent = self.agent(mcp_tools(client, await client.list_tools()), *budget)
+        subs, calls = budget or (self.max_subquestions, self.max_tool_calls)
+        progress.emit("plan", {"report": report_kind, "subquestions": subs, "tool_calls": calls})
+        fixed = {"search": {"sources": self.sources}} if self.sources in SCOPE else None
+        agent = self.agent(mcp_tools(client, await client.list_tools(), fixed), *budget)
         final, seen, passages, notes = None, {}, {}, []
-        async for namespace, update in agent.astream(
+        async for namespace, mode, update in agent.astream(
             {"messages": [{"role": "user", "content": question}]},
-            stream_mode="updates",
+            stream_mode=["updates", "tasks"],
             subgraphs=True,
             config={"recursion_limit": 500},
         ):
+            if mode == "tasks":
+                progress.task(namespace, update)
+                continue
             for node in update.values():
                 for msg in node.get("messages", []) if isinstance(node, dict) else []:
+                    progress.message(namespace, msg)
                     _count(msg, stats, log)
                     _collect(msg, seen)
                     _collect(msg, passages, 800)
@@ -316,6 +342,7 @@ class DeepAgentsHarness:
         report = await self.check_citations(client, report, seen, stats)
         report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
+        progress.emit("report", {"report": report})
         return Result(report, stats, list(seen))
 
     async def check_citations(self, client, report: str, seen: dict, stats: Counter) -> str:
@@ -349,6 +376,56 @@ class DeepAgentsHarness:
         if lost or len(rewrite) < len(section) // 2:  # drops real citations or most of the text
             return section
         return rewrite
+
+
+@dataclass
+class Progress:
+    """Turns the agent's stream into run events, emitted as (kind, data):
+
+    - plan {report, subquestions, tool_calls}: the request's kind and the plan budget
+    - todos {todos}: the planner's write_todos list
+    - researcher.start {id, subagent, question} / researcher.end {id, notes}: one task call
+    - tool.start {id, agent, name, input} / tool.end {id, agent, name, output}: agent is the
+      researcher's task call ID (None for the planner's own tools); output is the full text
+    - report {report}: the final report, Sources list included
+    """
+
+    emit: Callable[[str, dict], None]
+    agents: dict[str, str] = field(default_factory=dict)
+    """Subgraph namespace (tools:<task id>) -> the task tool call that runs it."""
+
+    def task(self, namespace: tuple, task: dict) -> None:
+        if namespace or task.get("name") != "tools" or not isinstance(task.get("input"), list):
+            return
+        calls = [c for c in task["input"] if isinstance(c, dict) and c.get("name") == "task"]
+        if calls:
+            self.agents[f"tools:{task['id']}"] = calls[0]["id"]
+
+    def message(self, namespace: tuple, msg) -> None:
+        agent = self.agents.get(namespace[0]) if namespace else None
+        kind = getattr(msg, "type", "")
+        if kind == "ai":
+            for call in getattr(msg, "tool_calls", None) or []:
+                name, args = call["name"], call.get("args", {})
+                if name == "write_todos" and not namespace:
+                    self.emit("todos", {"todos": args.get("todos", [])})
+                elif name == "task" and not namespace:
+                    self.emit(
+                        "researcher.start",
+                        {
+                            "id": call["id"],
+                            "subagent": args.get("subagent_type", "researcher"),
+                            "question": args.get("description", ""),
+                        },
+                    )
+                else:
+                    tool = {"id": call["id"], "agent": agent, "name": name}
+                    self.emit("tool.start", {**tool, "input": args})
+        elif kind == "tool" and msg.name == "task" and not namespace:
+            self.emit("researcher.end", {"id": msg.tool_call_id, "notes": _content(msg)})
+        elif kind == "tool" and msg.name != "write_todos":
+            tool = {"id": msg.tool_call_id, "agent": agent, "name": msg.name}
+            self.emit("tool.end", {**tool, "output": _content(msg)})
 
 
 def citations(report: str) -> set[str]:
