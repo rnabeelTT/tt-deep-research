@@ -104,3 +104,14 @@ def test_corpus_catalog_reaches_mcp_harness_and_aiq():
     assert "financebench: Annual and quarterly reports" in search.description
     source = aiq_config.render(RECIPE)["functions"]["data_sources"]["sources"][0]
     assert "unidoc:" in source["description"]
+
+
+def test_keyed_web_search_needs_its_key(monkeypatch):
+    from ttdr.recipe import Services
+
+    s = Services(qdrant="q", redis="r", mcp="m", searxng="http://sx", web_search="brave")
+    monkeypatch.delenv("BRAVE_API_KEY", raising=False)
+    assert s.web() == "searxng"
+    monkeypatch.setenv("BRAVE_API_KEY", "k")
+    assert s.web() == "brave"
+    assert Services(qdrant="q", redis="r", mcp="m").web() is None

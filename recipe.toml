@@ -57,6 +57,7 @@ decide = "laya"      # optional: without it, verify and triage are off
 [services]
 qdrant = "http://localhost:6333"
 searxng = "http://localhost:8888"   # optional: without it, search covers the corpus only
+# web_search = "tavily"   # or "brave", "serper": used when TAVILY_API_KEY etc. is set, else SearXNG
 redis = "redis://localhost:6379"
 mcp = "http://localhost:9901/mcp"
 

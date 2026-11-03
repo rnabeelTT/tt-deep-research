@@ -35,6 +35,9 @@ services:
       TTDR_RECIPE: ${TTDR_RECIPE:-recipe.toml}   # ttdr up --recipe <overlay>
       TTDR_MCP_HOST: ${TTDR_MCP_HOST:-}
       TTDR_MCP_TOKEN: ${TTDR_MCP_TOKEN:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}   # keyed web search: services.web_search in the recipe
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SERPER_API_KEY: ${SERPER_API_KEY:-}
       PYTHONFAULTHANDLER: "1"   # a native crash prints the Python stack of every thread
     depends_on: [qdrant, searxng, redis]
     restart: unless-stopped
