@@ -22,7 +22,10 @@ def _pct(xs: list[float], q: float) -> float:
     return xs[min(len(xs) - 1, int(q * len(xs)))] if xs else 0.0
 
 
-def _page(eid: str) -> tuple[str, int]:
+def _page(eid: str) -> tuple[str, int] | None:
+    """Corpus evidence ids are doc#pPAGE.N; web ids have no page."""
+    if "#p" not in eid:
+        return None
     doc, rest = eid.split("#p", 1)
     return doc, int(rest.split(".", 1)[0])
 
