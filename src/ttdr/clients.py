@@ -255,6 +255,12 @@ def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
         client(http, recipe.llm),
         embed,
         _decider(http, decide) if decide else None,
-        Corpus(embed, Store(recipe.services.qdrant, recipe.embed.collection)),
+        Corpus(
+            embed,
+            Store(recipe.services.qdrant, recipe.embed.collection),
+            pages=Store(recipe.services.qdrant, recipe.embed.pages_collection)
+            if recipe.embed.pages_collection
+            else None,
+        ),
         client(http, recipe.rerank) if recipe.rerank else None,
     )

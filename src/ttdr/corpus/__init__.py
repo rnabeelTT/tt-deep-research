@@ -21,13 +21,18 @@ BATCH = 32
 IMAGE_BATCH = 4
 PAGE_SCALE = 1.0
 PAGE_CACHE = 512
+PAGE_TEXT = 2000
 
 
 class Corpus:
-    def __init__(self, embedder: Embedder, store: Store, root: Path = CORPORA_DIR):
+    def __init__(
+        self, embedder: Embedder, store: Store, root: Path = CORPORA_DIR, pages: Store | None = None
+    ):
         self.embedder = embedder
         self.store = store
         self.root = root
+        self.pages = pages
+        """Every page as an image, when the embedder is multimodal and the recipe asks for it."""
         self._pages: dict[tuple[str, str, int, float], str] = {}
         self._render = asyncio.Lock()
 
@@ -56,6 +61,29 @@ class Corpus:
         [vec] = await self.embedder.queries([query])
         return await self.store.search(vec, k, corpus, doc)
 
+    async def fused(self, query: str, k: int = 30, corpus: str | None = None) -> list[Hit]:
+        """Whole pages for a reranker that reads them: the pages of the top chunks and the top
+        page images, half each, each carrying its page's text under the page's first ID."""
+        [vec] = await self.embedder.queries([query])
+        chunks, images = await asyncio.gather(
+            self.store.search(vec, k, corpus), self.pages.search(vec, k // 2, corpus)
+        )
+        firsts = list({(h.doc, h.page): h for h in chunks}.values())[: k - k // 2]
+        picked = list({(h.doc, h.page): h for h in [*firsts, *images]}.values())
+        texts = await asyncio.gather(*(self.store.page(h.doc, h.page) for h in picked))
+        return [
+            Hit(
+                f"{h.doc}#p{h.page}.0",
+                h.doc,
+                h.page,
+                " ".join(c.text for c in cs)[:PAGE_TEXT],
+                sorted({f for c in cs for f in c.flags}),
+                h.score,
+                h.corpus,
+            )
+            for h, cs in zip(picked, texts, strict=True)
+        ]
+
     async def index_pdf(
         self, path: Path, corpus: str, pool: ProcessPoolExecutor | None = None
     ) -> list[pdf.Page]:
@@ -67,6 +95,8 @@ class Corpus:
             vecs = await self.embedder.documents([(c.doc, c.text) for c in batch])
             await self.store.upsert(corpus, batch, vecs)
         await self.index_images(path, [p for p in pages if "image_only" in p.flags], corpus, pool)
+        if self.pages:
+            await self.index_images(path, pages, corpus, pool, self.pages)
         return pages
 
     async def index_images(
@@ -75,8 +105,10 @@ class Corpus:
         pages: list[pdf.Page],
         corpus: str,
         pool: ProcessPoolExecutor | None = None,
+        store: Store | None = None,
     ) -> None:
-        """Image-only pages are embedded as page images, so search can find them before OCR."""
+        """Image-only pages are embedded as page images, so search can find them before OCR.
+        With STORE (the page-image collection), every page given is."""
         if not pages:
             return
         pngs = await asyncio.get_running_loop().run_in_executor(
@@ -87,13 +119,16 @@ class Corpus:
             vecs = await self.embedder.embed_images(
                 [base64.b64encode(b).decode() for b in pngs[i : i + IMAGE_BATCH]]
             )
-            await self.store.upsert(
+            await (store or self.store).upsert(
                 corpus, [chunk.Chunk(p.doc, p.page, 0, "", p.flags) for p in batch], vecs
             )
 
     async def index_dir(self, root: Path, corpus: str, concurrency: int = 4) -> dict:
         """Index every PDF under root; page flags go to root/pages.jsonl for the OCR stage."""
-        await self.store.ensure(len((await self.embedder.queries(["size"]))[0]))
+        dim = len((await self.embedder.queries(["size"]))[0])
+        for store in (self.store, self.pages):
+            if store:
+                await store.ensure(dim)
         done = await self.store.docs(corpus)
         todo = [p for p in sorted(root.glob("*.pdf")) if p.stem not in done]
         if clash := {p.stem for p in todo} & (await self.store.docs() - done):

@@ -1,0 +1,6 @@
+extends = "rerank.toml"
+
+# Corpus search fuses chunk and page-image candidates and the reranker reads whole pages (docs/LOG.md).
+# Index the page images once: ttdr index (pages land in pages_qwen3vl).
+[models.qwen3vl_embed]
+pages_collection = "pages_qwen3vl"
