@@ -33,7 +33,9 @@ Go beyond listing facts: compare, explain causes and consequences, quantify, and
 evidence implies for the request. Use tables where they help comparison. Every factual sentence
 ends with the evidence IDs it rests on, in square brackets, copied exactly from the material below
 (e.g. [W1a2b3c4d.2] or [3M_2018_10K#p59.0]). Use only facts from this material; never invent an
-ID. Start with the line "## {heading}" and write nothing after the section.
+ID. Write as the report itself: never mention the material, notes, sources or evidence you were
+given, or what they lack; where something isn't known, say so about the subject. Start with the
+line "## {heading}" and write nothing after the section.
 
 Request:
 {question}
