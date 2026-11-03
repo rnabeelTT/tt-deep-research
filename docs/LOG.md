@@ -494,3 +494,22 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - The p50 of 106 s against 262 s in the doc-tools A/B is the prefix cache at work (Ornith's mixed-vision build).
 
 **Decision: gate the writer by request kind.** One short call classifies the request as ANSWER (a figure, date, name, yes/no, calculation or short list) or REPORT (analysis, a survey, a comparison, a review, a plan). Only REPORT requests get the outline and sections. On the dev sets the classifier marks REPORT for 7/8 DRB tasks, 0/40 FinanceBench and 9/40 UniDoc (its summarization and causal questions). An earlier attempt to let the outline step reply DIRECT marked 6/8 DRB tasks direct, so it was dropped.
+
+## A/B: free web search, Yandex + Bing News + OpenAlex vs Bing + Yahoo (2026-11-03)
+
+**Why:** Bing answers only the first word of automated queries ("Saint Seiya Hades surplices" returns pages about saints). Yahoo is Bing underneath, and the other scraped engines were either blocked or never ran (docs/JOURNEY.md). A probe of 32 research queries × 12 engines, scored by the embedder, found Yandex (median similarity 0.70; 230 of 320 results pass the 0.6 cutoff) and Bing News (61 of 94) on topic. OpenAlex adds academic hits (89 of 235). Bing's median was 0.40, with 14 of 306 passing.
+
+**Setup:** Deep Agents with the gated sections writer on DRB dev. The baseline arm (`20261103-072550`) used SearXNG as configured. The variant (`20261103-074210`) used a second SearXNG on :8889 with `keep_only: [yandex, bing news, openalex]`, behind a second engine on :9902. The web cache key now names the SearXNG instance, so the arms couldn't share results. RACE against the reference was scored by four blinded Claude graders (`data/judge/ab_web`). Both arms ran while AI-Q's deep researcher was also running, so wall-clock times aren't comparable.
+
+| | Bing + Yahoo | Yandex + Bing News + OpenAlex | Diff [95% CI] | Wins / losses |
+|---|---|---|---|---|
+| RACE overall | 0.289 | **0.378** | +0.090 [−0.030, +0.196] | 7 / 1 |
+| without drb_88 | 0.277 | **0.416** | **+0.139** | 7 / 0 |
+| comprehensiveness / insight | 0.264 / 0.234 | **0.362 / 0.363** | | |
+
+- The searches that used to fail now work. drb_98 (non-alcoholic cocktails) went from 0.05 to 0.41: the baseline wrote a research-failure notice from one source, and the variant wrote a 54k-character report with 71 cited IDs. drb_91 (Saint Seiya) cited 81 IDs vs 10, and its grader called the baseline's characters "mostly made up". drb_90 went from 0.27 to 0.43, and drb_99 from 0.24 to 0.46.
+- Fetches rose (median 32.5 vs 7 per task) because the hits are now worth reading. Searches fell (median 31.5 vs 93), because agents no longer re-query after "No results".
+- The one loss, drb_88, was not a search issue. The planner answered from memory without searching (3 model calls) and the request classifier marked the task ANSWER, so the result was a 2k-character answer that invented a Ciro Guerra film. The classifier is fixed (commit 716ef4a: how/why questions count as reports, classified at temperature 0).
+- Invented IDs rose (median 1.5 vs 0; 15 on drb_99), as median citations went from 10.5 to 42 per report. Worth watching.
+
+**Decision: adopt.** `configs/searxng/settings.yml` now keeps Yandex, Bing News and OpenAlex only. One scraped engine is a single point of failure: a 96-query burst at 8 concurrent passed with no captchas, but a keyed backend (Tavily, Brave or Serper) remains the robust option.
