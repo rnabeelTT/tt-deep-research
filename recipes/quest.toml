@@ -1,0 +1,20 @@
+extends = "rerank.toml"
+
+# QUEST-35B-RL (OSU NLP: Qwen3.5-35B-A3B after mid-training, SFT and RL on synthetic deep-research
+# tasks) as the LLM, in Ornith's place on chips 0-1: same architecture, vision and prefix caching.
+# Sampling and thinking match Ornith's so an A/B changes only the weights.
+[models.quest]
+kind = "chat"
+bundle = "raahemnabeel/quest-35b-rl"
+profile = "p300"
+model = "osunlp/QUEST-35B-RL"
+url = "http://localhost:8000/v1"
+sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
+reasoning = "enable_thinking"
+max_state_tokens = 8192
+serve_args = ["--max-num-batched-tokens", "262144"]
+serve_order = 0
+
+[roles]
+llm = "quest"
+decide = "quest"   # it checks claims too, as Ornith does in llm-verify.toml
