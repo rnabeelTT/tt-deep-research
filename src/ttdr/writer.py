@@ -11,8 +11,9 @@ import re
 
 KIND = """Classify this research request. ANSWER: it asks for a specific answer (a figure, a
 date, a name, a yes/no, a calculation or a short list) that a paragraph or two settles. REPORT: it
-asks for analysis, a survey, a comparison across many items, a review, a plan or a report. Reply
-with one word, ANSWER or REPORT.
+asks for analysis, a survey, a comparison across many items, a review, a plan or a report, or asks
+how or why something happened in a way that needs a full explanation. Reply with one word, ANSWER
+or REPORT.
 
 Request:
 {question}"""
@@ -89,11 +90,14 @@ async def write(model, question: str, notes: list[str], passages: dict[str, str]
     """None for short-answer requests, or when no usable outline comes back (the caller keeps the
     planner's report)."""
 
-    async def ask(prompt: str) -> str:
-        reply = await model.ainvoke([{"role": "user", "content": prompt}])
+    async def ask(prompt: str, llm=model) -> str:
+        reply = await llm.ainvoke([{"role": "user", "content": prompt}])
         return reply.content if isinstance(reply.content, str) else ""
 
-    if "REPORT" not in (await ask(KIND.format(question=question))).upper():
+    if (
+        "REPORT"
+        not in (await ask(KIND.format(question=question), model.bind(temperature=0))).upper()
+    ):
         return None
     joined = "\n\n".join(notes)
     plan = outline(await ask(OUTLINE.format(low=4, high=8, question=question, notes=joined)))
