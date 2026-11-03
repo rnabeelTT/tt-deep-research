@@ -1,0 +1,179 @@
+diff --git a/src/aiq_agent/agents/shallow_researcher/agent.py b/src/aiq_agent/agents/shallow_researcher/agent.py
+index 60d5480..1e1ba7d 100644
+--- a/src/aiq_agent/agents/shallow_researcher/agent.py
++++ b/src/aiq_agent/agents/shallow_researcher/agent.py
+@@ -48,6 +48,8 @@ from aiq_agent.common.citation_verification import extract_sources_from_tool_res
+ from aiq_agent.common.citation_verification import get_session_registry
+ from aiq_agent.common.citation_verification import sanitize_report
+ from aiq_agent.common.citation_verification import verify_citations
++from aiq_agent.common.evidence_citations import evidence_index
++from aiq_agent.common.evidence_citations import number_evidence_citations
+ from aiq_agent.common.logging_utils import log_content_metadata
+ 
+ from ...common import LLMProvider
+@@ -609,6 +611,15 @@ class ShallowResearcherAgent:
+ 
+         if validated_result.get("messages"):
+             if content is not None:
++                # Step 0: evidence-ID citations (QB2 engine) become numbered ones with a Sources list
++                content = number_evidence_citations(
++                    content,
++                    evidence_index(
++                        m.content
++                        for m in validated_result["messages"]
++                        if isinstance(m, ToolMessage) and isinstance(m.content, str)
++                    ),
++                )
+                 # Step 1: verify citations against registry
+                 if registry.all_sources():
+                     verification = verify_citations(content, registry)
+diff --git a/frontends/ui/server.js b/frontends/ui/server.js
+index 30397d6..941c876 100644
+--- a/frontends/ui/server.js
++++ b/frontends/ui/server.js
+@@ -19,6 +19,8 @@
+  *   BACKEND_URL - Backend service URL (e.g., http://backend:8000)
+  *   PORT - Gateway port (default: 3000)
+  *   NEXT_INTERNAL_URL - Next.js server URL (default: http://localhost:3001)
++ *   PAGES_URL - Optional research engine serving document page images at /pages/DOC/PAGE;
++ *               when set, GET /pages/* is proxied there so citations can link to pages
+  */
+ 
+ const http = require('http')
+@@ -42,6 +44,7 @@ const getBackendWsUrl = () => {
+ const BACKEND_HTTP_URL = getBackendUrl()
+ const BACKEND_WS_URL = getBackendWsUrl()
+ const NEXT_INTERNAL_URL = process.env.NEXT_INTERNAL_URL || 'http://localhost:3001'
++const PAGES_URL = (process.env.PAGES_URL || '').replace(/\/$/, '')
+ 
+ // In production, we run Next.js in the same process
+ let nextApp = null
+@@ -128,6 +131,14 @@ const startServer = async () => {
+       return
+     }
+ 
++    if (PAGES_URL && req.method === 'GET' && parsedUrl.pathname.startsWith('/pages/')) {
++      backendProxy.web(req, res, { target: PAGES_URL }, () => {
++        res.writeHead(502, { 'Content-Type': 'text/plain' })
++        res.end('Page service unavailable')
++      })
++      return
++    }
++
+     if (dev) {
+       // Development: proxy everything to Next.js dev server
+       nextProxy.web(req, res, { target: NEXT_INTERNAL_URL })
+diff --git a/src/aiq_agent/common/evidence_citations.py b/src/aiq_agent/common/evidence_citations.py
+new file mode 100644
+index 0000000..aec0f34
+--- /dev/null
++++ b/src/aiq_agent/common/evidence_citations.py
+@@ -0,0 +1,61 @@
++# SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++# SPDX-License-Identifier: Apache-2.0
++"""Numbered citations for tools that label passages with evidence IDs.
++
++The QB2 research engine returns passages as ``[EVIDENCE_ID] Title`` / ``URL: ...`` blocks, and
++models cite the IDs (``[W1a2b3c4d.2]``, ``[3M_2018_10K#p59.0]``). Citation verification only
++understands ``[n]`` markers backed by a Sources list, so this rewrites ID citations into numbers,
++one per distinct URL, and replaces the report's source list with one built from the tool results.
++"""
++
++from __future__ import annotations
++
++import re
++from collections.abc import Iterable
++
++_BLOCK_RE = re.compile(r"^\[([^\]\s]+)\] *(.*)\nURL: *(\S+)", re.MULTILINE)
++_PAGE_RE = re.compile(r"#p(\d+)\.\d+$")
++_GROUP_RE = re.compile(r" ?\[([^\[\]\n]+)\]")
++_LABEL = r"(?:Sources|References)"
++_SOURCES_RE = re.compile(
++    rf"^[^\S\n]*(?:#{{1,3}}[^\S\n]+{_LABEL}:?|\*\*{_LABEL}:?\*\*|{_LABEL}:)[^\S\n]*$.*\Z",
++    re.MULTILINE | re.IGNORECASE | re.DOTALL,
++)
++
++
++def evidence_index(tool_outputs: Iterable[str]) -> dict[str, tuple[str, str]]:
++    """Evidence ID -> (title, URL) for every passage block in the tool outputs; document
++    passages (``DOC#pN.M``) get their 1-based page in the title."""
++    index = {}
++    for text in tool_outputs:
++        for eid, title, url in _BLOCK_RE.findall(text):
++            if url.startswith(("http://", "https://")):
++                page = _PAGE_RE.search(eid)
++                title = title.strip() or url
++                index[eid] = (f"{title}, p. {int(page.group(1)) + 1}" if page else title, url)
++    return index
++
++
++def number_evidence_citations(report: str, index: dict[str, tuple[str, str]]) -> str:
++    """Rewrite ``[ID, ID]`` citations as ``[1][2]`` and append a numbered Sources section.
++
++    Groups that contain no known ID are left as they are; unknown IDs inside a group are dropped.
++    Reports without any known ID are returned unchanged.
++    """
++    numbers: dict[str, int] = {}
++
++    def replace(match: re.Match) -> str:
++        ids = [t.strip() for t in re.split(r"[;,]", match.group(1))]
++        urls = [index[i][1] for i in ids if i in index]
++        if not urls:
++            return match.group(0)
++        marks = dict.fromkeys(numbers.setdefault(u, len(numbers) + 1) for u in urls)
++        return " " + "".join(f"[{n}]" for n in marks)
++
++    body = _GROUP_RE.sub(replace, report)
++    if not numbers:
++        return report
++    body = _SOURCES_RE.sub("", body).rstrip()
++    titles = {url: title for title, url in index.values()}
++    sources = "\n".join(f"[{n}] {titles[url]} - {url}" for url, n in numbers.items())
++    return f"{body}\n\n## Sources\n\n{sources}\n"
+diff --git a/tests/aiq_agent/common/test_evidence_citations.py b/tests/aiq_agent/common/test_evidence_citations.py
+new file mode 100644
+index 0000000..4ff9a5e
+--- /dev/null
++++ b/tests/aiq_agent/common/test_evidence_citations.py
+@@ -0,0 +1,41 @@
++# SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++# SPDX-License-Identifier: Apache-2.0
++"""Tests for evidence-ID citation numbering."""
++
++from aiq_agent.common.citation_verification import SourceRegistry
++from aiq_agent.common.citation_verification import extract_sources_from_tool_result
++from aiq_agent.common.citation_verification import verify_citations
++from aiq_agent.common.evidence_citations import evidence_index
++from aiq_agent.common.evidence_citations import number_evidence_citations
++
++TOOL_OUTPUT = (
++    "[3M_2018_10K#p59.0] 3M_2018_10K\nURL: http://ui:3000/pages/3M_2018_10K/60\ncapex 1,577\n\n"
++    "[3M_2018_10K#p59.1] 3M_2018_10K\nURL: http://ui:3000/pages/3M_2018_10K/60\nmore\n\n"
++    "[W1a2b3c4d.2] Reuters\nURL: https://reuters.com/x\nsnippet"
++)
++
++
++def test_ids_become_numbers_one_per_page_or_url():
++    report = (
++        "Capex was $1,577M [3M_2018_10K#p59.0, 3M_2018_10K#p59.1]. Sources of revenue grew "
++        "[W1a2b3c4d.2; Fake#p1.0]. See [note].\n\n## Sources\n- [3M_2018_10K#p59.0] 3M"
++    )
++    out = number_evidence_citations(report, evidence_index([TOOL_OUTPUT]))
++    assert out.startswith("Capex was $1,577M [1]. Sources of revenue grew [2]. See [note].")
++    assert out.endswith(
++        "## Sources\n\n[1] 3M_2018_10K, p. 60 - http://ui:3000/pages/3M_2018_10K/60\n"
++        "[2] Reuters - https://reuters.com/x\n"
++    )
++
++
++def test_reports_without_known_ids_are_unchanged():
++    assert number_evidence_citations("Plain [1] answer.", evidence_index([TOOL_OUTPUT])) == "Plain [1] answer."
++
++
++def test_numbered_report_passes_citation_verification():
++    registry = SourceRegistry()
++    for entry in extract_sources_from_tool_result("documents__search", TOOL_OUTPUT):
++        registry.add(entry)
++    out = number_evidence_citations("Capex was $1,577M [3M_2018_10K#p59.0].", evidence_index([TOOL_OUTPUT]))
++    verification = verify_citations(out, registry)
++    assert [c["number"] for c in verification.valid_citations] == [1]

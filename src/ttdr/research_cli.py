@@ -91,7 +91,7 @@ def research(
     with httpx.Client(timeout=60) as http:
         r = http.post(
             f"{api}/v1/jobs/async/submit",
-            json={"agent_type": agent, "input": question, "data_sources": ["ttdr"]},
+            json={"agent_type": agent, "input": question, "data_sources": ["web", "documents"]},
         )
         r.raise_for_status()
         job = r.json()["job_id"]

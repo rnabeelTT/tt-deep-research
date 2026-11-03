@@ -1,5 +1,5 @@
-# AI-Q pointed at the QB2: every LLM role on the recipe's llm, our MCP server as the only
-# data source, clarifier off so runs are unattended. This is a template: `ttdr aiq-config`
+# AI-Q pointed at the QB2: every LLM role on the recipe's llm, our MCP server as the data
+# sources (web and documents), clarifier off so runs are unattended. This is a template: `ttdr aiq-config`
 # (run by `ttdr up`) renders it with the recipe into data/aiq/config/ttdr.yml.
 # Role split and thinking on/off mirror AI-Q's configs/config_cli_default.yml.
 # Rendered, `nat serve` exposes the job API on :8100 (SQLite job store, local Dask, auth off).
@@ -65,24 +65,37 @@ llms:
     max_tokens: 32768
     extra_body: { chat_template_kwargs: { enable_thinking: false } }
 
+# The engine serves each source as its own MCP endpoint (search pinned to it), so the UI can
+# toggle the web and the private collections separately.
 function_groups:
-  ttdr:
+  web:
     _type: mcp_client
     server:
       transport: streamable-http
-      url: http://localhost:9901/mcp   # filled from the recipe's services.mcp
+      url: http://localhost:9901/mcp/web   # filled from the recipe's services.mcp
+  documents:
+    _type: mcp_client
+    server:
+      transport: streamable-http
+      url: http://localhost:9901/mcp/docs   # filled from the recipe's services.mcp
 
 functions:
   data_sources:
     _type: data_source_registry
     sources:
-      - id: ttdr
-        name: "QB2 Research Engine"
+      - id: web
+        name: "Web search"
         description: >-
-          Web search plus private document collections (listed below), served by the QB2. Search the collections first for anything they cover.
-          Tools: search (sources web, corpus or all), fetch_page, get_evidence; for private documents, read_page (see a page's figures and tables), find_in_document (exact words inside one document) and open_pages (read a passage's page and the pages after it). Passages carry evidence IDs.
+          The web, searched from the QB2 and reranked. Tools: search, fetch_page (read a page or PDF), get_evidence. Passages carry evidence IDs.
         tools:
-          - ttdr
+          - web
+      - id: documents
+        name: "Our documents"
+        description: >-
+          Private document collections on the QB2 (listed below). Search them first for anything they cover.
+          Tools: search, read_page (see a page's figures and tables), find_in_document (exact words inside one document), open_pages (read a passage's page and the pages after it), get_evidence. Passages carry evidence IDs and page links.
+        tools:
+          - documents
 
   intent_classifier:
     _type: intent_classifier
