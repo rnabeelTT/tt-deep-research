@@ -158,6 +158,28 @@ def test_rewrite_that_fixes_citations_is_kept(monkeypatch):
     assert out == fixed and stats["invented after rewrite"] == 0
 
 
+def test_only_sections_with_invented_ids_are_rewritten(monkeypatch):
+    from collections import Counter
+
+    asked = []
+
+    class Echo(FakeLLM):
+        async def ainvoke(self, messages):
+            asked.append(messages[1]["content"])
+            return SimpleNamespace(
+                content=messages[1]["content"].replace("Fake_10K#p1", "W1a2b3c4d.3")
+            )
+
+    monkeypatch.setattr(harness, "chat_model", lambda *a: Echo(""))
+    h = harness.DeepAgentsHarness(RECIPE)
+    report = (
+        "# T\n\n## One\nA [W1a2b3c4d.2].\n\n## Two\nB [Fake_10K#p1].\n\n## Three\nC [W1a2b3c4d.2]."
+    )
+    out = asyncio.run(h.check_citations(EvidenceClient(), report, {"W1a2b3c4d.3": "x"}, Counter()))
+    assert asked == ["## Two\nB [Fake_10K#p1].\n"]
+    assert out == report.replace("Fake_10K#p1", "W1a2b3c4d.3")
+
+
 def test_web_ids_in_filing_style_are_normalized():
     from collections import Counter
 
