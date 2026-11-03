@@ -24,9 +24,9 @@ TEMPLATE_DIR = "ttdr"
 APP = {
     "engine": None,
     "aiq": "http://127.0.0.1:8100/health",
-    "ui": "http://127.0.0.1:3000",
+    "ui": "http://127.0.0.1:3001",
     "deepagents": "http://127.0.0.1:8200/health",
-    "ui-deepagents": "http://127.0.0.1:3001",
+    "ui-deepagents": "http://127.0.0.1:3000",
     "ocr": None,
 }
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
