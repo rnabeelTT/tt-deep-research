@@ -420,3 +420,28 @@ Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and th
 - Every report in both arms trails the reference (0.32 vs 0.5). The gap is in insight (0.26) and comprehensiveness (0.30), which comes down to the writer, not the context.
 
 **Decision: reject.** No gain, and a visible loss when the summary discards evidence. `context_tokens` stays a harness switch, off by default. The next A/B targets the writer (WebWeaver's outline then section-by-section writing).
+
+## A/B: outline-then-sections writer, after WebWeaver (2026-11-03)
+
+**Technique:** WebWeaver (arXiv 2509.13312) writes from an outline whose sections each list the evidence they use, then writes one section at a time from only that evidence. Ours (`ttdr.writer`, switch `sections`) runs after the research:
+1. An outline of 4-8 sections, each with a goal and its evidence IDs, drawn from the researchers' notes.
+2. One call per section, in parallel, seeing the outline, its own note lines and its passages (up to 800 characters each).
+3. A title and summary written from the finished body.
+
+The planner's one-pass report is kept only when no outline comes back.
+
+**Setup:** as in the condensation A/B (Deep Agents 5/12, DRB dev, RACE against the reference by blinded Claude graders, `data/judge/ab_sections`). This time it ran on Ornith's mixed-vision build with prefix caching. Runs `20261103-003831` (baseline) and `20261103-003836` (sections).
+
+| | Baseline | Sections | Diff [95% CI] | Wins / losses |
+|---|---|---|---|---|
+| RACE overall | 0.304 | **0.326** | +0.022 [−0.075, +0.098] | 5 / 3 |
+| without drb_91 | | | **+0.064** | 5 / 2 |
+| insight | 0.243 | **0.297** | +0.054 | |
+| comprehensiveness | 0.278 | **0.309** | +0.031 | |
+
+- The writer did not run on drb_91: the researchers got "No results" from the web on every Saint Seiya query, and the planner gave up. That is a search failure, the same kind as drb_88 in the last A/B.
+- On the other 7 tasks there are 5 wins, up to +0.186 (drb_89) and +0.128 (drb_90). The two losses are −0.018 and −0.001.
+- Reports are 3× longer (median 35k vs 11k characters) and cite more (32.5 vs 23.5 IDs per report). Invented IDs fell from 10 to 2, because each section sees only real IDs. The median time rose from 977 s to 1,062 s.
+- Weakness seen in the traces: sections sometimes comment on their own material ("only two have any grounding in the provided material").
+
+**Decision: adopt.** `sections` defaults to on. Follow-ups: fix web-search give-ups (both A/Bs lost a task to them), and stop sections commenting on their material.

@@ -239,7 +239,7 @@ class DeepAgentsHarness:
     """In-document tools for researchers: exact-term find and reading neighbouring pages."""
     context_tokens: int | None = None
     """Condense agent histories past 85% of this many tokens (see chat_model)."""
-    sections: bool = False
+    sections: bool = True
     """Rewrite the report outline-first, one section at a time (ttdr.writer)."""
 
     def agent(self, tools: list[StructuredTool]):
