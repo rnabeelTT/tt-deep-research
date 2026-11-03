@@ -55,6 +55,9 @@ class Model(BaseModel):
     """Embedders only: Matryoshka truncation; unset, the model's full size."""
     collection: str = "chunks"
     """Embedders only: the Qdrant collection holding this embedder's vectors."""
+    pages_collection: str | None = None
+    """Multimodal embedders only: also embed every page as an image here. With a reranker, corpus
+    search then fuses chunk and page-image candidates and reranks whole pages (docs/LOG.md)."""
     prefetch: list[str] = []
     """`repo@revision` snapshots `ttdr up` downloads into the model cache before serving."""
     serve_order: int = 0

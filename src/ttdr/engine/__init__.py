@@ -45,6 +45,11 @@ class Engine:
             else None
         )
         self.rerank = Rerank(self.clients.rerank) if self.clients.rerank else None
+        self.page_rerank = (
+            Rerank(self.clients.rerank, mode="both", pages=self._page_images)
+            if self.rerank and self.clients.corpus.pages
+            else None
+        )
 
     @classmethod
     def open(cls, recipe: Recipe) -> "Engine":
@@ -67,8 +72,17 @@ class Engine:
         return items
 
     async def _corpus(self, query: str, k: int, corpus: str | None) -> list[Evidence]:
-        hits = await self.clients.corpus.search(query, k, corpus)
+        c = self.clients.corpus
+        hits = await (c.fused if self.page_rerank else c.search)(query, k, corpus)
         return list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits)))
+
+    async def _page_images(self, items: list[Evidence]) -> list[str | None]:
+        hits = [
+            Hit(e.id, m[1], int(m[2]), e.text, [], 0.0, e.source)
+            for e in items
+            if (m := PAGE_ID.match(e.id))
+        ]
+        return await self.clients.corpus.page_images(hits)
 
     async def _corpus_evidence(self, h) -> Evidence:
         """Scanned pages use cached OCR text; on a miss they're queued and marked unverified."""
@@ -93,15 +107,18 @@ class Engine:
             n = k * OVERFETCH
         else:
             n = k
-        tasks = []
+        tasks, rankers = [], []
         if sources in ("web", "all"):
             tasks.append(self._web(query, n))
+            rankers.append(self.rerank or self.triage)
         if sources in ("corpus", "all"):
             tasks.append(self._corpus(query, n, corpus))
+            rankers.append(self.page_rerank or self.rerank or self.triage)
         batches = await asyncio.gather(*tasks)
-        ranker = self.rerank or self.triage
-        if ranker:
-            batches = [(await ranker.rerank(query, b))[:k] for b in batches]
+        batches = [
+            (await r.rerank(query, b))[:k] if r else b
+            for r, b in zip(rankers, batches, strict=True)
+        ]
         items = [e for batch in batches for e in batch]
         await self.evidence.put(items)
         if self.recipe.features.read_pages:
