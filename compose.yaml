@@ -67,11 +67,13 @@ services:
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:   # PAGES_URL: citations' page links (/pages/*) are served by the engine
-      { BACKEND_URL: "http://127.0.0.1:8100", PORT: "3000", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
+      { BACKEND_URL: "http://127.0.0.1:8100", PORT: "3001", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:3001/"] }   # the image's checks :3000
     depends_on: [aiq]
     restart: unless-stopped
 
-  # The Deep Agents harness behind the same UI (ttdr ui-server): UI on :3001, API on :8200.
+  # The Deep Agents harness (the default, docs/LOG.md) behind the same UI: UI on :3000, API on :8200.
+  # AI-Q's own backend keeps the UI on :3001 as the alternative harness.
   deepagents:
     profiles: [app]
     image: ttdr/engine:${TTDR_VERSION:-dev}
@@ -88,8 +90,7 @@ services:
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:
-      { BACKEND_URL: "http://127.0.0.1:8200", PORT: "3001", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
-    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:3001/"] }
+      { BACKEND_URL: "http://127.0.0.1:8200", PORT: "3000", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
     depends_on: [deepagents]
     restart: unless-stopped
 
