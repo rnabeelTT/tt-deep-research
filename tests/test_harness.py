@@ -190,3 +190,19 @@ def test_engine_retries_until_the_server_is_back(monkeypatch):
     monkeypatch.setattr(harness.asyncio, "sleep", no_sleep)
     r = asyncio.run(harness.Engine("http://x").call_tool("search", {"query": "q"}))
     assert r.content[0].text == "search ok" and len(attempts) == 3
+
+
+def test_writer_outline_and_material():
+    from ttdr import writer
+
+    plan = writer.outline(
+        "## Market size | quantify growth | W1a2b3c4d.2, 3M_2018_10K#p59.0\n"
+        "Risks | compare risks | [W0000beef]\nnot a section line"
+    )
+    assert plan == [
+        ("Market size", "quantify growth", ["W1a2b3c4d.2", "3M_2018_10K#p59.0"]),
+        ("Risks", "compare risks", ["W0000beef"]),
+    ]
+    notes = ["- Sales grew 5% [3M_2018_10K#p59.0]\n- Unrelated [W9999aaaa.1]"]
+    m = writer.material(["3M_2018_10K#p59.0"], notes, {"3M_2018_10K#p59.0": "3M: sales table"})
+    assert "Sales grew" in m and "Unrelated" not in m and "sales table" in m
