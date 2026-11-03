@@ -566,3 +566,20 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - One grader spotted invented IDs like `W5e6f7g8h` in a new report. The check only recognized hex web IDs, so these survived. Fixed: an ID-like token of W + 8 letters and digits now counts as a citation.
 
 **Decision: adopt** (committed before the run). With it, Deep Agents is at 0.433 vs AI-Q deep's 0.428, in about a quarter of the time.
+
+## A/B: a lighter plan for short-answer requests (2026-11-03)
+
+**Why:** AI-Q's shallow researcher answered short questions about 4× faster than Deep Agents. The variant classifies the request before research (it was already classified, for the writer) and gives ANSWER requests 1 researcher × 8 tool calls instead of 3 × 8 (`quick_subquestions=1 quick_tool_calls=8`).
+
+**Setup:** both arms concurrent on FinanceBench dev and UniDoc dev, Deep Agents with the gated writer. Runs `20261103-173042` (default) and `20261103-173057` (quick); blinded Claude graders, `data/judge/ab_quick`.
+
+| | Default plan | Quick plan | Diff | +/− | p50 latency |
+|---|---|---|---|---|---|
+| FinanceBench | 77.5% | 77.5% | +0.0 [−10.0, +10.0] | +2/−2 | 224 s → 199 s |
+| UniDoc | 75.0% | 72.5% | −2.5 [−7.5, 0.0] | +0/−1 | 404 s → 401 s |
+| Model calls / input tokens, median | 9.5 / 76k | 9.0 / 70k | | | |
+
+- On short questions the planner usually sends one researcher anyway, so capping the plan changes little. Deep Agents' cost there is per-call context (~70k input tokens a question), not plan breadth.
+- Latencies are inflated by running two arms at 4 each, plus deployment restarts mid-run (no errors).
+
+**Decision: reject.** The switch stays, off by default. The latency gap to AI-Q is about context size, which is the lever to try next: a smaller first-turn prompt and condensing passages.
