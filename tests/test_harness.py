@@ -325,3 +325,16 @@ def test_sources_pins_the_search_scope(monkeypatch):
     assert searches and all(a["sources"] == "corpus" for a in searches)
     _, _, engine = _run_scripted(monkeypatch)
     assert all(a["sources"] == "web" for n, a in engine.calls if n == "search")
+
+
+def test_quest_scaffold_formats_results_and_parses_calls():
+    from ttdr import quest
+
+    raw = "[W1a2b3c4d.2] Reuters\nURL: https://r.com/x\nsnippet one\n\n[3M_2018_10K#p59.0] 3M\nURL: http://ui/pages/3M_2018_10K/60\ncapex"
+    out = quest._search_text("3M capex", raw)
+    assert out.startswith("A Google search for '3M capex' found 2 results:")
+    assert "Title: Reuters [W1a2b3c4d.2]\nLink: https://r.com/x\nSnipptes: snippet one" in out
+    assert quest.EVIDENCE_ID.findall(out) == ["W1a2b3c4d.2", "3M_2018_10K#p59.0"]
+    text = 'Let me search.\n<tool_call>\n{"name": "search", "arguments": {"query": ["a"]}}\n</tool_call>'
+    assert quest.CALL.findall(text) == ['{"name": "search", "arguments": {"query": ["a"]}}']
+    assert quest.ANSWER.search("x <answer>$1,577M</answer>").group(1) == "$1,577M"

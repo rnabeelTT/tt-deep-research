@@ -250,10 +250,34 @@ class DeepAgents:
         )
 
 
+@dataclass
+class Quest:
+    """QUEST's own single-agent scaffold (ttdr.quest) over the engine's MCP tools."""
+
+    max_turns: int = 60
+
+    async def answer(self, item: Item, clients: Clients) -> Answer:
+        from ttdr.quest import QuestHarness
+
+        start = time.perf_counter()
+        r = await QuestHarness(recipe.load(), self.max_turns).run(item.question)
+        return Answer(
+            id=item.id,
+            text=r.report,
+            latency_s=time.perf_counter() - start,
+            prompt_tokens=r.stats["input tokens"],
+            completion_tokens=r.stats["output tokens"],
+            retrieved=r.seen,
+            cited=cited_ids(r.report),
+            stats=dict(r.stats),
+        )
+
+
 SYSTEMS: dict[str, type] = {
     "b0": B0,
     "b1": B1,
     "b1mcp": B1MCP,
     "aiq": AIQ,
     "deepagents": DeepAgents,
+    "quest": Quest,
 }
