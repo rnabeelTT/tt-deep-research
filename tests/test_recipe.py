@@ -102,8 +102,10 @@ def test_corpus_catalog_reaches_mcp_harness_and_aiq():
     tools = asyncio.run(mcp_server.build(RECIPE, object()).list_tools())
     search = next(t for t in tools if t.name == "search")
     assert "financebench: Annual and quarterly reports" in search.description
-    source = aiq_config.render(RECIPE)["functions"]["data_sources"]["sources"][0]
-    assert "unidoc:" in source["description"]
+    cfg = aiq_config.render(RECIPE)
+    docs = next(s for s in cfg["functions"]["data_sources"]["sources"] if s["id"] == "documents")
+    assert "unidoc:" in docs["description"]
+    assert cfg["function_groups"]["web"]["server"]["url"].endswith("/mcp/web")
 
 
 def test_keyed_web_search_needs_its_key(monkeypatch):

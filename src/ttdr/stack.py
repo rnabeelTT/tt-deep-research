@@ -104,9 +104,13 @@ def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
 
 def compose_env(recipe: Recipe, path: Path | None = None) -> dict[str, str]:
     """Recipe values Compose needs, written to .env (Compose reads it automatically). The
-    engine loads the same recipe file, overlays included."""
+    engine loads the same recipe file, overlays included. Page links in citations use
+    TTDR_PAGES_URL from the environment: the UI's address as browsers reach it, plus /pages."""
+    mcp = urlparse(recipe.services.mcp)
     env = {
         "TTDR_RECIPE": str(path or "recipe.toml"),
+        "TTDR_ENGINE_URL": f"{mcp.scheme}://{mcp.netloc}",
+        "TTDR_PAGES_URL": os.environ.get("TTDR_PAGES_URL", "http://localhost:3000/pages"),
         "AIQ_AUTO_TOOL_CHOICE": "1" if recipe.features.auto_tool_choice else "0",
         "TTDR_UID": str(os.getuid()),
         "TTDR_GID": str(os.getgid()),

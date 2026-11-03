@@ -180,7 +180,11 @@ class AIQ:
         while True:
             r = await http.post(
                 f"{self.api}/v1/jobs/async/submit",
-                json={"agent_type": self.agent, "input": item.question, "data_sources": ["ttdr"]},
+                json={
+                    "agent_type": self.agent,
+                    "input": item.question,
+                    "data_sources": ["web", "documents"],
+                },
             )
             if r.status_code != 429:
                 break
