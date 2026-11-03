@@ -1,4 +1,6 @@
-use_default_settings: true
+use_default_settings:
+  engines:
+    keep_only: [yandex, bing news, openalex]
 
 server:
   limiter: false
@@ -7,13 +9,12 @@ server:
 search:
   formats: [html, json]
 
-# Spread load across more upstream engines; a single deep job can make thousands of searches.
+# Bing (and Yahoo, which is Bing) answers only the first word of automated queries, and the other
+# scraped engines are blocked or return Bing's results; see docs/JOURNEY.md (2026-11-03).
 engines:
-  - name: bing
+  - name: yandex
     disabled: false
-  - name: yahoo
+  - name: bing news
     disabled: false
-  - name: mojeek
-    disabled: false
-  - name: startpage
+  - name: openalex
     disabled: false
