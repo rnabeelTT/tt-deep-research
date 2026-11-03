@@ -480,3 +480,17 @@ Deep Agents (3/8, doc tools, sections writer) on the dev sets, with chunk retrie
 - Fused hits carry a whole page cut to 2,000 characters under the page's first ID. On dense filing pages the exact figure falls past the cut, where a chunk hit would have delivered it. Citations also lose precision, since one ID covers a whole page.
 
 **Decision: reject as built.** `recipes/pages.toml` stays opt-in. A second version would rerank on the page (image and text) but hand the agent the page's best-matching chunks, keeping chunk IDs.
+
+### Sections writer on short-answer questions (2026-11-03)
+
+The writer was adopted on DRB. On the corpus dev sets it was checked by a paired run with `sections=false` (run `20261103-045147`), on the same engine as the sections run `20261103-022029`. Graded by blinded Claude graders (`data/judge/ab_sections_qa`).
+
+| | Sections off | Sections on | Fixed / broke by sections | p50 s |
+|---|---|---|---|---|
+| FinanceBench dev | **85.0%** | 77.5% | +2 / −5 | 106 → 314 |
+| UniDoc dev | 75.0% | **77.5%** | +3 / −2 | 132 → 386 |
+
+- Turning a one-number answer into a 12k-character report buries or garbles the number, and it triples latency.
+- The p50 of 106 s against 262 s in the doc-tools A/B is the prefix cache at work (Ornith's mixed-vision build).
+
+**Decision: gate the writer by request kind.** One short call classifies the request as ANSWER (a figure, date, name, yes/no, calculation or short list) or REPORT (analysis, a survey, a comparison, a review, a plan). Only REPORT requests get the outline and sections. On the dev sets the classifier marks REPORT for 7/8 DRB tasks, 0/40 FinanceBench and 9/40 UniDoc (its summarization and causal questions). An earlier attempt to let the outline step reply DIRECT marked 6/8 DRB tasks direct, so it was dropped.

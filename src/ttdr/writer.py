@@ -2,11 +2,20 @@
 
 The planner's one-pass report is replaced by: an outline whose sections each name the evidence
 IDs they draw on, then one call per section that sees only the notes and passages it cites, then
-an opening summary written from the finished sections.
+an opening summary written from the finished sections. Requests with a specific answer keep the
+planner's direct reply: on short-answer questions the long form cost accuracy (docs/LOG.md).
 """
 
 import asyncio
 import re
+
+KIND = """Classify this research request. ANSWER: it asks for a specific answer (a figure, a
+date, a name, a yes/no, a calculation or a short list) that a paragraph or two settles. REPORT: it
+asks for analysis, a survey, a comparison across many items, a review, a plan or a report. Reply
+with one word, ANSWER or REPORT.
+
+Request:
+{question}"""
 
 OUTLINE = """You plan a long, analytical research report. Below are the request and the
 researchers' notes; every fact in the notes ends with evidence IDs in square brackets.
@@ -77,12 +86,15 @@ def material(ids: list[str], notes: list[str], passages: dict[str, str]) -> str:
 
 
 async def write(model, question: str, notes: list[str], passages: dict[str, str]) -> str | None:
-    """None when no usable outline comes back (the caller keeps the planner's report)."""
+    """None for short-answer requests, or when no usable outline comes back (the caller keeps the
+    planner's report)."""
 
     async def ask(prompt: str) -> str:
         reply = await model.ainvoke([{"role": "user", "content": prompt}])
         return reply.content if isinstance(reply.content, str) else ""
 
+    if "REPORT" not in (await ask(KIND.format(question=question))).upper():
+        return None
     joined = "\n\n".join(notes)
     plan = outline(await ask(OUTLINE.format(low=4, high=8, question=question, notes=joined)))
     if len(plan) < 2:
