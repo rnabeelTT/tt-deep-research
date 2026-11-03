@@ -63,7 +63,8 @@ class Engine:
         services = self.recipe.services
         if not (backend := services.web()):
             return []
-        key = f"web:{backend}:{k}:{' '.join(query.lower().split())}"
+        source = services.searxng if backend == "searxng" else backend
+        key = f"web:{source}:{k}:{' '.join(query.lower().split())}"
         if hit := await self.evidence.cached(key):
             return [Evidence(**{**d, "flags": tuple(d["flags"])}) for d in json.loads(hit)]
         items = await web.search(self.http, backend, services.searxng, self.clients.embed, query, k)
