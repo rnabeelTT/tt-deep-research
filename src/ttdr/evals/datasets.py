@@ -105,6 +105,26 @@ def simpleqa(n: int = 150) -> list[Item]:
     return items
 
 
+FRAMES = ("google/frames-benchmark", "58d9fb6330f3ab1316d1eca12e5e8ef23dcc22ef")
+
+
+def frames(n: int = 150) -> list[Item]:
+    """FRAMES (Google, Apache-2.0): multi-hop questions answerable from Wikipedia; a fixed sample.
+    Tagged with the first reasoning type (multiple constraints, numerical, temporal, tabular...)."""
+    rows = list(csv.DictReader(_fetch(FRAMES[0], "test.tsv", FRAMES[1]).open(), delimiter="\t"))
+    picked = sorted(random.Random(SEED).sample(range(len(rows)), n))
+    return [
+        Item(
+            id=f"frames_{i:03d}",
+            suite="frames",
+            question=rows[i]["Prompt"],
+            answer=rows[i]["Answer"],
+            tags={"type": rows[i]["reasoning_types"].split("|")[0].strip()},
+        )
+        for i in picked
+    ]
+
+
 UNIDOC = ("Salesforce/UniDoc-Bench", "2e22c592438d1e52c39bd769aab2901d596af746")
 UNIDOC_PER_TYPE = 25
 PAGE_PNG = re.compile(r"images/\w+/(\w+)/\1_page_(\d+)\.png")
@@ -177,9 +197,11 @@ BUILDERS: dict[str, Callable[[], list[Item]]] = {
     "simpleqa": simpleqa,
     "deepresearch_bench": deepresearch_bench,
     "unidoc": unidoc,
+    "frames": frames,
     "financebench-dev": dev("financebench", 40, ("type",)),
     "unidoc-dev": dev("unidoc", 40, ("answer_type", "domain")),
     "deepresearch_bench-dev": dev("deepresearch_bench", 8, ("topic",)),
+    "frames-dev": dev("frames", 40, ("type",)),
 }
 
 
