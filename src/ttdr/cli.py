@@ -46,6 +46,18 @@ def mcp_cmd(
     mcp_server.serve(r, host or u.hostname, u.port, u.path)
 
 
+@app.command("ui-server")
+def ui_server_cmd(
+    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+    host: Annotated[str, typer.Option(help="Bind address")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port")] = 8200,
+):
+    """Serve AI-Q's web UI protocol (chat websocket, job SSE) on the Deep Agents harness."""
+    from ttdr import ui_server
+
+    ui_server.serve(recipe.load(recipe_path), host, port)
+
+
 @app.command("up")
 def up_cmd(
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,

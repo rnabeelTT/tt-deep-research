@@ -17,6 +17,25 @@ The engine is an MCP server (`services.mcp` in the recipe, `http://localhost:990
 
 The design's fallback harness, built in: `ttdr research --harness deepagents "…"` (and the `deepagents` eval system). Deep Agents plans with `write_todos`, sends each sub-question to a researcher subagent, and writes the cited report; `src/ttdr/harness.py` only connects the recipe's LLM, the engine's MCP tools and call limits. It asks for no structured output, so no request forces a tool call.
 
+### In AI-Q's web UI (:3001)
+
+`ttdr ui-server` (`src/ttdr/ui_server.py`, default `127.0.0.1:8200`) speaks the UI's protocol on top of the Deep Agents harness, so the same UI image runs on either harness: AI-Q on :3000, Deep Agents on :3001. Neither `ttdr up` nor `ttdr down` touches these two services; start them yourself:
+
+```bash
+docker compose --profile app up -d deepagents ui-deepagents   # API :8200, UI http://<host>:3001
+uv run ttdr ui-server --recipe recipe.toml                     # or the API from a checkout
+```
+
+| UI | Deep Agents |
+|---|---|
+| Chat message | Always a deep-research job: the reply is the UI's `job_escalation` signal; the harness decides report vs short answer itself |
+| Data sources | "Web search" and "Our documents", both on by default; with only one on, `search` is pinned to it (`DeepAgentsHarness.sources`) |
+| Agent cards | One per researcher (each `task` call), with its sub-question and notes; a "planner" card shows the request kind and plan budget |
+| Tool calls | Under their researcher, with the full input and output |
+| Tasks, sources, report | `write_todos`, every passage the tools returned (cited ones marked), the final report |
+
+Jobs live in the server's memory: a reconnecting stream replays from its last event ID, but a restart forgets them. Cancel stops the run. With several researchers searching at once, the stock UI can attach a tool result to another call of the same tool name, because it matches results by name.
+
 ## Hermes
 
 Hermes is in the tt CLI (`tt launch hermes`), which points it at a served model but doesn't add MCP servers. Add the engine once, then launch as usual:

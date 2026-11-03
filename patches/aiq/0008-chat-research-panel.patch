@@ -1,0 +1,790 @@
+diff --git a/frontends/ui/src/features/chat/hooks/use-websocket-chat.ts b/frontends/ui/src/features/chat/hooks/use-websocket-chat.ts
+index 3f34ddb..ac2b26c 100644
+--- a/frontends/ui/src/features/chat/hooks/use-websocket-chat.ts
++++ b/frontends/ui/src/features/chat/hooks/use-websocket-chat.ts
+@@ -54,7 +54,11 @@ import {
+   getDisplayName,
+   getWorkflowDisplayName,
+   isFunctionStepName,
++  isLLMModel,
++  hasToolPrefix,
+   formatPayload,
++  parsePayloadSections,
++  parseToolInput,
+ } from '../lib/intermediate-step-parser'
+ 
+ const EMPTY_MESSAGES: ChatMessage[] = []
+@@ -245,6 +249,20 @@ interface UseWebSocketChatReturn {
+ /**
+  * Map NAT human prompt types to our PromptType
+  */
++/**
++ * Per-message bookkeeping for mirroring websocket steps into the ResearchPanel.
++ * Stacks are keyed by function/tool name so repeated calls stay separate.
++ */
++interface ChatResearchTrace {
++  toolIds: Map<string, string[]>
++  /** First source that reported a tool name ("Tool:" or "Function ...") owns it */
++  toolSources: Map<string, 'tool' | 'function'>
++  agentIds: Map<string, string[]>
++  openAgents: Array<{ id: string; name: string }>
++  llmSteps: Map<string, { id: string; content: string }>
++  todos: Array<{ agentId: string; content: string; status: string }>
++}
++
+ const mapHumanPromptType = (natType: string): PromptType => {
+   switch (natType) {
+     case HumanPromptType.TEXT:
+@@ -280,6 +298,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+   const currentThinkingStepIdRef = useRef<string | null>(null)
+   // Ref to track the current status for detecting status changes
+   const currentStatusRef = useRef<StatusType | null>(null)
++  // ResearchPanel mirror of the current chat message's steps (null until its first step)
++  const chatTraceRef = useRef<ChatResearchTrace | null>(null)
+ 
+   /**
+    * Single-slot buffer for an outgoing payload deferred by a socket
+@@ -431,6 +451,19 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+   const addPlanMessage = useChatStore((s) => s.addPlanMessage)
+   const updatePlanMessageResponse = useChatStore((s) => s.updatePlanMessageResponse)
+   const updateConversationTitle = useChatStore((s) => s.updateConversationTitle)
++  const setReportContent = useChatStore((s) => s.setReportContent)
++  const resetChatResearchTrace = useChatStore((s) => s.resetChatResearchTrace)
++  const setDeepResearchTodos = useChatStore((s) => s.setDeepResearchTodos)
++  const stopAllDeepResearchSpinners = useChatStore((s) => s.stopAllDeepResearchSpinners)
++  const addDeepResearchAgent = useChatStore((s) => s.addDeepResearchAgent)
++  const completeDeepResearchAgent = useChatStore((s) => s.completeDeepResearchAgent)
++  const addDeepResearchToolCall = useChatStore((s) => s.addDeepResearchToolCall)
++  const completeDeepResearchToolCall = useChatStore((s) => s.completeDeepResearchToolCall)
++  const addDeepResearchLLMStep = useChatStore((s) => s.addDeepResearchLLMStep)
++  const appendToDeepResearchLLMStep = useChatStore((s) => s.appendToDeepResearchLLMStep)
++  const completeDeepResearchLLMStep = useChatStore((s) => s.completeDeepResearchLLMStep)
++  const setResearchPanelTab = useLayoutStore((s) => s.setResearchPanelTab)
++  const openRightPanel = useLayoutStore((s) => s.openRightPanel)
+ 
+   // Sync authenticated user ID to store when auth state changes
+   useEffect(() => {
+@@ -618,6 +651,109 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+       return parentId !== activeId
+     }
+ 
++    /**
++     * Mirror a structured websocket step into the ResearchPanel arrays (tasks,
++     * agents, tools, thoughts) so chat answers get the same panel as deep
++     * research jobs. Skipped while a deep research SSE job owns the panel.
++     */
++    const mirrorStepToResearchPanel = (name: string, payload: string, displayName: string): void => {
++      if (useChatStore.getState().isDeepResearchStreaming) return
++
++      if (!chatTraceRef.current) {
++        chatTraceRef.current = {
++          toolIds: new Map(),
++          toolSources: new Map(),
++          agentIds: new Map(),
++          openAgents: [],
++          llmSteps: new Map(),
++          todos: [],
++        }
++        setResearchPanelTab('thinking')
++        openRightPanel('research')
++      }
++      const t = chatTraceRef.current
++
++      const { input, output } = parsePayloadSections(payload)
++      const push = (stacks: Map<string, string[]>, key: string, id: string) =>
++        stacks.set(key, [...(stacks.get(key) ?? []), id])
++      const currentAgent = () => t.openAgents[t.openAgents.length - 1]
++      const syncTodos = () =>
++        setDeepResearchTodos(t.todos.map(({ content, status }) => ({ content, status })))
++
++      const mirrorTool = (toolName: string, source: 'tool' | 'function', isEnd: boolean) => {
++        const owner = t.toolSources.get(toolName)
++        if (owner && owner !== source) return
++        t.toolSources.set(toolName, source)
++        const startTool = () =>
++          addDeepResearchToolCall({
++            name: toolName,
++            input: parseToolInput(input),
++            workflow: currentAgent()?.name,
++            agentId: currentAgent()?.id,
++          })
++        if (!isEnd) {
++          push(t.toolIds, toolName, startTool())
++          return
++        }
++        const toolCallId = t.toolIds.get(toolName)?.pop() ?? startTool()
++        completeDeepResearchToolCall(toolCallId, output)
++      }
++
++      if (hasToolPrefix(name)) {
++        mirrorTool(name.replace(/^Tool:\s*/i, ''), 'tool', output !== undefined)
++        return
++      }
++
++      if (isFunctionStepName(name)) {
++        const { functionName, isComplete } = parseFunctionName(name)
++        if (mapFunctionToCategory(functionName) === 'tools') {
++          mirrorTool(functionName, 'function', isComplete)
++          return
++        }
++        // A NAT function the LLM already announced as "Tool: X" -- shown as a tool
++        if (t.toolSources.get(functionName) === 'tool') return
++
++        const startAgent = () => {
++          const agentId = addDeepResearchAgent({ name: displayName, input })
++          t.openAgents.push({ id: agentId, name: displayName })
++          t.todos.push({ agentId, content: displayName, status: 'in_progress' })
++          return agentId
++        }
++        if (!isComplete) {
++          push(t.agentIds, functionName, startAgent())
++          syncTodos()
++          return
++        }
++        const agentId = t.agentIds.get(functionName)?.pop() ?? startAgent()
++        completeDeepResearchAgent(agentId, output)
++        t.openAgents = t.openAgents.filter((agent) => agent.id !== agentId)
++        t.todos = t.todos.map((todo) =>
++          todo.agentId === agentId ? { ...todo, status: 'completed' } : todo
++        )
++        syncTodos()
++        return
++      }
++
++      // LLM steps: model id names (or any "**Input:**" step that isn't a tool)
++      if (isLLMModel(name) || /^\s*\*\*Input:\*\*/.test(payload)) {
++        let step = t.llmSteps.get(name)
++        if (!step || output === undefined) {
++          step = {
++            id: addDeepResearchLLMStep({ name, workflow: currentAgent()?.name, content: '' }),
++            content: '',
++          }
++          t.llmSteps.set(name, step)
++        }
++        if (output === undefined) return
++        // Token frames repeat the accumulated output; append only the new tail
++        if (output.startsWith(step.content) && output.length > step.content.length) {
++          appendToDeepResearchLLMStep(step.id, output.slice(step.content.length))
++          step.content = output
++        }
++        completeDeepResearchLLMStep(step.id)
++      }
++    }
++
+     return {
+       onResponse: (content: string, status: string, isFinal: boolean, parentId?: string) => {
+         // A response on the wire proves the post-rotation auth is alive --
+@@ -748,12 +884,15 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+           return
+         }
+ 
+-        // reportContent is only populated by deep research SSE events
+-        // (use-deep-research.ts), not by regular WebSocket responses.
++        // Regular WebSocket answers also fill reportContent so the
++        // ResearchPanel Report tab shows them (deep research uses SSE).
+         if (content && content.trim()) {
+           // Add to chat area as AgentResponse
+-          // Note: reportContent is only set by deep research SSE events (use-deep-research.ts)
+           addAgentResponse(content)
++          // Mirror the chat answer into the ResearchPanel Report tab
++          if (!useChatStore.getState().isDeepResearchStreaming) {
++            setReportContent(content)
++          }
+         }
+ 
+         // status: "complete" with null text signals task completion
+@@ -765,6 +904,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+             currentStatusRef.current = null
+           }
+ 
++          // Settle any mirrored ResearchPanel step whose end frame never arrived
++          if (chatTraceRef.current && !useChatStore.getState().isDeepResearchStreaming) {
++            stopAllDeepResearchSpinners(true)
++          }
++
+           // Stop streaming and mark complete
+           setStreaming(false)
+           setCurrentStatus('complete')
+@@ -850,6 +994,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+           currentStatusRef.current = 'thinking'
+         }
+ 
++        mirrorStepToResearchPanel(content.name, content.payload || '', displayName)
++
+         // Update status based on message status
+         if (status === 'in_progress') {
+           setCurrentStatus('thinking')
+@@ -1089,6 +1235,18 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+     acknowledgeOutgoingDelivery,
+     clearUnacknowledgedOutgoing,
+     sendOutgoingPayload,
++    setReportContent,
++    setDeepResearchTodos,
++    stopAllDeepResearchSpinners,
++    addDeepResearchAgent,
++    completeDeepResearchAgent,
++    addDeepResearchToolCall,
++    completeDeepResearchToolCall,
++    addDeepResearchLLMStep,
++    appendToDeepResearchLLMStep,
++    completeDeepResearchLLMStep,
++    setResearchPanelTab,
++    openRightPanel,
+   ])
+ 
+   /**
+@@ -1142,6 +1300,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+       pendingRotationRef.current = false
+       currentThinkingStepIdRef.current = null
+       currentStatusRef.current = null
++      chatTraceRef.current = null
+     }
+   }, [
+     currentConversationId,
+@@ -1201,10 +1360,13 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+       // so chat history still renders prior thinking blocks.
+       clearReportContent()
+       clearPendingInteraction()
++      // Fresh ResearchPanel trace for this message (mirrored from its websocket steps)
++      resetChatResearchTrace()
+ 
+       // Reset tracking refs
+       currentThinkingStepIdRef.current = null
+       currentStatusRef.current = null
++      chatTraceRef.current = null
+ 
+       // Set initial status; first real step will be "Workflow: Chat Researcher" from backend
+       setCurrentStatus('thinking')
+@@ -1273,6 +1435,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
+       addErrorCard,
+       clearReportContent,
+       clearPendingInteraction,
++      resetChatResearchTrace,
+       setCurrentStatus,
+       setStreaming,
+       setLoading,
+diff --git a/frontends/ui/src/features/chat/hooks/use-websocket-chat.spec.ts b/frontends/ui/src/features/chat/hooks/use-websocket-chat.spec.ts
+index 082fc60..9dae307 100644
+--- a/frontends/ui/src/features/chat/hooks/use-websocket-chat.spec.ts
++++ b/frontends/ui/src/features/chat/hooks/use-websocket-chat.spec.ts
+@@ -36,6 +36,19 @@ const mockAddPlanMessage = vi.fn()
+ const mockUpdatePlanMessageResponse = vi.fn()
+ const mockAddDeepResearchBanner = vi.fn()
+ const mockDismissConnectionErrors = vi.fn()
++const mockResetChatResearchTrace = vi.fn()
++const mockSetDeepResearchTodos = vi.fn()
++const mockStopAllDeepResearchSpinners = vi.fn()
++let mockIdCounter = 0
++const mockAddDeepResearchAgent = vi.fn(() => `agent-${++mockIdCounter}`)
++const mockCompleteDeepResearchAgent = vi.fn()
++const mockAddDeepResearchToolCall = vi.fn(() => `tool-${++mockIdCounter}`)
++const mockCompleteDeepResearchToolCall = vi.fn()
++const mockAddDeepResearchLLMStep = vi.fn(() => `llm-${++mockIdCounter}`)
++const mockAppendToDeepResearchLLMStep = vi.fn()
++const mockCompleteDeepResearchLLMStep = vi.fn()
++const mockSetResearchPanelTab = vi.fn()
++const mockOpenRightPanel = vi.fn()
+ 
+ // Mock store state
+ let mockStoreState: {
+@@ -104,6 +117,16 @@ const defaultUseChatStoreImpl = (selector?: (s: any) => any) => {
+     updatePlanMessageResponse: mockUpdatePlanMessageResponse,
+     addDeepResearchBanner: mockAddDeepResearchBanner,
+     dismissConnectionErrors: mockDismissConnectionErrors,
++    resetChatResearchTrace: mockResetChatResearchTrace,
++    setDeepResearchTodos: mockSetDeepResearchTodos,
++    stopAllDeepResearchSpinners: mockStopAllDeepResearchSpinners,
++    addDeepResearchAgent: mockAddDeepResearchAgent,
++    completeDeepResearchAgent: mockCompleteDeepResearchAgent,
++    addDeepResearchToolCall: mockAddDeepResearchToolCall,
++    completeDeepResearchToolCall: mockCompleteDeepResearchToolCall,
++    addDeepResearchLLMStep: mockAddDeepResearchLLMStep,
++    appendToDeepResearchLLMStep: mockAppendToDeepResearchLLMStep,
++    completeDeepResearchLLMStep: mockCompleteDeepResearchLLMStep,
+   }
+   return selector ? selector(state) : state
+ }
+@@ -159,6 +182,8 @@ vi.mock('@/features/layout/store', () => ({
+       const state = {
+         enabledDataSourceIds: ['source-1', 'source-2'],
+         knowledgeLayerAvailable: false,
++        setResearchPanelTab: mockSetResearchPanelTab,
++        openRightPanel: mockOpenRightPanel,
+       }
+       return selector ? selector(state) : state
+     }),
+@@ -913,6 +938,110 @@ describe('useWebSocketChat', () => {
+     )
+   })
+ 
++  describe('ResearchPanel mirroring of chat steps', () => {
++    const step = (name: string, payload: string) => {
++      act(() => {
++        capturedCallbacks.onIntermediateStep?.({ name, payload }, 'in_progress')
++      })
++    }
++
++    beforeEach(() => {
++      mockIdCounter = 0
++      renderWebSocketHook()
++      mockStoreState.isStreaming = true
++    })
++
++    test('opens the panel on the first step and mirrors agents with their output', () => {
++      step('Function Start: intent_classifier', '**Function Input:**\n```python\nstate\n```')
++
++      expect(mockSetResearchPanelTab).toHaveBeenCalledWith('thinking')
++      expect(mockOpenRightPanel).toHaveBeenCalledWith('research')
++      expect(mockAddDeepResearchAgent).toHaveBeenCalledWith({ name: 'Intent Classifier', input: 'state' })
++      expect(mockSetDeepResearchTodos).toHaveBeenLastCalledWith([
++        { content: 'Intent Classifier', status: 'in_progress' },
++      ])
++
++      step(
++        'Function Complete: intent_classifier',
++        "**Function Input:**\n```python\nstate\n```**Function Output:**\n```python\nIntentResult(intent='research')\n```"
++      )
++
++      expect(mockCompleteDeepResearchAgent).toHaveBeenCalledWith('agent-1', "IntentResult(intent='research')")
++      expect(mockSetDeepResearchTodos).toHaveBeenLastCalledWith([
++        { content: 'Intent Classifier', status: 'completed' },
++      ])
++      expect(mockOpenRightPanel).toHaveBeenCalledTimes(1)
++    })
++
++    test('keeps repeated tool calls separate and nests them under the running agent', () => {
++      step('Function Start: shallow_research_agent', '**Function Input:**\n```python\nq\n```')
++      step('Tool: ttdr__search', "**Input:**\n```python\n{'query': 'a'}\n```")
++      step('Tool: ttdr__search', "**Input:**\n```python\n{'query': 'b'}\n```")
++      // NAT function wrapper for the same tool is not duplicated as an agent
++      step('Function Start: ttdr__search', "**Function Input:**\n```python\n{'query': 'b'}\n```")
++      step(
++        'Tool: ttdr__search',
++        "**Input:**\n```python\n{'query': 'b'}\n```\n\n**Output:**\n```python\nresult B\n```"
++      )
++      step(
++        'Tool: ttdr__search',
++        "**Input:**\n```python\n{'query': 'a'}\n```\n\n**Output:**\n```python\nresult A\n```"
++      )
++
++      expect(mockAddDeepResearchAgent).toHaveBeenCalledTimes(1)
++      expect(mockAddDeepResearchToolCall).toHaveBeenCalledTimes(2)
++      expect(mockAddDeepResearchToolCall).toHaveBeenNthCalledWith(1, {
++        name: 'ttdr__search',
++        input: { _raw: "{'query': 'a'}" },
++        workflow: 'Shallow Research Agent',
++        agentId: 'agent-1',
++      })
++      expect(mockCompleteDeepResearchToolCall).toHaveBeenNthCalledWith(1, 'tool-3', 'result B')
++      expect(mockCompleteDeepResearchToolCall).toHaveBeenNthCalledWith(2, 'tool-2', 'result A')
++    })
++
++    test('mirrors LLM steps and appends only new output', () => {
++      step('org/model-a', '**Input:**\n```python\n[msg]\n```')
++      step('org/model-a', '**Input:**\n```python\n[msg]\n```\n\n**Output:**\nHel')
++      step('org/model-a', '**Input:**\n```python\n[msg]\n```\n\n**Output:**\nHello')
++
++      expect(mockAddDeepResearchLLMStep).toHaveBeenCalledTimes(1)
++      expect(mockAppendToDeepResearchLLMStep).toHaveBeenNthCalledWith(1, 'llm-1', 'Hel')
++      expect(mockAppendToDeepResearchLLMStep).toHaveBeenNthCalledWith(2, 'llm-1', 'lo')
++      expect(mockCompleteDeepResearchLLMStep).toHaveBeenCalledWith('llm-1')
++    })
++
++    test('does not mirror while a deep research job is streaming', () => {
++      ;(mockStoreState as Record<string, unknown>).isDeepResearchStreaming = true
++
++      step('Tool: tavily_search', "**Input:**\n```python\n{'query': 'a'}\n```")
++
++      expect(mockAddDeepResearchToolCall).not.toHaveBeenCalled()
++      expect(mockOpenRightPanel).not.toHaveBeenCalled()
++    })
++
++    test('puts the final chat answer into the Report tab and settles spinners', () => {
++      step('Function Start: meta_chatter', '**Function Input:**\n```python\nhi\n```')
++
++      act(() => {
++        capturedCallbacks.onResponse?.('Final answer', 'complete', true)
++      })
++
++      expect(mockSetReportContent).toHaveBeenCalledWith('Final answer')
++      expect(mockStopAllDeepResearchSpinners).toHaveBeenCalledWith(true)
++    })
++  })
++
++  test('sendMessage resets the ResearchPanel trace', () => {
++    const { result } = renderWebSocketHook({ autoConnect: false })
++
++    act(() => {
++      result.current.sendMessage('What is Tenstorrent?')
++    })
++
++    expect(mockResetChatResearchTrace).toHaveBeenCalledTimes(1)
++  })
++
+   test('onHumanPrompt callback sets pending interaction and adds prompt', () => {
+     renderWebSocketHook()
+ 
+diff --git a/frontends/ui/src/features/chat/lib/intermediate-step-parser.ts b/frontends/ui/src/features/chat/lib/intermediate-step-parser.ts
+index 067d8e3..7e3cd44 100644
+--- a/frontends/ui/src/features/chat/lib/intermediate-step-parser.ts
++++ b/frontends/ui/src/features/chat/lib/intermediate-step-parser.ts
+@@ -202,3 +202,61 @@ export const formatPayload = (payload: string): string => {
+ 
+   return cleaned
+ }
++
++/**
++ * Input and output sections of a NAT step payload, with HTML entities decoded
++ * and only the outer code fence removed (inner text is kept verbatim).
++ */
++export interface PayloadSections {
++  input?: string
++  output?: string
++}
++
++const decodeEntities = (text: string): string =>
++  text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
++
++const unfence = (text: string): string =>
++  decodeEntities(
++    text
++      .trim()
++      .replace(/^```[\w-]*\n?/, '')
++      .replace(/\n?```$/, '')
++  )
++
++/**
++ * Split a NAT step payload into its input and output sections.
++ * Backend format (nat/front_ends/fastapi/step_adaptor.py):
++ * "**Input:**" / "**Function Input:**" fenced block, optionally followed by
++ * "**Output:**" / "**Function Output:**" (fenced, except for LLM output).
++ */
++export const parsePayloadSections = (payload: string): PayloadSections => {
++  if (!payload) return {}
++  const outputMatch = payload.match(/\*\*(?:Function )?Output:\*\*/i)
++  const outputIndex = outputMatch?.index ?? -1
++  const inputText = (outputIndex >= 0 ? payload.slice(0, outputIndex) : payload).replace(
++    /^\s*\*\*(?:Function )?Input:\*\*/i,
++    ''
++  )
++
++  const sections: PayloadSections = {}
++  if (inputText.trim()) sections.input = unfence(inputText)
++  if (outputMatch) sections.output = unfence(payload.slice(outputIndex + outputMatch[0].length))
++  return sections
++}
++
++/**
++ * Parse a tool input string into an object: JSON objects are parsed, anything
++ * else (e.g. a Python repr) is wrapped in the { _raw } sentinel ToolCallCard understands.
++ */
++export const parseToolInput = (input?: string): Record<string, unknown> | undefined => {
++  if (!input) return undefined
++  try {
++    const parsed = JSON.parse(input)
++    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
++      return parsed as Record<string, unknown>
++    }
++  } catch {
++    // Not JSON -- fall through to the raw sentinel
++  }
++  return { _raw: input }
++}
+diff --git a/frontends/ui/src/features/chat/store.ts b/frontends/ui/src/features/chat/store.ts
+index 49d2614..98d5252 100644
+--- a/frontends/ui/src/features/chat/store.ts
++++ b/frontends/ui/src/features/chat/store.ts
+@@ -2320,6 +2320,30 @@ export const useChatStore = create<ChatStore>()(
+           )
+         },
+ 
++        resetChatResearchTrace: () => {
++          if (get().isDeepResearchStreaming) return
++          set(
++            {
++              deepResearchJobId: null,
++              deepResearchLastEventId: null,
++              deepResearchStatus: null,
++              deepResearchOwnerConversationId: null,
++              activeDeepResearchMessageId: null,
++              deepResearchCitations: [],
++              deepResearchTodos: [],
++              deepResearchLLMSteps: [],
++              deepResearchAgents: [],
++              deepResearchToolCalls: [],
++              deepResearchFiles: [],
++              deepResearchStreamLoaded: false,
++              reportContent: '',
++              reportContentCategory: null,
++            },
++            false,
++            'resetChatResearchTrace'
++          )
++        },
++
+         setLoadedJobId: (jobId: string) => {
+           set({ deepResearchJobId: jobId }, false, 'setLoadedJobId')
+         },
+diff --git a/frontends/ui/src/features/chat/store.spec.ts b/frontends/ui/src/features/chat/store.spec.ts
+index 424199b..0f451ec 100644
+--- a/frontends/ui/src/features/chat/store.spec.ts
++++ b/frontends/ui/src/features/chat/store.spec.ts
+@@ -1412,6 +1412,52 @@ describe('useChatStore', () => {
+     })
+   })
+ 
++  describe('resetChatResearchTrace', () => {
++    test('clears panel content and detaches a finished job', () => {
++      useChatStore.setState({
++        deepResearchJobId: 'job-1',
++        deepResearchOwnerConversationId: 'conv-1',
++        activeDeepResearchMessageId: 'msg-1',
++        isDeepResearchStreaming: false,
++        deepResearchStreamLoaded: true,
++        reportContent: '# Old report',
++      })
++      const state = useChatStore.getState()
++      state.addDeepResearchAgent({ name: 'Intent Classifier' })
++      state.addDeepResearchToolCall({ name: 'ttdr__search' })
++      state.addDeepResearchLLMStep({ name: 'org/model', content: '' })
++      state.setDeepResearchTodos([{ content: 'Intent Classifier', status: 'in_progress' }])
++
++      useChatStore.getState().resetChatResearchTrace()
++
++      const next = useChatStore.getState()
++      expect(next.deepResearchAgents).toEqual([])
++      expect(next.deepResearchToolCalls).toEqual([])
++      expect(next.deepResearchLLMSteps).toEqual([])
++      expect(next.deepResearchTodos).toEqual([])
++      expect(next.reportContent).toBe('')
++      expect(next.deepResearchStreamLoaded).toBe(false)
++      expect(next.deepResearchJobId).toBeNull()
++      expect(next.activeDeepResearchMessageId).toBeNull()
++    })
++
++    test('leaves a streaming deep research job untouched', () => {
++      useChatStore.setState({
++        deepResearchJobId: 'job-live',
++        isDeepResearchStreaming: true,
++        reportContent: 'partial',
++      })
++      useChatStore.getState().addDeepResearchToolCall({ name: 'tavily_web_search' })
++
++      useChatStore.getState().resetChatResearchTrace()
++
++      const next = useChatStore.getState()
++      expect(next.deepResearchJobId).toBe('job-live')
++      expect(next.deepResearchToolCalls).toHaveLength(1)
++      expect(next.reportContent).toBe('partial')
++    })
++  })
++
+   describe('status and prompts', () => {
+     const setupConversation = () => {
+       const conv: Conversation = {
+diff --git a/frontends/ui/src/features/chat/types.ts b/frontends/ui/src/features/chat/types.ts
+index f1d9b0d..a276a71 100644
+--- a/frontends/ui/src/features/chat/types.ts
++++ b/frontends/ui/src/features/chat/types.ts
+@@ -624,6 +624,13 @@ export interface ChatActions {
+   stopAllDeepResearchSpinners: (isSuccessfulCompletion?: boolean) => void
+   /** Clear all deep research state (for new research) */
+   clearDeepResearch: () => void
++  /**
++   * Reset the ResearchPanel content (tasks, thinking, report) before a new chat
++   * message so its websocket steps can be mirrored there. No-op while a deep
++   * research job is streaming; otherwise also detaches the finished job so tab
++   * switches don't replay it over the chat trace.
++   */
++  resetChatResearchTrace: () => void
+   /** Set job ID for loaded (non-streaming) report data - enables cache lookup */
+   setLoadedJobId: (jobId: string) => void
+   /** Mark that full stream data has been loaded for current job */
+diff --git a/frontends/ui/src/features/layout/components/AgentCard.tsx b/frontends/ui/src/features/layout/components/AgentCard.tsx
+index c6fa73a..e3edb6e 100644
+--- a/frontends/ui/src/features/layout/components/AgentCard.tsx
++++ b/frontends/ui/src/features/layout/components/AgentCard.tsx
+@@ -103,7 +103,7 @@ const getToolCallDescription = (toolCall: DeepResearchToolCall, truncate = true)
+   if (!toolCall.input) return toolCall.name
+ 
+   const input = toolCall.input as Record<string, unknown>
+-  const rawDescription = (input.question || input.query || input.search_query || input.filename || input.content || toolCall.name) as string
++  const rawDescription = (input.question || input.query || input.search_query || input.filename || input.content || input._raw || toolCall.name) as string
+ 
+   if (!truncate || rawDescription.length <= MAX_QUERY_LENGTH) {
+     return rawDescription
+@@ -316,6 +316,18 @@ export const AgentCard: FC<AgentCardProps> = ({ agent, defaultExpanded = true })
+               })}
+             </Flex>
+           )}
++
++          {/* Agent output (e.g. the intent classifier's decision) */}
++          {agent.output && (
++            <Flex direction="col" gap="1">
++              <Text kind="label/semibold/xs" className="text-subtle uppercase">
++                Output
++              </Text>
++              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-auto whitespace-pre-wrap break-words max-h-96">
++                {agent.output}
++              </pre>
++            </Flex>
++          )}
+         </Flex>
+       )}
+     </Flex>
+diff --git a/frontends/ui/src/features/layout/components/AgentCard.spec.tsx b/frontends/ui/src/features/layout/components/AgentCard.spec.tsx
+index 4541f89..ca013a1 100644
+--- a/frontends/ui/src/features/layout/components/AgentCard.spec.tsx
++++ b/frontends/ui/src/features/layout/components/AgentCard.spec.tsx
+@@ -53,6 +53,38 @@ describe('AgentCard', () => {
+       expect(screen.queryByLabelText('test-agent is running')).not.toBeInTheDocument()
+     })
+ 
++    test('renders agent output when complete', () => {
++      render(
++        <AgentCard
++          agent={createAgent({
++            status: 'complete',
++            output: "IntentResult(intent='research', research_depth='shallow')",
++          })}
++        />
++      )
++
++      expect(screen.getByText('Output')).toBeInTheDocument()
++      expect(
++        screen.getByText("IntentResult(intent='research', research_depth='shallow')")
++      ).toBeInTheDocument()
++    })
++
++    test('keeps repeated raw-input tool calls separate', () => {
++      render(
++        <AgentCard
++          agent={createAgent({
++            status: 'complete',
++            toolCalls: [
++              createToolCall({ id: 'tc-1', name: 'ttdr__search', input: { _raw: "{'query': 'a'}" } }),
++              createToolCall({ id: 'tc-2', name: 'ttdr__search', input: { _raw: "{'query': 'b'}" } }),
++            ],
++          })}
++        />
++      )
++
++      expect(screen.getByText('2/2 queries')).toBeInTheDocument()
++    })
++
+     test('renders with pending status', () => {
+       render(<AgentCard agent={createAgent({ status: 'pending' })} />)
+ 
+diff --git a/frontends/ui/src/features/layout/components/ToolCallCard.tsx b/frontends/ui/src/features/layout/components/ToolCallCard.tsx
+index 749077f..2c1fad1 100644
+--- a/frontends/ui/src/features/layout/components/ToolCallCard.tsx
++++ b/frontends/ui/src/features/layout/components/ToolCallCard.tsx
+@@ -203,7 +203,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
+               <Text kind="label/semibold/xs" className="text-subtle uppercase">
+                 Arguments
+               </Text>
+-              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-x-auto">
++              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-auto whitespace-pre-wrap break-words max-h-96">
+                 {formatArguments(toolCall.arguments, true)}
+               </pre>
+             </Flex>
+@@ -215,7 +215,7 @@ export const ToolCallCard: FC<ToolCallCardProps> = ({ toolCall }) => {
+               <Text kind="label/semibold/xs" className="text-subtle uppercase">
+                 Result
+               </Text>
+-              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48">
++              <pre className="text-xs font-mono bg-surface-raised text-primary p-2 rounded overflow-auto whitespace-pre-wrap break-words max-h-96">
+                 {toolCall.result}
+               </pre>
+             </Flex>
+diff --git a/frontends/ui/src/features/layout/components/ToolCallCard.spec.tsx b/frontends/ui/src/features/layout/components/ToolCallCard.spec.tsx
+index d7c7bc8..5a18638 100644
+--- a/frontends/ui/src/features/layout/components/ToolCallCard.spec.tsx
++++ b/frontends/ui/src/features/layout/components/ToolCallCard.spec.tsx
+@@ -150,6 +150,22 @@ describe('ToolCallCard', () => {
+       expect(screen.getByText('Search completed with 10 results')).toBeInTheDocument()
+     })
+ 
++    test('shows the full result in a scrollable block', async () => {
++      const user = userEvent.setup()
++      const longResult = `${'line of tool output\n'.repeat(200)}END`
++
++      render(
++        <ToolCallCard
++          toolCall={createToolCall({ status: 'complete', result: longResult })}
++        />
++      )
++
++      await user.click(screen.getByRole('button'))
++
++      const resultBlock = screen.getByText((_, el) => el?.tagName === 'PRE' && el.textContent === longResult)
++      expect(resultBlock).toHaveClass('overflow-auto')
++    })
++
+     test('expands to show error when present', async () => {
+       const user = userEvent.setup()
+ 
+diff --git a/frontends/ui/src/features/chat/lib/intermediate-step-parser.spec.ts b/frontends/ui/src/features/chat/lib/intermediate-step-parser.spec.ts
+new file mode 100644
+index 0000000..2c009dc
+--- /dev/null
++++ b/frontends/ui/src/features/chat/lib/intermediate-step-parser.spec.ts
+@@ -0,0 +1,58 @@
++// SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++import { describe, test, expect } from 'vitest'
++import { parsePayloadSections, parseToolInput } from './intermediate-step-parser'
++
++describe('parsePayloadSections', () => {
++  test('splits a tool end payload and keeps inner text verbatim', () => {
++    const payload =
++      "**Input:**\n```python\n{'query': 'tt &amp; ai'}\n```\n\n**Output:**\n```python\nResult with ```code``` &lt;b&gt;\n```"
++
++    expect(parsePayloadSections(payload)).toEqual({
++      input: "{'query': 'tt & ai'}",
++      output: 'Result with ```code``` <b>',
++    })
++  })
++
++  test('returns only input for a start payload', () => {
++    expect(parsePayloadSections('**Function Input:**\n```json\n{"q": 1}\n```')).toEqual({
++      input: '{"q": 1}',
++    })
++  })
++
++  test('handles a function complete payload with input glued to the output header', () => {
++    const payload =
++      "**Function Input:**\n```python\nstate\n```**Function Output:**\n```python\nIntentResult(intent='research')\n```"
++
++    expect(parsePayloadSections(payload)).toEqual({
++      input: 'state',
++      output: "IntentResult(intent='research')",
++    })
++  })
++
++  test('reads unfenced LLM output', () => {
++    expect(parsePayloadSections('**Input:**\n```python\n[msg]\n```\n\n**Output:**\nHello world')).toEqual({
++      input: '[msg]',
++      output: 'Hello world',
++    })
++  })
++
++  test('returns nothing for an empty payload', () => {
++    expect(parsePayloadSections('')).toEqual({})
++  })
++})
++
++describe('parseToolInput', () => {
++  test('parses JSON objects', () => {
++    expect(parseToolInput('{"query": "x"}')).toEqual({ query: 'x' })
++  })
++
++  test('wraps non-JSON input in the raw sentinel', () => {
++    expect(parseToolInput("{'query': 'x'}")).toEqual({ _raw: "{'query': 'x'}" })
++  })
++
++  test('returns undefined for missing input', () => {
++    expect(parseToolInput(undefined)).toBeUndefined()
++  })
++})
