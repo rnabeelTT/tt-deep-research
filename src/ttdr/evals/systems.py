@@ -141,13 +141,13 @@ class B1MCP(B1):
         return a
 
 
-CORPUS_URL = re.compile(r"corpus://([^#\s)\]]+)#page=(\d+)")
+CORPUS_URL = re.compile(r"(?:corpus://([^#\s)\]]+)#page=|/pages/([^/\s)\]]+)/)(\d+)")
 
 
 def cited_ids(text: str) -> list[str]:
-    """Evidence IDs a report cites, inline or as corpus:// URLs (page numbers are 1-based there)."""
+    """Evidence IDs a report cites, inline or as corpus:// or page links (1-based pages there)."""
     ids = set(CITE.findall(text))
-    ids |= {f"{doc}#p{int(page) - 1}.0" for doc, page in CORPUS_URL.findall(text)}
+    ids |= {f"{a or b}#p{int(page) - 1}.0" for a, b, page in CORPUS_URL.findall(text)}
     return sorted(ids)
 
 

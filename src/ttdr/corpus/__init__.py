@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import re
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
@@ -22,6 +23,7 @@ IMAGE_BATCH = 4
 PAGE_SCALE = 1.0
 PAGE_CACHE = 512
 PAGE_TEXT = 2000
+DOC_NAME = re.compile(r"[A-Za-z0-9][\w.-]*")  # a document name from a URL: no paths or globs
 
 
 class Corpus:
@@ -54,6 +56,20 @@ class Corpus:
         while len(self._pages) > PAGE_CACHE:
             self._pages.pop(next(iter(self._pages)))
         return [self._pages.get((h.corpus, h.doc, h.page, scale)) for h in hits]
+
+    async def page_png(self, doc: str, page: int, scale: float = PAGE_SCALE) -> bytes | None:
+        """One page of a document (0-based) as PNG bytes; None for unknown documents or pages."""
+        if not DOC_NAME.fullmatch(doc):
+            return None
+        path = next(self.root.glob(f"*/{doc}.pdf"), None)
+        if path is None:
+            return None
+        async with self._render:
+            try:
+                [png] = await asyncio.to_thread(pdf.render_png, path, [page], scale)
+            except pdf.pdfium.PdfiumError:
+                return None
+        return png
 
     async def search(
         self, query: str, k: int = 10, corpus: str | None = None, doc: str | None = None
