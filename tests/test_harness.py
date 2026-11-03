@@ -104,6 +104,11 @@ def test_citations_finds_real_and_invented_ids():
     assert harness.citations(report) == {"3M_2018_10K#p59.2", "Dakota_10K#p3–p5", "W1a2b3c4d.2"}
 
 
+def test_invented_web_ids_need_not_be_hex():
+    report = "A [W5e6f7g8h.2]. B [Wikipedia]. C [W1a2b3c4d.1]."
+    assert harness.citations(report) == {"W5e6f7g8h.2", "W1a2b3c4d.1"}
+
+
 def test_strip_citations_keeps_only_known_ids():
     report = "A [W1a2b3c4d.2; Fake_10K#p1]. B [Made_Up#p2]. C."
     assert harness.strip_citations(report, {"W1a2b3c4d.2"}) == "A [W1a2b3c4d.2]. B. C."

@@ -36,7 +36,8 @@ PASSAGE = re.compile(
 FIGURE = re.compile(r"\d[\d,.]*\d|\b[A-Z][a-z]{3,}\b")
 MIXED_WEB_ID = re.compile(r"\b(W[0-9a-f]{8})#p(\d+)\b")  # web ID in filing style: Wab12cd34#p5
 HEADING = re.compile(r"\n(?=## )")
-CITATION = re.compile(r" ?\[([^\[\]]*(?:#|\bW[0-9a-f]{8})[^\[\]]*)\]")
+# Web IDs are W + 8 hex digits; invented ones also come as W + 8 letters and digits (W5e6f7g8h).
+CITATION = re.compile(r" ?\[([^\[\]]*(?:#|\bW(?=[a-z]*\d)[0-9a-z]{8}\b)[^\[\]]*)\]")
 
 INSTRUCTIONS = """You write cited research reports using the research engine's tools.
 Every factual sentence in your final report must end with the evidence IDs it rests on, in
