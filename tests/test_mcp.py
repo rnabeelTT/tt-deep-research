@@ -82,6 +82,30 @@ def test_tools_follow_the_recipe():
     assert "Web search is off" in out
 
 
+def test_scoped_servers_pin_search_to_their_source():
+    names = lambda scope: {
+        t.name for t in asyncio.run(mcp_server.build(RECIPE, FakeEngine(), scope).list_tools())
+    }
+    assert names("web") == {"search", "fetch_page", "get_evidence", "verify"} & names("all")
+    assert "fetch_page" not in names("corpus") and "open_pages" in names("corpus")
+
+    engine = FakeEngine()
+    engine.search = lambda q, sources, k, corpus=None: engine.calls.append(sources) or _ev()
+    _call(mcp_server.build(RECIPE, engine, "corpus"), "search", {"query": "x"})
+    assert engine.calls == ["corpus"]
+
+
+async def _ev():
+    return [EV]
+
+
+def test_corpus_urls_become_page_links_when_configured(monkeypatch):
+    doc = Evidence("3M_2018_10K#p59.0", "corpus", "3M", "corpus://3M_2018_10K#page=60", "t")
+    assert "URL: corpus://3M_2018_10K#page=60" in mcp_server._format([doc])
+    monkeypatch.setenv(mcp_server.PAGES_ENV, "http://ui:3000/pages/")
+    assert "URL: http://ui:3000/pages/3M_2018_10K/60" in mcp_server._format([doc])
+
+
 def test_token_guard_rejects_missing_or_wrong_tokens():
     seen = []
 
