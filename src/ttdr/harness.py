@@ -23,6 +23,7 @@ from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI
 from mcp import Client
 
+from ttdr import writer
 from ttdr.recipe import Recipe
 
 RESEARCH_TOOLS = ("search", "fetch_page", "read_page", "get_evidence")
@@ -238,6 +239,8 @@ class DeepAgentsHarness:
     """In-document tools for researchers: exact-term find and reading neighbouring pages."""
     context_tokens: int | None = None
     """Condense agent histories past 85% of this many tokens (see chat_model)."""
+    sections: bool = False
+    """Rewrite the report outline-first, one section at a time (ttdr.writer)."""
 
     def agent(self, tools: list[StructuredTool]):
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
@@ -285,7 +288,7 @@ class DeepAgentsHarness:
         start = time.perf_counter()
         client = Engine(self.recipe.services.mcp)
         agent = self.agent(mcp_tools(client, await client.list_tools()))
-        final, seen = None, {}
+        final, seen, passages, notes = None, {}, {}, []
         async for namespace, update in agent.astream(
             {"messages": [{"role": "user", "content": question}]},
             stream_mode="updates",
@@ -296,9 +299,15 @@ class DeepAgentsHarness:
                 for msg in node.get("messages", []) if isinstance(node, dict) else []:
                     _count(msg, stats, log)
                     _collect(msg, seen)
+                    _collect(msg, passages, 800)
+                    if not namespace and getattr(msg, "type", "") == "tool" and msg.name == "task":
+                        notes.append(_content(msg))
                     if not namespace and _is_answer(msg):
                         final = msg
         report = _clean(_content(final))
+        if self.sections and notes:
+            model = chat_model(self.recipe, self.thinking, 8192)
+            report = _clean(await writer.write(model, question, notes, passages) or report)
         report = await self.check_citations(client, report, seen, stats)
         report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)
@@ -352,10 +361,10 @@ async def _known(client, ids: set[str]) -> set[str]:
     return set(re.findall(r"^\[([^\]]+)\] ", found, re.MULTILINE)) & ids
 
 
-def _collect(msg, seen: dict) -> None:
+def _collect(msg, seen: dict, chars: int = 150) -> None:
     if getattr(msg, "type", "") == "tool":
         for eid, title, text in PASSAGE.findall(_content(msg)):
-            seen.setdefault(eid, f"{title.strip()}: {' '.join(text.split())[:150]}")
+            seen.setdefault(eid, f"{title.strip()}: {' '.join(text.split())[:chars]}")
 
 
 def _clean(report: str) -> str:
