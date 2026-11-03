@@ -8,6 +8,7 @@ from pathlib import Path
 
 import httpx
 
+from ttdr import jsonl
 from ttdr.clients import LLM
 from ttdr.evals.schema import Answer, Graded, Item
 from ttdr.recipe import Recipe
@@ -128,7 +129,7 @@ def import_verdicts(queue_dir: Path, judge: str) -> list[Path]:
     keymap = json.loads((queue_dir / "keymap.json").read_text())
     verdicts = {}
     for path in sorted(queue_dir.glob("verdicts-*.jsonl")):
-        for v in map(json.loads, path.read_text().splitlines()):
+        for v in map(json.loads, jsonl.lines(path)):
             verdicts[v["key"]] = v
     missing = set(keymap) - set(verdicts)
     if missing:
@@ -168,4 +169,4 @@ def judge_info_sha() -> str:
 
 
 def _read(path: Path, model):
-    return [model.model_validate_json(line) for line in path.read_text().splitlines()]
+    return [model.model_validate_json(line) for line in jsonl.lines(path)]

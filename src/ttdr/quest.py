@@ -49,7 +49,8 @@ FORCE = (
 CALL = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
 ANSWER = re.compile(r"<answer>(.*?)(?:</answer>|$)", re.DOTALL)
 BLOCK = re.compile(
-    r"^\[([^\]\s]+)\] *([^\n]*)\nURL: *(\S+)\n(.*?)(?=\n\n\[[^\]\s]+\] |\Z)", re.MULTILINE | re.DOTALL
+    r"^\[([^\]\s]+)\] *([^\n]*)\nURL: *(\S+)\n(.*?)(?=\n\n\[[^\]\s]+\] |\Z)",
+    re.MULTILINE | re.DOTALL,
 )
 EVIDENCE_ID = re.compile(r"\[([^\]\s]+#p\d+\.\d+|W[0-9a-f]{8}(?:\.\d+)?)\]")
 

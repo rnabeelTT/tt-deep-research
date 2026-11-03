@@ -13,6 +13,7 @@ import statistics
 import string
 from pathlib import Path
 
+from ttdr import jsonl
 from ttdr.evals.datasets import drb_file
 from ttdr.evals.report import BOOTSTRAP, _pct
 from ttdr.evals.schema import Answer
@@ -61,7 +62,7 @@ def _task_number(item_id: str) -> int:
 
 
 def _answers(run_dir: Path) -> dict[str, Answer]:
-    lines = (run_dir / "answers.jsonl").read_text().splitlines()
+    lines = jsonl.lines(run_dir / "answers.jsonl")
     return {a.id: a for a in map(Answer.model_validate_json, lines)}
 
 
@@ -126,7 +127,7 @@ def score(queue_dir: Path, judge: str) -> dict[str, dict]:
     verdicts = {
         v["task"]: v["scores"]
         for path in sorted(queue_dir.glob("verdicts-*.jsonl"))
-        for v in map(json.loads, path.read_text().splitlines())
+        for v in map(json.loads, jsonl.lines(path))
     }
     missing = set(keymap) - set(verdicts)
     if missing:

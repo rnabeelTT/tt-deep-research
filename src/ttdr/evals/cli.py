@@ -7,7 +7,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from ttdr import recipe
+from ttdr import jsonl, recipe
 from ttdr.evals import claims, datasets, grading, race, report, runner
 
 app = typer.Typer(no_args_is_help=True, help="Build suites, run systems, grade and compare.")
@@ -290,7 +290,7 @@ def verify_run(
     from ttdr.evals.schema import Answer
 
     r = recipe.load(recipe_path)
-    lines = (run_dir / "answers.jsonl").read_text().splitlines()
+    lines = jsonl.lines(run_dir / "answers.jsonl")
     answers = [Answer.model_validate_json(x) for x in lines][:limit]
     out_dir = run_dir.with_name(run_dir.name + "-revised")
 
@@ -332,11 +332,7 @@ def verify_run(
             (out_dir / f).unlink(missing_ok=True)
         texts = {x["id"]: x["text"] for x in rows}
         keep = {x["id"] for x in rows}
-        items = [
-            x
-            for x in (out_dir / "items.jsonl").read_text().splitlines()
-            if json.loads(x)["id"] in keep
-        ]
+        items = [x for x in jsonl.lines(out_dir / "items.jsonl") if json.loads(x)["id"] in keep]
         (out_dir / "items.jsonl").write_text("\n".join(items) + "\n")
         revised = [a.model_copy(update={"text": texts[a.id]}) for a in answers if a.id in texts]
         (out_dir / "answers.jsonl").write_text("".join(a.model_dump_json() + "\n" for a in revised))

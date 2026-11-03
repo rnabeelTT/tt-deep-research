@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from ttdr import bench, recipe
+from ttdr import bench, jsonl, recipe
 from ttdr.clients import reasoning_params
 
 app = typer.Typer(no_args_is_help=True, help="Component benchmarks and load tests.")
@@ -66,7 +66,7 @@ def load(
     from ttdr import load as loadtest
 
     llm_url = recipe.load(recipe_path).llm.url
-    lines = Path(f"data/suites/{suite}.jsonl").read_text().splitlines()
+    lines = jsonl.lines(Path(f"data/suites/{suite}.jsonl"))
     questions = [json.loads(x)["question"] for x in lines]
     table = Table(
         "jobs at once",
