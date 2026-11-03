@@ -1,0 +1,27 @@
+diff --git a/frontends/ui/src/features/chat/hooks/use-deep-research.ts b/frontends/ui/src/features/chat/hooks/use-deep-research.ts
+index c36cc90..248e4bd 100644
+--- a/frontends/ui/src/features/chat/hooks/use-deep-research.ts
++++ b/frontends/ui/src/features/chat/hooks/use-deep-research.ts
+@@ -324,8 +324,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
+               const hasReport = Boolean(currentReport?.trim())
+ 
+               if (ownerConvId && messageId) {
++                // The report is the answer: show it in the chat, not only behind "View Report"
+                 patchConversationMessage(ownerConvId, messageId, {
+-                  content: '',
++                  content: hasReport ? currentReport : '',
+                   deepResearchJobStatus: 'success',
+                   isDeepResearchActive: false,
+                   showViewReport: hasReport,
+diff --git a/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts b/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts
+index e32c323..6bf9c0e 100644
+--- a/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts
++++ b/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts
+@@ -633,6 +633,7 @@ describe('useDeepResearch', () => {
+         'test-conv-123',
+         'msg-123',
+         expect.objectContaining({
++          content: 'Test report',
+           deepResearchJobStatus: 'success',
+           isDeepResearchActive: false,
+         })
