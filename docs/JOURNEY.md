@@ -213,3 +213,12 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - `tt model pull` kept the old cached revision even though the Hub had a newer commit. `tt model pull --bundle --force` fetched the new image (`4ce68d7f2568`). The HF cache's `refs/main` still names the old commit, but `tt serve --dry-run` shows which image will run.
 - Check: 6 rounds of 4 text requests sharing a ~25k-token prefix, batched with 2 fresh image requests, completed 36/36. The prefix-cache hit rate was 82% of prompt tokens, and rounds after the first took ~2.5 s vs 26.5 s. Image answers were correct both alone and batched.
 - Why it matters: DRB runs are 96% prefill (16.0M prompt vs 0.57M generated tokens over 1 h 50 min), and the agents re-send the same growing context each turn.
+
+## 2026-11-03 · Free web search: Bing answers only the first word
+
+**For managers:** web results on DeepResearch Bench were poor because Bing, our main free engine, quietly answers only the first word of a query when it sees automated traffic. "Saint Seiya Hades surplices" returns pages about saints, and "Rhadamanthys stealer" returns messenger.com. Yahoo is Bing underneath, and none of the other engines we had configured returned results of their own. Yandex answers the full query and held up under a 96-query burst. Keyed APIs (Tavily, Brave, Serper) are the real fix, but switching the free path to Yandex is free.
+
+- Probe: 32 research queries × 12 SearXNG engines, each result scored by the Qwen3-VL embedder. Yandex had a median similarity of 0.70, with 230 of 320 results passing the 0.6 cutoff. Bing had a median of 0.40, with 14 of 306 passing. Bing News did well where it returned anything (61 of 94), and OpenAlex returned academic hits (89 of 235).
+- Mojeek, Startpage, Presearch and Marginalia returned results identical to Yahoo's when asked for by name, so they never ran on their own. Google, Qwant, DuckDuckGo and Brave are blocked (captcha, access denied or "too many requests").
+- The 0.6 similarity cutoff, set for embeddinggemma, still separates junk from relevant results under Qwen3-VL. Yandex results below it were login pages and unrelated sites.
+- Friction: the engine's web cache keyed on "searxng" plus the query, so two engines on different SearXNG instances would have served each other's results in an A/B. The key now names the instance.
