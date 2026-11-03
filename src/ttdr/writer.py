@@ -86,19 +86,21 @@ def material(ids: list[str], notes: list[str], passages: dict[str, str]) -> str:
     return "\n".join(lines) + ("\n\nPassages:\n" + "\n\n".join(found) if found else "")
 
 
-async def write(model, question: str, notes: list[str], passages: dict[str, str]) -> str | None:
-    """None for short-answer requests, or when no usable outline comes back (the caller keeps the
-    planner's report)."""
+async def is_report(model, question: str) -> bool:
+    """REPORT vs ANSWER, at temperature 0: at the recipe's 0.6 the same request flipped."""
+    reply = await model.bind(temperature=0).ainvoke(
+        [{"role": "user", "content": KIND.format(question=question)}]
+    )
+    return isinstance(reply.content, str) and "REPORT" in reply.content.upper()
 
-    async def ask(prompt: str, llm=model) -> str:
-        reply = await llm.ainvoke([{"role": "user", "content": prompt}])
+
+async def write(model, question: str, notes: list[str], passages: dict[str, str]) -> str | None:
+    """None when no usable outline comes back (the caller keeps the planner's report)."""
+
+    async def ask(prompt: str) -> str:
+        reply = await model.ainvoke([{"role": "user", "content": prompt}])
         return reply.content if isinstance(reply.content, str) else ""
 
-    if (
-        "REPORT"
-        not in (await ask(KIND.format(question=question), model.bind(temperature=0))).upper()
-    ):
-        return None
     joined = "\n\n".join(notes)
     plan = outline(await ask(OUTLINE.format(low=4, high=8, question=question, notes=joined)))
     if len(plan) < 2:
