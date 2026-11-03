@@ -12,9 +12,9 @@ url = "http://localhost:8000/v1"
 sampling = { temperature = 0.6, top_p = 0.95, top_k = 20 }
 reasoning = "enable_thinking"
 chat_template = "configs/chat_templates/ornith.jinja"
-# This port can't prefill an image prompt in a batch with any partial prefill (docs/LOG.md): the
-# step budget keeps image prompts whole, and with no prefix cache no text prompt starts mid-way.
-serve_args = ["--max-num-batched-tokens", "262144", "--no-enable-prefix-caching"]
+# The step budget keeps image prompts whole (docs/LOG.md). Since the mixed-vision build (2026-11-02)
+# the bundle prefix-caches text requests and never caches requests with images.
+serve_args = ["--max-num-batched-tokens", "262144"]
 serve_order = 0
 
 [models.embeddinggemma]
