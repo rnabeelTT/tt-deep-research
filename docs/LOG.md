@@ -583,3 +583,25 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - Latencies are inflated by running two arms at 4 each, plus deployment restarts mid-run (no errors).
 
 **Decision: reject.** The switch stays, off by default. The latency gap to AI-Q is about context size, which is the lever to try next: a smaller first-turn prompt and condensing passages.
+
+## A/B: QUEST-35B-RL as the LLM (2026-11-03)
+
+**Model:** QUEST-35B-RL (OSU NLP), a fine-tune of Qwen3.5-35B-A3B (Ornith's architecture, with vision) after mid-training, SFT and RL on synthetic deep-research tasks. Served as `raahemnabeel/quest-35b-rl` on chips 0–1 (`recipes/quest.toml`), with Ornith's sampling.
+
+**First attempt, in Deep Agents (thinking off): stopped.** No question finished in an hour (about 120 model calls per question).
+- Part of the cause was a bug of ours: passages had just gained page-image links, and agents fetched them as web pages and got "No results". Fixed: `fetch_page` on a page link now reads that page from the corpus.
+- With the bug fixed, QUEST still never stopped. Researchers ignored "tool call limit exceeded" (210 times in one question). The planner re-sent the same sub-question about 17 times after a researcher had already found the answer.
+
+**Second attempt, in QUEST's own scaffold** (`ttdr.quest`, after OSU-NLP-Group/QUEST, MIT): one ReAct agent with thinking on, `search` (a list of queries) and `visit` (URLs plus a goal) on the engine, ending with `<answer>`. Turns go through the completions API, because the server's chat tool parser expects Qwen3.5 XML calls and dropped QUEST's JSON ones. Runs: `20261103-212654-quest` (DRB dev) and `20261103-212704-quest` (FinanceBench dev). Baselines: Ornith + Deep Agents, `20261103-164551` (DRB) and `20261103-173042` (FinanceBench). Each pair was graded in one blinded Claude queue (`data/judge/ab_quest_drb`, `ab_quest_fb`).
+
+| | Ornith + Deep Agents | QUEST, own scaffold | Diff [95% CI] | Wins / losses |
+|---|---|---|---|---|
+| DRB dev, RACE | **0.445** | 0.355 | −0.090 [−0.123, −0.056] | 0 / 8 |
+| FinanceBench dev | 77.5% | 80.0% | +2.5 [−7.5, +12.5] | +3 / −2 |
+| Median time | 24 min / 224 s | 8 min / 212 s | | |
+| Median model calls | — / 9.5 | 5.5 / 4 | | |
+
+- QUEST's reports were shorter (median 14.7k characters vs about 46k) and more thinly researched. Graders flagged reports built on one or two sources, generic bullet lists, and chatbot-style closing offers ("if you want, I can…").
+- The scaffold is a partial reproduction. QUEST was trained with Google (Serper) results, Jina page text summarised toward the goal by an LLM, a context condenser, a Python tool and up to 400 turns. Ours has none of the summariser, condenser or Python tool. Two FinanceBench answers ended in an unexecuted `PythonInterpreter` call.
+
+**Decision: reject; Ornith stays.** It loses every DRB task and only ties on FinanceBench. Ornith's lead here comes as much from the harness (sections writer, per-section citation repair, request classifier, all tuned on Ornith) as from the model. Thinking has never been A/B'd in Deep Agents (it runs off); that's the next A/B, and if it helps, a short QUEST probe in Deep Agents with thinking on.
