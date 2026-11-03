@@ -445,3 +445,24 @@ The planner's one-pass report is kept only when no outline comes back.
 - Weakness seen in the traces: sections sometimes comment on their own material ("only two have any grounding in the provided material").
 
 **Decision: adopt.** `sections` defaults to on. Follow-ups: fix web-search give-ups (both A/Bs lost a task to them), and stop sections commenting on their material.
+
+## A/B: what fills the reranker's pool, chunks, page images or both (2026-11-03)
+
+**Technique:** ColPali-style systems such as VisRAG and M3DocRAG retrieve page images rather than text chunks. We already have both in one 4,096-d Qwen3-VL space (`chunks_qwen3vl`, `pages_qwen3vl`). The pilot measured page recall after the Qwen3-VL reranker, over each whole corpus, on the dev sets (scratch `fuse.py`):
+- A: the top 30 chunks reranked on text (the product today).
+- B: the top 30 page images reranked on the image.
+- C: the pages of the top 15 chunks plus the top 15 page images, reranked on page text and image together.
+
+| | @1 | @3 | @5 | @10 |
+|---|---|---|---|---|
+| UniDoc dev, A chunks | 65.0 | 85.0 | 92.5 | 95.0 |
+| UniDoc dev, B pages | **80.0** | **92.5** | **100** | **100** |
+| UniDoc dev, C fused | 75.0 | 90.0 | **100** | **100** |
+| FinanceBench dev, A chunks | 47.5 | **77.5** | **85.0** | **95.0** |
+| FinanceBench dev, B pages | **52.5** | 67.5 | 77.5 | 87.5 |
+| FinanceBench dev, C fused | 45.0 | **77.5** | **85.0** | 92.5 |
+
+- On UniDoc, image-only questions at @5 go from 70% (chunks) to 100% with pages or fused. The other answer types are at 100% for every arm.
+- Fused matches the best arm at @5 on both corpora, without knowing the corpus type in advance. That matters for users' own collections.
+
+**Decision: adopt fused retrieval for the engine, pending an end-to-end dev A/B.** Retrieval is not the main source of errors (reading is), so it becomes the default only if answers improve.
