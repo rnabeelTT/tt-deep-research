@@ -117,3 +117,12 @@ def test_keyed_web_search_needs_its_key(monkeypatch):
     monkeypatch.setenv("BRAVE_API_KEY", "k")
     assert s.web() == "brave"
     assert Services(qdrant="q", redis="r", mcp="m").web() is None
+
+
+def test_env_update_keeps_keys_added_by_hand(tmp_path):
+    from ttdr.stack import write_env
+
+    env = tmp_path / ".env"
+    env.write_text("TAVILY_API_KEY=k\nTTDR_RECIPE=old.toml\n")
+    write_env({"TTDR_RECIPE": "recipe.toml"}, env)
+    assert env.read_text() == "TAVILY_API_KEY=k\nTTDR_RECIPE=recipe.toml\n"

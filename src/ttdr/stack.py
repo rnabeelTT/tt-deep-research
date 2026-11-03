@@ -124,12 +124,24 @@ def compose_env(recipe: Recipe, path: Path | None = None) -> dict[str, str]:
     return {**env, "TTDR_OCR_BACKEND": "llm", "TTDR_OCR_URL": ocr.url, "TTDR_OCR_MODEL": ocr.model}
 
 
+def write_env(values: dict[str, str], env: Path = Path(".env")) -> None:
+    """Update the recipe's keys in .env, keeping lines it doesn't own (API keys added by hand)."""
+    kept = [
+        line
+        for line in (env.read_text().splitlines() if env.exists() else [])
+        if line.split("=", 1)[0].strip() not in values
+    ]
+    env.write_text(
+        "".join(f"{line}\n" for line in kept) + "".join(f"{k}={v}\n" for k, v in values.items())
+    )
+
+
 def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, bool]:
     serve_models(recipe, log)
     if not Path("external/aiq").exists():
         _run(["scripts/setup-aiq.sh"], log)
     log(f"rendered {aiq_config.write(recipe)}")
-    Path(".env").write_text("".join(f"{k}={v}\n" for k, v in compose_env(recipe, path).items()))
+    write_env(compose_env(recipe, path))
     for d in ("data/corpus", "data/aiq/app"):  # else Docker creates them as root
         Path(d).mkdir(parents=True, exist_ok=True)
     services = app_services(recipe)
