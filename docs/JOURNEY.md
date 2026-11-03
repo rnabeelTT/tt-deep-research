@@ -222,3 +222,16 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - Mojeek, Startpage, Presearch and Marginalia returned results identical to Yahoo's when asked for by name, so they never ran on their own. Google, Qwant, DuckDuckGo and Brave are blocked (captcha, access denied or "too many requests").
 - The 0.6 similarity cutoff, set for embeddinggemma, still separates junk from relevant results under Qwen3-VL. Yandex results below it were login pages and unrelated sites.
 - Friction: the engine's web cache keyed on "searxng" plus the query, so two engines on different SearXNG instances would have served each other's results in an A/B. The key now names the instance.
+
+## 2026-11-03 · The UI: showing the work, sources that link to pages, Deep Agents behind it
+
+**For managers:** the web UI now shows how each answer was reached: which agents ran, every search and its results, and the intent decision. Every citation opens the source: the web page, or the exact page image of our document. The faster Deep Agents harness has its own copy of the UI on :3001, next to AI-Q's on :3000, both on the same engine.
+
+- **Why Sources was empty.** AI-Q only accepts `[n]` citations backed by URLs it captured from tool results. Our engine labels passages with evidence IDs and gave documents `corpus://` URLs, so AI-Q dropped every citation. Patch 0007 numbers the IDs, or links the model's own numbered references, from the tool results. The engine now gives document passages http page links (`/pages/DOC/PAGE`, proxied by the UI server).
+- **Friction (AI-Q):**
+  - The side panel opened only for deep-research jobs; quick answers sent the UI almost nothing (patch 0008).
+  - Parallel calls of one tool overwrote each other in the deep-research view (patch 0009).
+  - Inside AI-Q, tool output reaches the source scraper JSON-escaped, so URLs came out as `…/7\nare`.
+  - AI-Q's sanitizer drops IP-address URLs, a sensible anti-phishing rule, so page links need a hostname (`TTDR_PAGES_URL` in `.env`).
+- **Friction (ours):** `ttdr up` rewrote `.env` wholesale, which would have deleted search API keys added by hand. It now updates only its own keys.
+- Web and documents are separate toggles in both UIs. The engine serves `/mcp/web` and `/mcp/docs` with search pinned to one source.
