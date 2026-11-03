@@ -7,6 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import httpx
+import pyarrow.parquet as pq
 from huggingface_hub import hf_hub_download
 
 from ttdr import jsonl
@@ -125,6 +126,29 @@ def frames(n: int = 150) -> list[Item]:
     ]
 
 
+HLE = ("cais/hle", "5a81a4c7271a2a2a312b9a690f0c2fde837e4c29")
+
+
+def hle(n: int = 150) -> list[Item]:
+    """Humanity's Last Exam (gated; internal use, don't redistribute): a fixed sample of the
+    text-only questions (2,158 of 2,500 have no image)."""
+    columns = ["id", "question", "image", "answer", "answer_type", "category"]
+    rows = pq.read_table(
+        _fetch(HLE[0], "data/test-00000-of-00001.parquet", HLE[1]), columns=columns
+    )
+    text = [r for r in rows.to_pylist() if not r["image"]]
+    return [
+        Item(
+            id=f"hle_{r['id']}",
+            suite="hle",
+            question=r["question"],
+            answer=r["answer"],
+            tags={"category": r["category"], "answer_type": r["answer_type"]},
+        )
+        for r in sorted(random.Random(SEED).sample(text, n), key=lambda r: r["id"])
+    ]
+
+
 UNIDOC = ("Salesforce/UniDoc-Bench", "2e22c592438d1e52c39bd769aab2901d596af746")
 UNIDOC_PER_TYPE = 25
 PAGE_PNG = re.compile(r"images/\w+/(\w+)/\1_page_(\d+)\.png")
@@ -198,10 +222,12 @@ BUILDERS: dict[str, Callable[[], list[Item]]] = {
     "deepresearch_bench": deepresearch_bench,
     "unidoc": unidoc,
     "frames": frames,
+    "hle": hle,
     "financebench-dev": dev("financebench", 40, ("type",)),
     "unidoc-dev": dev("unidoc", 40, ("answer_type", "domain")),
     "deepresearch_bench-dev": dev("deepresearch_bench", 8, ("topic",)),
     "frames-dev": dev("frames", 40, ("type",)),
+    "hle-dev": dev("hle", 40, ("category",)),
 }
 
 
