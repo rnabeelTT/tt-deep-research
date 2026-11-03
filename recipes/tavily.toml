@@ -1,0 +1,6 @@
+extends = "rerank.toml"
+
+# Tavily as the web backend (TAVILY_API_KEY in .env). Opt-in only: the free tier is ~1,000
+# searches a month and one DRB dev run takes several hundred, so A/Bs use it on purpose.
+[services]
+web_search = "tavily"
