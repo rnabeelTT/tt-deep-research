@@ -1,4 +1,4 @@
-"""Web search over SearXNG, reranked by embedding similarity.
+"""Web search over SearXNG or a keyed API (Tavily, Brave, Serper), reranked by embedding similarity.
 
 Ported from Vane (MIT, ItzCrazyKns/Vane@348feca, baseSearch.ts): embed the query and each
 snippet, drop weak matches and near-duplicates, keep the top 20. Vane's cutoffs (0.5, 0.75)
@@ -7,6 +7,7 @@ don't fit embeddinggemma-2, whose similarities are compressed: relevant snippets
 """
 
 import math
+import os
 
 import httpx
 
@@ -38,6 +39,59 @@ async def searxng(http: httpx.AsyncClient, base: str, query: str, **params) -> l
     return out
 
 
+async def tavily(http: httpx.AsyncClient, key: str, query: str) -> list[dict]:
+    r = await http.post(
+        "https://api.tavily.com/search",
+        headers={"Authorization": f"Bearer {key}"},
+        json={"query": query, "max_results": 20},
+        timeout=TIMEOUT_S,
+    )
+    r.raise_for_status()
+    return [
+        {"url": x["url"], "title": x.get("title"), "content": x.get("content")}
+        for x in r.json()["results"]
+    ]
+
+
+async def brave(http: httpx.AsyncClient, key: str, query: str) -> list[dict]:
+    r = await http.get(
+        "https://api.search.brave.com/res/v1/web/search",
+        headers={"X-Subscription-Token": key, "Accept": "application/json"},
+        params={"q": query, "count": 20},
+        timeout=TIMEOUT_S,
+    )
+    r.raise_for_status()
+    results = r.json().get("web", {}).get("results", [])
+    return [
+        {"url": x["url"], "title": x.get("title"), "content": x.get("description")} for x in results
+    ]
+
+
+async def serper(http: httpx.AsyncClient, key: str, query: str) -> list[dict]:
+    r = await http.post(
+        "https://google.serper.dev/search",
+        headers={"X-API-KEY": key},
+        json={"q": query, "num": 20},
+        timeout=TIMEOUT_S,
+    )
+    r.raise_for_status()
+    results = r.json().get("organic", [])
+    return [
+        {"url": x["link"], "title": x.get("title"), "content": x.get("snippet")} for x in results
+    ]
+
+
+KEYED = {"tavily": tavily, "brave": brave, "serper": serper}
+
+
+async def results(
+    http: httpx.AsyncClient, backend: str, searxng_url: str | None, query: str
+) -> list[dict]:
+    if backend in KEYED:
+        return await KEYED[backend](http, os.environ[f"{backend.upper()}_API_KEY"], query)
+    return await searxng(http, searxng_url, query)
+
+
 async def rerank(
     embedder: Embedder, query: str, results: list[dict], top_n: int = TOP_N
 ) -> list[tuple[dict, float]]:
@@ -63,9 +117,14 @@ async def rerank(
 
 
 async def search(
-    http: httpx.AsyncClient, base: str, embedder: Embedder, query: str, k: int = 8, **params
+    http: httpx.AsyncClient,
+    backend: str,
+    searxng_url: str | None,
+    embedder: Embedder,
+    query: str,
+    k: int = 8,
 ) -> list[Evidence]:
-    ranked = await rerank(embedder, query, await searxng(http, base, query, **params))
+    ranked = await rerank(embedder, query, await results(http, backend, searxng_url, query))
     return [
         Evidence(
             id=web_id(r["url"]),

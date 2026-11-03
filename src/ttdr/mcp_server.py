@@ -67,7 +67,7 @@ def build(recipe: Recipe, engine: Engine | None = None) -> MCPServer:
         seen[key] = now
         items = await eng().search(query, sources, max_results, corpus)
         note = REPEAT_NOTE if repeat else ""
-        if sources in ("web", "all") and not recipe.services.searxng:
+        if sources in ("web", "all") and not recipe.services.web():
             note += "Web search is off in this deployment; results are from private documents.\n\n"
         return note + _format(items)
 

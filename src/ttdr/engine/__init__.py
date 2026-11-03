@@ -55,14 +55,13 @@ class Engine:
         )
 
     async def _web(self, query: str, k: int) -> list[Evidence]:
-        if not self.recipe.services.searxng:
+        services = self.recipe.services
+        if not (backend := services.web()):
             return []
-        key = f"web:{k}:{' '.join(query.lower().split())}"
+        key = f"web:{backend}:{k}:{' '.join(query.lower().split())}"
         if hit := await self.evidence.cached(key):
             return [Evidence(**{**d, "flags": tuple(d["flags"])}) for d in json.loads(hit)]
-        items = await web.search(
-            self.http, self.recipe.services.searxng, self.clients.embed, query, k
-        )
+        items = await web.search(self.http, backend, services.searxng, self.clients.embed, query, k)
         if items:
             await self.evidence.cache(key, json.dumps([asdict(e) for e in items]))
         return items

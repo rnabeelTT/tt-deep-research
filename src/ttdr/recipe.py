@@ -77,7 +77,16 @@ class Services(BaseModel):
     redis: str
     mcp: str
     searxng: str | None = None
-    """Without it, search covers the private corpus only."""
+    """Without it (and without a keyed web_search), search covers the private corpus only."""
+    web_search: Literal["tavily", "brave", "serper"] | None = None
+    """A keyed web search API, used when its key (TAVILY_API_KEY, BRAVE_API_KEY or
+    SERPER_API_KEY) is set in the environment; otherwise SearXNG."""
+
+    def web(self) -> str | None:
+        """The web backend in use: the keyed API, else SearXNG, else none."""
+        if self.web_search and os.environ.get(f"{self.web_search.upper()}_API_KEY"):
+            return self.web_search
+        return "searxng" if self.searxng else None
 
 
 class Features(BaseModel):
