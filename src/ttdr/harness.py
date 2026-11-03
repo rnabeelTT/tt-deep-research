@@ -242,9 +242,12 @@ class DeepAgentsHarness:
     context_tokens: int | None = None
     """Condense agent histories past 85% of this many tokens (see chat_model)."""
     sections: bool = True
-    """Rewrite the report outline-first, one section at a time (ttdr.writer)."""
+    """Rewrite report requests outline-first, one section at a time (ttdr.writer)."""
+    quick: tuple[int, int] | None = None
+    """(sub-questions, tool calls) for short-answer requests; None plans them like reports."""
 
-    def agent(self, tools: list[StructuredTool]):
+    def agent(self, tools: list[StructuredTool], subs: int | None = None, calls: int | None = None):
+        subs, calls = subs or self.max_subquestions, calls or self.max_tool_calls
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
         research = [t for t in tools if t.name in allowed]
         researcher = {
@@ -252,19 +255,16 @@ class DeepAgentsHarness:
             "description": "Researches one sub-question with the engine's search tools and "
             "returns bullet notes with evidence IDs.",
             "system_prompt": RESEARCHER.format(
-                calls=self.max_tool_calls,
+                calls=calls,
                 corpora=self.recipe.corpus_catalog(),
                 doc_tools=DOC_TOOLS_HINT if self.doc_tools else "",
             ),
             "tools": research,
             "middleware": [
-                *(
-                    ToolCallLimitMiddleware(tool_name=t.name, run_limit=self.max_tool_calls)
-                    for t in research
-                ),
+                *(ToolCallLimitMiddleware(tool_name=t.name, run_limit=calls) for t in research),
                 # Past its tool limits a researcher can retry the blocked call forever (DRB: 100+
                 # model calls on one ~98k-token context); end it, EvidenceNotes keeps its passages.
-                ModelCallLimitMiddleware(run_limit=3 * self.max_tool_calls, exit_behavior="end"),
+                ModelCallLimitMiddleware(run_limit=3 * calls, exit_behavior="end"),
                 EvidenceNotes(),
                 OnlyTools(allowed),
             ],
@@ -275,9 +275,7 @@ class DeepAgentsHarness:
         return create_deep_agent(
             model=chat_model(self.recipe, self.thinking, 8192, self.context_tokens),
             tools=[t for t in tools if t.name == "verify"],
-            system_prompt=INSTRUCTIONS.format(
-                subs=self.max_subquestions, corpora=self.recipe.corpus_catalog()
-            ),
+            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=self.recipe.corpus_catalog()),
             subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),
@@ -289,7 +287,13 @@ class DeepAgentsHarness:
         stats: Counter = Counter()
         start = time.perf_counter()
         client = Engine(self.recipe.services.mcp)
-        agent = self.agent(mcp_tools(client, await client.list_tools()))
+        writer_model = chat_model(self.recipe, self.thinking, 8192)
+        report_kind = not (self.sections or self.quick) or await writer.is_report(
+            writer_model, question
+        )
+        stats["report request"] = int(report_kind)
+        budget = self.quick if self.quick and not report_kind else ()
+        agent = self.agent(mcp_tools(client, await client.list_tools()), *budget)
         final, seen, passages, notes = None, {}, {}, []
         async for namespace, update in agent.astream(
             {"messages": [{"role": "user", "content": question}]},
@@ -307,9 +311,8 @@ class DeepAgentsHarness:
                     if not namespace and _is_answer(msg):
                         final = msg
         report = _clean(_content(final))
-        if self.sections and notes:
-            model = chat_model(self.recipe, self.thinking, 8192)
-            report = _clean(await writer.write(model, question, notes, passages) or report)
+        if self.sections and report_kind and notes:
+            report = _clean(await writer.write(writer_model, question, notes, passages) or report)
         report = await self.check_citations(client, report, seen, stats)
         report += await _sources(client, report)
         stats["seconds"] = round(time.perf_counter() - start)

@@ -213,6 +213,9 @@ class DeepAgents:
     doc_tools: bool = True
     context_tokens: int | None = None
     sections: bool = True
+    quick_subquestions: int = 0
+    """With quick_tool_calls, the plan for short-answer requests; 0 plans them like reports."""
+    quick_tool_calls: int = 0
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
         from ttdr.harness import DeepAgentsHarness
@@ -226,6 +229,9 @@ class DeepAgents:
             doc_tools=self.doc_tools,
             context_tokens=self.context_tokens,
             sections=self.sections,
+            quick=(self.quick_subquestions, self.quick_tool_calls)
+            if self.quick_subquestions
+            else None,
         )
         r = await h.run(item.question)
         return Answer(
