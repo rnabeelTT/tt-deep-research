@@ -65,10 +65,10 @@ index 30397d6..941c876 100644
        nextProxy.web(req, res, { target: NEXT_INTERNAL_URL })
 diff --git a/src/aiq_agent/common/evidence_citations.py b/src/aiq_agent/common/evidence_citations.py
 new file mode 100644
-index 0000000..aec0f34
+index 0000000..de5e90d
 --- /dev/null
 +++ b/src/aiq_agent/common/evidence_citations.py
-@@ -0,0 +1,61 @@
+@@ -0,0 +1,119 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +"""Numbered citations for tools that label passages with evidence IDs.
@@ -77,12 +77,18 @@ index 0000000..aec0f34
 +models cite the IDs (``[W1a2b3c4d.2]``, ``[3M_2018_10K#p59.0]``). Citation verification only
 +understands ``[n]`` markers backed by a Sources list, so this rewrites ID citations into numbers,
 +one per distinct URL, and replaces the report's source list with one built from the tool results.
++The engine's tool groups (``web__*``, ``documents__*`` in our config) also register their passages
++as sources here, so the registry holds each passage's URL rather than URLs scraped from the text.
 +"""
 +
 +from __future__ import annotations
 +
++import json
 +import re
 +from collections.abc import Iterable
++
++from aiq_agent.common.citation_verification import SourceEntry
++from aiq_agent.common.citation_verification import register_source_parser
 +
 +_BLOCK_RE = re.compile(r"^\[([^\]\s]+)\] *(.*)\nURL: *(\S+)", re.MULTILINE)
 +_PAGE_RE = re.compile(r"#p(\d+)\.\d+$")
@@ -94,12 +100,26 @@ index 0000000..aec0f34
 +)
 +
 +
++ENGINE_TOOL_PREFIXES = ("web__", "documents__")
++
++
++def _plain(text: str) -> str:
++    """Tool output as text: inside AI-Q it can arrive JSON-encoded, with escaped newlines."""
++    if "\nURL:" in text or "\\nURL:" not in text:
++        return text
++    try:
++        decoded = json.loads(text)
++    except ValueError:
++        decoded = None
++    return decoded if isinstance(decoded, str) else text.replace("\\r\\n", "\n").replace("\\n", "\n")
++
++
 +def evidence_index(tool_outputs: Iterable[str]) -> dict[str, tuple[str, str]]:
 +    """Evidence ID -> (title, URL) for every passage block in the tool outputs; document
 +    passages (``DOC#pN.M``) get their 1-based page in the title."""
 +    index = {}
 +    for text in tool_outputs:
-+        for eid, title, url in _BLOCK_RE.findall(text):
++        for eid, title, url in _BLOCK_RE.findall(_plain(text)):
 +            if url.startswith(("http://", "https://")):
 +                page = _PAGE_RE.search(eid)
 +                title = title.strip() or url
@@ -107,11 +127,39 @@ index 0000000..aec0f34
 +    return index
 +
 +
++_REFERENCE_LINE_RE = re.compile(r"^([^\S\n]*[-*]?[^\S\n]*\[\d+\][^\S\n]*)(.+)$", re.MULTILINE)
++_PAGE_IN_LINE_RE = re.compile(r"\bp(?:age|\.)?\s*(\d+)", re.IGNORECASE)
++
++
++def link_references(report: str, index: dict[str, tuple[str, str]]) -> str:
++    """Give numbered reference lines without a URL the link of the passage they name: an
++    evidence ID, or a document name with its page (``[1] 3M_2018_10K, p. 60``)."""
++    pages: dict[tuple[str, int], str] = {}
++    for eid, (_, url) in index.items():
++        if page := _PAGE_RE.search(eid):
++            pages.setdefault((eid.split("#", 1)[0], int(page.group(1)) + 1), url)
++
++    def link(match: re.Match) -> str:
++        lead, text = match.groups()
++        if "http://" in text or "https://" in text:
++            return match.group(0)
++        url = next((index[t][1] for t in re.findall(r"[^\s,;()\[\]]+", text) if t in index), None)
++        if url is None:
++            page = _PAGE_IN_LINE_RE.search(text)
++            url = next(
++                (u for (doc, n), u in pages.items() if doc in text and (page is None or n == int(page.group(1)))),
++                None,
++            )
++        return f"{lead}{text} - {url}" if url else match.group(0)
++
++    return _REFERENCE_LINE_RE.sub(link, report)
++
++
 +def number_evidence_citations(report: str, index: dict[str, tuple[str, str]]) -> str:
 +    """Rewrite ``[ID, ID]`` citations as ``[1][2]`` and append a numbered Sources section.
 +
 +    Groups that contain no known ID are left as they are; unknown IDs inside a group are dropped.
-+    Reports without any known ID are returned unchanged.
++    Reports without any known ID keep their own numbering, with links added (link_references).
 +    """
 +    numbers: dict[str, int] = {}
 +
@@ -125,20 +173,32 @@ index 0000000..aec0f34
 +
 +    body = _GROUP_RE.sub(replace, report)
 +    if not numbers:
-+        return report
++        return link_references(report, index)
 +    body = _SOURCES_RE.sub("", body).rstrip()
 +    titles = {url: title for title, url in index.values()}
 +    sources = "\n".join(f"[{n}] {titles[url]} - {url}" for url, n in numbers.items())
 +    return f"{body}\n\n## Sources\n\n{sources}\n"
++
++
++def _parse_engine_output(content: str, tool_name: str) -> list[SourceEntry]:
++    return [
++        SourceEntry(url=url, title=title, citation_key=eid, source_type="web", tool_name=tool_name)
++        for eid, (title, url) in evidence_index([content]).items()
++    ]
++
++
++register_source_parser(lambda name: name.startswith(ENGINE_TOOL_PREFIXES), _parse_engine_output)
 diff --git a/tests/aiq_agent/common/test_evidence_citations.py b/tests/aiq_agent/common/test_evidence_citations.py
 new file mode 100644
-index 0000000..4ff9a5e
+index 0000000..23ffcef
 --- /dev/null
 +++ b/tests/aiq_agent/common/test_evidence_citations.py
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,56 @@
 +# SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
 +# SPDX-License-Identifier: Apache-2.0
 +"""Tests for evidence-ID citation numbering."""
++
++import json
 +
 +from aiq_agent.common.citation_verification import SourceRegistry
 +from aiq_agent.common.citation_verification import extract_sources_from_tool_result
@@ -148,6 +208,7 @@ index 0000000..4ff9a5e
 +
 +TOOL_OUTPUT = (
 +    "[3M_2018_10K#p59.0] 3M_2018_10K\nURL: http://ui:3000/pages/3M_2018_10K/60\ncapex 1,577\n\n"
++    "[3M_2018_10K#p6.3] 3M_2018_10K\nURL: http://ui:3000/pages/3M_2018_10K/7\nother page\n\n"
 +    "[3M_2018_10K#p59.1] 3M_2018_10K\nURL: http://ui:3000/pages/3M_2018_10K/60\nmore\n\n"
 +    "[W1a2b3c4d.2] Reuters\nURL: https://reuters.com/x\nsnippet"
 +)
@@ -171,9 +232,21 @@ index 0000000..4ff9a5e
 +
 +
 +def test_numbered_report_passes_citation_verification():
++    escaped = json.dumps(TOOL_OUTPUT)  # how AI-Q's tool messages can carry it
 +    registry = SourceRegistry()
-+    for entry in extract_sources_from_tool_result("documents__search", TOOL_OUTPUT):
++    for entry in extract_sources_from_tool_result("documents__search", escaped):
 +        registry.add(entry)
-+    out = number_evidence_citations("Capex was $1,577M [3M_2018_10K#p59.0].", evidence_index([TOOL_OUTPUT]))
++    assert "http://ui:3000/pages/3M_2018_10K/7" in {e.url for e in registry.all_sources()}
++    report = "Capex was $1,577M [3M_2018_10K#p59.0]; other [3M_2018_10K#p6.3]."
++    out = number_evidence_citations(report, evidence_index([escaped]))
 +    verification = verify_citations(out, registry)
-+    assert [c["number"] for c in verification.valid_citations] == [1]
++    assert sorted(c["number"] for c in verification.valid_citations) == [1, 2]
++
++
++def test_numbered_references_without_urls_get_the_page_link():
++    report = (
++        "Capex was $1,577M [1].\n\n**References:**\n- [1] 3M_2018_10K, p. 60 (Internal)\n- [2] Other - https://a.org/x"
++    )
++    out = number_evidence_citations(report, evidence_index([TOOL_OUTPUT]))
++    assert "- [1] 3M_2018_10K, p. 60 (Internal) - http://ui:3000/pages/3M_2018_10K/60" in out
++    assert "- [2] Other - https://a.org/x" in out
