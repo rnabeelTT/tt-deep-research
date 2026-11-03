@@ -513,3 +513,19 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - Invented IDs rose (median 1.5 vs 0; 15 on drb_99), as median citations went from 10.5 to 42 per report. Worth watching.
 
 **Decision: adopt.** `configs/searxng/settings.yml` now keeps Yandex, Bing News and OpenAlex only. One scraped engine is a single point of failure: a 96-query burst at 8 concurrent passed with no captchas, but a keyed backend (Tavily, Brave or Serper) remains the robust option.
+
+## A/B: AI-Q vs Deep Agents, short questions (2026-11-03)
+
+**Setup:** both harnesses ran concurrently on the same engine (Qwen3-VL embedder and reranker, in-document tools, prefix-cached Ornith), at 4 questions each. AI-Q used its shallow researcher with patches 0001–0006 and auto tool choice. Deep Agents used the defaults (3 researchers, 8 tool calls each, writer gated to report requests). Graded by two blinded Claude graders (`data/judge/ab_harness`). Runs: `20261103-072610-aiq` and `20261103-072550-deepagents`.
+
+| Dev sets (40 each) | AI-Q shallow | Deep Agents | Diff [95% CI] | +/− | p50 latency |
+|---|---|---|---|---|---|
+| FinanceBench | **80.0%** | 77.5% | −2.5 [−12.5, +7.5] | +2/−3 | **75 s** vs 324 s |
+| UniDoc | 67.5% | **77.5%** | **+10.0** [0.0, +22.5] | +5/−1 | **135 s** vs 908 s |
+| Wrong / abstained | 21 / 0 | 16 / 2 | | | |
+
+- FinanceBench is a tie. Deep Agents' three new misses against its earlier no-writer run were all calculation slips (capex average, dividends, FCF conversion), not the writer, which fired on 1 of 40 questions.
+- UniDoc favors Deep Agents (+10, at the edge of significance), with fewer confident wrong answers (7 vs 13).
+- Latency favors AI-Q by a wide margin. The p50 gap is partly load: Deep Agents' UniDoc questions overlapped three DRB arms. But the FinanceBench half ran under the same load for both, and AI-Q was still 4× faster. Deep Agents makes 3 researchers × up to 8 tool calls per question, while AI-Q's shallow researcher makes one short loop.
+
+**Decision: keep Deep Agents** as the harness. It is as accurate or better, with fewer confident wrong answers. Its cost on short questions is time, which points to a cheaper path: route short-answer requests (the writer's ANSWER class) to a one-researcher, shallow plan. That is the next A/B. DRB (AI-Q deep vs Deep Agents) follows below once it finishes.
