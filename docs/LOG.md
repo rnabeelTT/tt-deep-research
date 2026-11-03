@@ -402,3 +402,21 @@ Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and th
 - The 2 broken questions look like noise. One used neither tool and flipped on a judgement call; the other is a UniDoc near-miss.
 
 **Decision: adopt.** The direction is consistent on both suites, the mechanism is visible in the traces, and the run is faster on FinanceBench. `doc_tools` now defaults to on, and AI-Q's data-source description lists the tools. The full-suite eval later confirms it.
+
+## A/B: context condensation (2026-11-02)
+
+**Technique:** QUEST and similar agents condense the context once it grows (QUEST-35B on BrowseComp: 45.5 → 64.6). Deep Agents already ships the middleware: it summarizes at 85% of the model's `max_input_tokens` and keeps the last 10%. Without a profile it assumes 170k, so on our runs it never fired. The variant sets `context_tokens=40000`, which condenses past ~34k tokens.
+
+**Setup:** Deep Agents (5 sub-questions, 12 tool calls, web and corpus), DeepResearch Bench dev (8 English tasks). Both arms ran at the same time on one engine. The grading was RACE by blinded Claude graders against the benchmark's reference report, where 0.5 means parity (`data/judge/ab_condense`). Runs `20261102-224021` (baseline) and `20261102-224026` (variant).
+
+| | Baseline | Condensed | Diff [95% CI] | Wins / losses |
+|---|---|---|---|---|
+| RACE overall | **0.317** | 0.274 | −0.043 [−0.116, +0.019] | 3 / 5 |
+| without drb_88 | | | −0.015 | |
+
+- Condensation fired: input tokens per LLM call fell from 17.5k to 7.0k on drb_90.
+- On drb_88, the variant's agent searched only the corpus, got Netflix 10-Ks back, and gave up. That happened before any condensation, so it is noise rather than the technique.
+- drb_90 lost the most (0.335 → 0.200). The condensed sub-agents re-ran searches (279 vs 161) and their report cites fewer sources (11 vs 26). Condensation drops the evidence the writer needs.
+- Every report in both arms trails the reference (0.32 vs 0.5). The gap is in insight (0.26) and comprehensiveness (0.30), which comes down to the writer, not the context.
+
+**Decision: reject.** No gain, and a visible loss when the summary discards evidence. `context_tokens` stays a harness switch, off by default. The next A/B targets the writer (WebWeaver's outline then section-by-section writing).
