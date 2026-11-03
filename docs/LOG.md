@@ -466,3 +466,17 @@ The planner's one-pass report is kept only when no outline comes back.
 - Fused matches the best arm at @5 on both corpora, without knowing the corpus type in advance. That matters for users' own collections.
 
 **Decision: adopt fused retrieval for the engine, pending an end-to-end dev A/B.** Retrieval is not the main source of errors (reading is), so it becomes the default only if answers improve.
+
+### End to end: fused retrieval loses (2026-11-03)
+
+Deep Agents (3/8, doc tools, sections writer) on the dev sets, with chunk retrieval (engine :9901, `rerank.toml`) and fused retrieval (a second engine on :9902, `recipes/pages.toml`) running at the same time. Graded by blinded Claude graders (`data/judge/ab_pages`). Runs `20261103-022029` (chunks) and `20261103-022035` (fused).
+
+| | Chunks | Fused | Diff [95% CI] | Fixed / broke |
+|---|---|---|---|---|
+| FinanceBench dev | **77.5%** | 62.5% | −15.0 [−27.5, −2.5] | +1 / −7 |
+| UniDoc dev | **77.5%** | 70.0% | −7.5 [−20, +5] | +2 / −5 |
+
+- In 11 of the 12 broken questions the gold page was retrieved in both arms, so retrieval was not the cause.
+- Fused hits carry a whole page cut to 2,000 characters under the page's first ID. On dense filing pages the exact figure falls past the cut, where a chunk hit would have delivered it. Citations also lose precision, since one ID covers a whole page.
+
+**Decision: reject as built.** `recipes/pages.toml` stays opt-in. A second version would rerank on the page (image and text) but hand the agent the page's best-matching chunks, keeping chunk IDs.
