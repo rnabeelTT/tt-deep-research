@@ -1,0 +1,112 @@
+diff --git a/frontends/ui/src/features/chat/hooks/use-deep-research.ts b/frontends/ui/src/features/chat/hooks/use-deep-research.ts
+index 6de2a06..c36cc90 100644
+--- a/frontends/ui/src/features/chat/hooks/use-deep-research.ts
++++ b/frontends/ui/src/features/chat/hooks/use-deep-research.ts
+@@ -142,6 +142,9 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
+ 
+   // Ref to track active thinking step IDs by name
+   const activeStepIdsRef = useRef<Map<string, string>>(new Map())
++  // Running tool calls per tool name: parallel calls of one tool stay separate, and an end event
++  // goes to the start with the same event id when the backend reuses it (else the latest one)
++  const liveToolsRef = useRef<Map<string, { eventId?: string; stepId?: string; callId: string }[]>>(new Map())
+ 
+   /**
+    * Reset the timeout tracker - called when we receive any live event.
+@@ -192,6 +195,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
+       }
+ 
+       activeStepIdsRef.current.clear()
++      liveToolsRef.current.clear()
+       resetTimeout()
+ 
+       // ---------- inline buffer for replay phase ----------
+@@ -266,11 +270,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
+           }
+         }
+         for (const [name, stack] of buf.activeToolStacks) {
+-          const lastId = stack[stack.length - 1]
+-          if (lastId) {
+-            activeStepIdsRef.current.set(`tool:${name}`, lastId)
+-            activeStepIdsRef.current.set(`toolCall:${name}`, lastId)
+-          }
++          liveToolsRef.current.set(name, stack.map((callId) => ({ callId })))
+         }
+         return true
+       }
+@@ -440,7 +440,7 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
+             if (llmStepKeys.length > 0) { const [key, llmStepId] = llmStepKeys[llmStepKeys.length - 1]; completeDeepResearchLLMStep(llmStepId, thinking, usage); activeStepIdsRef.current.delete(key) }
+           },
+ 
+-          onToolStart: (name, input, workflow, _eventId, agentId, isSandbox) => {
++          onToolStart: (name, input, workflow, eventId, agentId, isSandbox) => {
+             if (name === 'task') return
+             if (buf.active) {
+               const id = `tool-${buf.idCounter++}`; buf.toolCalls.set(id, { name, input, workflow, agentId, isSandbox })
+@@ -449,25 +449,28 @@ export const useDeepResearch = (): UseDeepResearchReturn => {
+             if (!isActiveJob()) return
+             resetTimeout(); setCurrentStatus('searching')
+             const hasUserMsg = Boolean(useChatStore.getState().currentUserMessageId)
++            let stepId: string | undefined
+             if (hasUserMsg) {
+               const inputText = input ? ('_raw' in input && typeof input._raw === 'string' ? input._raw : JSON.stringify(input, null, 2)) : null
+-              const stepId = addThinkingStep({ category: 'tools', functionName: name, displayName: name, content: inputText ? `Input: ${inputText}\n` : 'Executing...\n', isComplete: false, isDeepResearch: true })
+-              activeStepIdsRef.current.set(`tool:${name}`, stepId)
++              stepId = addThinkingStep({ category: 'tools', functionName: name, displayName: name, content: inputText ? `Input: ${inputText}\n` : 'Executing...\n', isComplete: false, isDeepResearch: true })
+             }
+-            const toolCallId = addDeepResearchToolCall({ name, input, workflow, agentId, isSandbox })
+-            activeStepIdsRef.current.set(`toolCall:${name}`, toolCallId)
++            const callId = addDeepResearchToolCall({ name, input, workflow, agentId, isSandbox })
++            const live = liveToolsRef.current.get(name) ?? []
++            live.push({ eventId, stepId, callId }); liveToolsRef.current.set(name, live)
+           },
+ 
+-          onToolEnd: (name, output) => {
++          onToolEnd: (name, output, eventId) => {
+             if (name === 'task') return
+             if (buf.active) {
+               const stack = buf.activeToolStacks.get(name); const id = stack?.pop(); if (id) { const t = buf.toolCalls.get(id); if (t) t.output = output ? JSON.stringify(output) : undefined }; return
+             }
+             if (!isActiveJob()) return
+-            const stepId = activeStepIdsRef.current.get(`tool:${name}`)
+-            if (stepId) { if (output) { const truncated = output.length > 500 ? output.substring(0, 500) + '...' : output; appendToThinkingStep(stepId, `\nOutput: ${truncated}`) }; completeThinkingStep(stepId); activeStepIdsRef.current.delete(`tool:${name}`) }
+-            const toolCallId = activeStepIdsRef.current.get(`toolCall:${name}`)
+-            if (toolCallId) { completeDeepResearchToolCall(toolCallId, output); activeStepIdsRef.current.delete(`toolCall:${name}`) }
++            const live = liveToolsRef.current.get(name) ?? []
++            const match = eventId ? live.findIndex((t) => t.eventId === eventId) : -1
++            const [call] = live.splice(match >= 0 ? match : live.length - 1, 1)
++            const stepId = call?.stepId
++            if (stepId) { if (output) { const truncated = output.length > 500 ? output.substring(0, 500) + '...' : output; appendToThinkingStep(stepId, `\nOutput: ${truncated}`) }; completeThinkingStep(stepId) }
++            if (call) completeDeepResearchToolCall(call.callId, output)
+             setCurrentStatus('researching')
+           },
+ 
+diff --git a/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts b/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts
+index 9df9621..e32c323 100644
+--- a/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts
++++ b/frontends/ui/src/features/chat/hooks/use-deep-research.spec.ts
+@@ -846,6 +846,25 @@ describe('useDeepResearch', () => {
+       expect(mockSetCurrentStatus).toHaveBeenCalledWith('researching')
+     })
+ 
++    test('parallel calls of one tool complete separately, matched by event id when shared', async () => {
++      await setupConnectedHook()
++      mockAddDeepResearchToolCall.mockReturnValueOnce('tool-call-a').mockReturnValueOnce('tool-call-b')
++
++      act(() => {
++        mockClient?.callbacks.onToolStart?.('search', { query: 'a' }, 'wf', 'call-a', 'agent-1')
++        mockClient?.callbacks.onToolStart?.('search', { query: 'b' }, 'wf', 'call-b', 'agent-2')
++      })
++      act(() => {
++        mockClient?.callbacks.onToolEnd?.('search', 'results a', 'call-a')
++      })
++      act(() => {
++        mockClient?.callbacks.onToolEnd?.('search', 'results b', 'event-9')
++      })
++
++      expect(mockCompleteDeepResearchToolCall).toHaveBeenNthCalledWith(1, 'tool-call-a', 'results a')
++      expect(mockCompleteDeepResearchToolCall).toHaveBeenNthCalledWith(2, 'tool-call-b', 'results b')
++    })
++
+     test('onTodoUpdate sets todos in store', async () => {
+       await setupConnectedHook()
+ 
