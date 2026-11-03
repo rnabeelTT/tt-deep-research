@@ -93,3 +93,21 @@ def test_fused_search_returns_whole_pages_from_chunks_and_images():
     hits = asyncio.run(Corpus(Embedder(), Chunks(), pages=Pages()).fused("q", 4))
     assert [h.id for h in hits] == ["a#p1.0", "b#p4.0", "c#p0.0"]
     assert hits[0].text == "a1-0 a1-1" and hits[0].flags == ["table"]
+
+
+def test_fetching_a_corpus_page_link_reads_the_page_from_the_corpus():
+    import asyncio
+
+    from ttdr.engine import Engine
+
+    asked = []
+
+    async def open_pages(eid, before, after):
+        asked.append((eid, before, after))
+        return ["passage"]
+
+    engine = Engine.__new__(Engine)
+    engine.open_pages = open_pages
+    for url in ("http://ui:3000/pages/3M_2018_10K/60", "corpus://3M_2018_10K#page=60"):
+        assert asyncio.run(engine.fetch(url)) == ["passage"]
+    assert asked == [("3M_2018_10K#p59.0", 0, 0)] * 2

@@ -31,6 +31,9 @@ If the page has nothing relevant, say "Nothing relevant on this page." Do not an
 outside the page."""
 
 
+PAGE_LINK = re.compile(r"(?:corpus://([^#/\s]+)#page=|/pages/([^/\s]+)/)(\d+)$")
+
+
 class Engine:
     def __init__(self, recipe: Recipe, http: httpx.AsyncClient, redis: Redis):
         self.recipe = recipe
@@ -192,6 +195,11 @@ class Engine:
         return items
 
     async def fetch(self, url: str, query: str | None = None, k: int = 5) -> list[Evidence]:
+        """A corpus page link (corpus://DOC#page=N, or the page-image link the MCP server shows)
+        returns that page's passages; anything else is fetched from the web."""
+        m = PAGE_LINK.search(url)
+        if m and (items := await self.open_pages(f"{m[1] or m[2]}#p{int(m[3]) - 1}.0", 0, 0)):
+            return items
         key = f"page:{url}"
         if hit := await self.evidence.cached(key):
             title, text = json.loads(hit)
