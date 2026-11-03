@@ -529,3 +529,23 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - Latency favors AI-Q by a wide margin. The p50 gap is partly load: Deep Agents' UniDoc questions overlapped three DRB arms. But the FinanceBench half ran under the same load for both, and AI-Q was still 4× faster. Deep Agents makes 3 researchers × up to 8 tool calls per question, while AI-Q's shallow researcher makes one short loop.
 
 **Decision: keep Deep Agents** as the harness. It is as accurate or better, with fewer confident wrong answers. Its cost on short questions is time, which points to a cheaper path: route short-answer requests (the writer's ANSWER class) to a one-researcher, shallow plan. That is the next A/B. DRB (AI-Q deep vs Deep Agents) follows below once it finishes.
+
+## A/B: AI-Q deep researcher vs Deep Agents on DRB dev (2026-11-03)
+
+**Setup:** each harness ran alone on the chips, 4 tasks at a time, with the adopted search (Yandex + Bing News + OpenAlex).
+- AI-Q's deep researcher: patches 0001–0006, auto tool choice, run `20261103-121147-aiq`.
+- Deep Agents: 5 researchers × 12 tool calls, sections writer, fixed request classifier, run `20261103-155011-deepagents`.
+- The earlier Yandex arm (3 × 8, old classifier, `20261103-074210`) was graded in the same blinded queue, giving four reports per task with the reference (`data/judge/ab_harness_drb`).
+
+| DRB dev (8) | AI-Q deep | Deep Agents 5×12 | Deep Agents 3×8 (old classifier) |
+|---|---|---|---|
+| RACE overall | **0.428** | **0.429** | 0.368 |
+| Deep Agents vs AI-Q, paired | | +0.001 [−0.047, +0.057], 3 wins / 5 losses | |
+| Median / slowest task | 107 min / 134 min | **24 min / 40 min** | |
+
+- **Quality is a tie.** Deep Agents wins drb_88 (+0.16; the classifier fix turned a 2k-character answer into a full report) and drb_90 (+0.08). AI-Q wins drb_98 (−0.10), drb_57 and drb_89 (−0.05 each).
+- **Deep Agents is 4.5× faster** on long reports. On short questions, AI-Q was 4× faster.
+- **Grader consistency:** the 3×8 arm scored 0.378 in the previous queue and 0.368 in this one, from different graders.
+- **Why Deep Agents lost drb_98, drb_57 and drb_89:** the graders flagged sections that stop mid-sentence and summaries that promise content the body never has. Those three reports had the most invented IDs before repair (10, 101, 119). In drb_57 the whole-report citation rewrite was kept, and it had an 8,192-token cap on reports of 35–80k characters. The repair now runs per section (commit after this entry), and an A/B is running.
+
+**Decision: keep Deep Agents.** Quality is equal, it is 4.5× faster on reports, and its known loss cause is fixable. AI-Q stays configured as the alternative harness.
