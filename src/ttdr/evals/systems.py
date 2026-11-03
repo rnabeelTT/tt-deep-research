@@ -177,10 +177,14 @@ class AIQ:
     async def answer(self, item: Item, clients: Clients) -> Answer:
         start = time.perf_counter()
         http = clients.llm.http
-        r = await http.post(
-            f"{self.api}/v1/jobs/async/submit",
-            json={"agent_type": self.agent, "input": item.question, "data_sources": ["ttdr"]},
-        )
+        while True:
+            r = await http.post(
+                f"{self.api}/v1/jobs/async/submit",
+                json={"agent_type": self.agent, "input": item.question, "data_sources": ["ttdr"]},
+            )
+            if r.status_code != 429:
+                break
+            await asyncio.sleep(int(r.headers.get("retry-after", 30)))
         r.raise_for_status()
         job = r.json()["job_id"]
         status = "submitted"
