@@ -35,6 +35,7 @@ PASSAGE = re.compile(
 )
 FIGURE = re.compile(r"\d[\d,.]*\d|\b[A-Z][a-z]{3,}\b")
 MIXED_WEB_ID = re.compile(r"\b(W[0-9a-f]{8})#p(\d+)\b")  # web ID in filing style: Wab12cd34#p5
+HEADING = re.compile(r"\n(?=## )")
 CITATION = re.compile(r" ?\[([^\[\]]*(?:#|\bW[0-9a-f]{8})[^\[\]]*)\]")
 
 INSTRUCTIONS = """You write cited research reports using the research engine's tools.
@@ -84,11 +85,11 @@ found, find_in_document looks up exact words (a line item, a defined term, a not
 open_pages reads the whole page around a passage and the pages after it, for tables and notes
 that continue."""
 
-FIX_CITATIONS = """Some citations in this report are not real evidence IDs: {invented}
+FIX_CITATIONS = """Some citations in this report section are not real evidence IDs: {invented}
 
 For every sentence that cites one of them, replace it with the real ID below whose passage
 supports the sentence, or delete the sentence if none does. Change nothing else and reply with
-the whole report.
+the whole section.
 
 Real evidence IDs from the research:
 {listing}"""
@@ -314,25 +315,36 @@ class DeepAgentsHarness:
         return Result(report, stats, list(seen))
 
     async def check_citations(self, client, report: str, seen: dict, stats: Counter) -> str:
-        """Every cited ID must exist in the evidence store. Invented ones get one rewrite with the
-        real IDs the research returned (kept only if it doesn't lose real ones); any left are removed."""
+        """Every cited ID must exist in the evidence store. Each section citing invented ones gets
+        one rewrite with the real IDs the research returned (kept only if it doesn't lose real
+        ones); any left are removed. Per section, so a rewrite can't truncate or drop the report."""
         report = MIXED_WEB_ID.sub(r"\1.\2", report)
         known = await _known(client, citations(report))
-        invented = citations(report) - known
-        stats["invented ids"] = len(invented)
-        if invented and seen:
+        stats["invented ids"] = len(citations(report) - known)
+        if stats["invented ids"] and seen:
             listing = "\n".join(f"- [{eid}] {line}" for eid, line in list(seen.items())[:200])
-            prompt = FIX_CITATIONS.format(invented=", ".join(sorted(invented)), listing=listing)
-            fixed = await chat_model(self.recipe, False, 8192).ainvoke(
-                [{"role": "system", "content": prompt}, {"role": "user", "content": report}]
+            fixed = await asyncio.gather(
+                *(self._fix_section(s, known, listing) for s in HEADING.split(report))
             )
-            rewrite = _clean(_content(fixed))
-            rewrite_known = await _known(client, citations(rewrite))
-            if len(rewrite_known) >= len(known):  # a rewrite that loses real citations is dropped
-                report, known = rewrite, rewrite_known
+            report = "\n\n".join(s.strip() for s in fixed)
+            known = await _known(client, citations(report))
             stats["invented after rewrite"] = len(citations(report) - known)
         stats["cited ids"] = len(known)
         return strip_citations(report, known)
+
+    async def _fix_section(self, section: str, known: set[str], listing: str) -> str:
+        invented = citations(section) - known
+        if not invented:
+            return section
+        prompt = FIX_CITATIONS.format(invented=", ".join(sorted(invented)), listing=listing)
+        fixed = await chat_model(self.recipe, False, 8192).ainvoke(
+            [{"role": "system", "content": prompt}, {"role": "user", "content": section}]
+        )
+        rewrite = _clean(_content(fixed))
+        lost = (citations(section) & known) - citations(rewrite)
+        if lost or len(rewrite) < len(section) // 2:  # drops real citations or most of the text
+            return section
+        return rewrite
 
 
 def citations(report: str) -> set[str]:
