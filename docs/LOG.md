@@ -549,3 +549,20 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - **Why Deep Agents lost drb_98, drb_57 and drb_89:** the graders flagged sections that stop mid-sentence and summaries that promise content the body never has. Those three reports had the most invented IDs before repair (10, 101, 119). In drb_57 the whole-report citation rewrite was kept, and it had an 8,192-token cap on reports of 35–80k characters. The repair now runs per section (commit after this entry), and an A/B is running.
 
 **Decision: keep Deep Agents.** Quality is equal, it is 4.5× faster on reports, and its known loss cause is fixable. AI-Q stays configured as the alternative harness.
+
+## A/B: citation repair per section instead of whole-report rewrite (2026-11-03)
+
+**Setup:** Deep Agents 5×12 on DRB dev, run twice under identical conditions; the only change is the repair (`20261103-155011` whole-report, `20261103-164551` per section). Blinded Claude RACE graders, `data/judge/ab_repair`.
+
+| | Whole-report rewrite | Per section | Diff [95% CI] | Wins / losses |
+|---|---|---|---|---|
+| RACE overall | 0.421 | **0.433** | +0.013 [−0.023, +0.050] | 5 / 3 |
+| Sections cut mid-sentence (8 reports) | 4 | **0** | | |
+| Invented IDs before repair, max per report | 119 | 13 | | |
+
+- The two reports that had been cut off gained the most: drb_98 0.34 → 0.46 and drb_57 0.40 → 0.45. Graders again flagged the old reports for being "cut off mid-sentence" and for summaries promising content the body lacks, and did not flag the new ones for this.
+- The losses are run-to-run variation in research, not repair defects. drb_71 (−0.07) leaned on US cases and repeated one trial.
+- The whole-report run scored 0.429 in the previous queue and 0.421 here.
+- One grader spotted invented IDs like `W5e6f7g8h` in a new report. The check only recognized hex web IDs, so these survived. Fixed: an ID-like token of W + 8 letters and digits now counts as a citation.
+
+**Decision: adopt** (committed before the run). With it, Deep Agents is at 0.433 vs AI-Q deep's 0.428, in about a quarter of the time.
