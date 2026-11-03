@@ -206,3 +206,10 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - `ttdr up --recipe <overlay>` never reached the engine container, which always loaded `recipe.toml`: agents' tools ran without the reranker. Fixed (`TTDR_RECIPE` in `.env`).
 - UniDoc's energy and construction archives share 11 identical PDFs; the new cross-corpus guard caught it, and the suite became one corpus.
 - Deep Agents at concurrency 16 thrashes Ornith (3 researchers per question, ~48 conversations for 32 sequence slots, prefills without chunking stall every decode): 67 s per question of throughput vs 28 s at concurrency 4.
+
+## 2026-11-03 · Ornith's mixed-vision build: prefix caching back on
+
+- The bundle owner shipped a fix for the batch-wide "image prompts are prefilled whole" guard. Text requests are now prefix-cached; requests with images never are.
+- `tt model pull` kept the old cached revision even though the Hub had a newer commit. `tt model pull --bundle --force` fetched the new image (`4ce68d7f2568`). The HF cache's `refs/main` still names the old commit, but `tt serve --dry-run` shows which image will run.
+- Check: 6 rounds of 4 text requests sharing a ~25k-token prefix, batched with 2 fresh image requests, completed 36/36. The prefix-cache hit rate was 82% of prompt tokens, and rounds after the first took ~2.5 s vs 26.5 s. Image answers were correct both alone and batched.
+- Why it matters: DRB runs are 96% prefill (16.0M prompt vs 0.57M generated tokens over 1 h 50 min), and the agents re-send the same growing context each turn.
