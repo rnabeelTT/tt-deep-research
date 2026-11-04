@@ -1,0 +1,5 @@
+extends = "browsecomp-plus.toml"
+
+# A/B: the reranker orders 100 embedding + 100 BM25 hits per search instead of 30 + 30.
+[features]
+rerank_pool = 100
