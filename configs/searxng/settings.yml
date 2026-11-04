@@ -1,6 +1,6 @@
 use_default_settings:
   engines:
-    keep_only: [yandex, bing news, openalex]
+    keep_only: [yandex, bing news, openalex, brave]
 
 server:
   limiter: false
@@ -18,3 +18,7 @@ engines:
     disabled: false
   - name: openalex
     disabled: false
+  # The fallback, off by default: the engine asks for it by name when the defaults return nothing
+  # (Yandex sometimes stops answering for a while).
+  - name: brave
+    disabled: true

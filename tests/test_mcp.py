@@ -161,3 +161,19 @@ def test_researchers_get_document_tools_only_when_asked():
 
     assert "find_in_document" not in researcher_tools(False)
     assert {"find_in_document", "open_pages"} <= researcher_tools(True)
+
+
+def test_searxng_falls_back_to_brave_when_the_defaults_return_nothing(monkeypatch):
+    import asyncio
+
+    from ttdr.engine import web
+
+    asked = []
+
+    async def searxng(http, base, query, **params):
+        asked.append(params)
+        return [{"url": "https://a"}] if params else []
+
+    monkeypatch.setattr(web, "searxng", searxng)
+    assert asyncio.run(web.results(None, "searxng", "http://s", "q")) == [{"url": "https://a"}]
+    assert asked == [{}, {"engines": web.SEARXNG_FALLBACK}]
