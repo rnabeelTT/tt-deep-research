@@ -247,3 +247,12 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
   - Indexing read 100,000 files before sending its first embedding batch. By then the embedder had dropped the idle connection.
   - Free search fails silently. For a while Yandex returned nothing; 42 searches came back empty and one report became a refusal. Before the final runs we need a fallback engine, or a warning when a run's searches return no web results.
 - **Friction (Ornith):** with thinking off, one section fell into a loop, the same four sentences about 50 times. The writer now drops long lines it has already written.
+
+## 2026-11-04 (evening) · Retrieval: keyword search in, end-to-end A/Bs out of time
+
+- **Retrieval was better than the headline number.** One search with the whole question found a BrowseComp-Plus gold document in the top 10 for 43% of questions. But agents that actually searched found one in 16 of 19 runs: they split the puzzle into short searches. The failures were Ornith thinking in circles. A retry without thinking when a call uses its whole budget fixed the empty answers.
+- **Keyword search (Qdrant's own BM25) was the cheap retrieval win:** +10 points at 10 on BrowseComp-Plus, built in 5 minutes on CPU. It made no difference on 10-Ks. It's on by default for new corpora.
+- **The reranker pool is the ceiling.** The reranker picks out nearly every gold document it is given, so recall depends on how many candidates reach it.
+- **Friction (ours):**
+  - **Bigger pools need the reranker to themselves.** On one shared reranker chip, 200-candidate requests from parallel runs built a backlog: tiny requests waited over 10 minutes, and 40% of searches timed out. Restarting the container cleared it.
+  - **`kill $!` on a `nohup uv run` stops only the wrapper.** The eval kept running for 3 hours alongside its replacement.
