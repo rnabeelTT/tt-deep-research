@@ -665,3 +665,21 @@ The follow-up promised above: QUEST as the LLM in the Deep Agents harness, now w
 - DRB: one empty report after 89 minutes and 125 model calls; the second task never finished.
 
 **Decision: reject, not graded.** With thinking on QUEST still doesn't stop in this harness; it keeps searching (up to 90 searches a question). Its own scaffold is the only place it works, and there it lost every DRB task.
+
+## 2026-11-04 · BrowseComp-Plus retrieval: BM25 hits added to the embeddings before reranking
+
+**Question:** BrowseComp-Plus questions are full of exact clues (names, dates, odd phrases). Does keyword search over every page's full text find gold documents the embeddings (one lead chunk per page) miss? Imported, not built: Qdrant's server-side BM25 (`qdrant/bm25`, English stemmer, IDF) in a sparse collection beside the dense one, 2.9M chunks indexed in 287 s on CPU. Unlike the rejected 2026-10-30 fusion (RRF shrank the reranker's pool), BM25 hits are **added** to the 30 dense candidates and the reranker orders the union.
+
+150 questions, the whole question as the query, a gold document anywhere in the top k:
+
+| | @1 | @5 | @10 | @20 |
+|---|---|---|---|---|
+| BM25 alone | 14.0% | 22.0% | 26.0% | 30.0% |
+| Dense + rerank | 27.3% | 40.7% | 42.7% | 43.3% |
+| Dense + 10 BM25, rerank | 34.7% | 48.7% | 50.0% | 50.7% |
+| **Dense + 30 BM25, rerank** | **34.7%** | **51.3%** | **52.7%** | **53.3%** |
+
+- +10 points at 10. The cost is a reranker pool of up to 60 instead of 30 per corpus search.
+- Inside real runs retrieval was already better than this single-query test suggests: in the 22 finished questions of the stopped dev run, agents' many short searches found a gold document in 16 of 19 runs that searched. The 3 misses are what this targets.
+
+**Decision: adopt for BrowseComp-Plus retrieval** (`features.keywords`, 30 hits, `recipes/browsecomp-plus-keywords.toml`); end-to-end A/B on the 40-question dev set next. FinanceBench and UniDoc stay off until checked there.
