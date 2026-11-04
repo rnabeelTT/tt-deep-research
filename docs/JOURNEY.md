@@ -235,3 +235,15 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
   - AI-Q's sanitizer drops IP-address URLs, a sensible anti-phishing rule, so page links need a hostname (`TTDR_PAGES_URL` in `.env`).
 - **Friction (ours):** `ttdr up` rewrote `.env` wholesale, which would have deleted search API keys added by hand. It now updates only its own keys.
 - Web and documents are separate toggles in both UIs. The engine serves `/mcp/web` and `/mcp/docs` with search pinned to one source.
+
+## 2026-11-04 · Thinking on, QUEST ruled out for good, BrowseComp-Plus offline
+
+**For managers:** Ornith now thinks before each planning and research step. Answers are better on both short questions and long reports, at about 35–40% more time per answer. QUEST, a model trained for deep research, lost to Ornith in every setting we tried. We added BrowseComp-Plus, a published benchmark with a fixed set of 100,000 web pages. It runs fully offline on the QB2, so we can compare against GPT-5, o3 and open agents without spending any search budget.
+
+- **Why a model trained for research loses here.** QUEST learned one loop: one agent, Google results, LLM-summarised pages, a context condenser, up to 400 turns. Our harness works differently: a planner, short researchers with call limits, and a section writer. QUEST ignores the call limits and never stops (up to 147 model calls for a one-line answer). In its own loop it stops, but writes thin reports. Ornith was not trained for any particular loop, and our harness was tuned on it. RL-trained agents tend to fit the loop they were trained in, much as fine-tuned models fit their prompt format.
+- **Thinking had a hidden cost.** The report writer has a token budget per section, and its reasoning counted against that budget. With thinking on everywhere, reports came out half as long and one stopped mid-section. Thinking on for the agents and off for the writer fixed it.
+- **Friction (ours):**
+  - The engine image copies the source in at build time. Engine changes don't reach the running stack until `docker compose --profile app build engine` (or `ttdr up --build`). We caught this when the offline switch did nothing.
+  - Indexing read 100,000 files before sending its first embedding batch. By then the embedder had dropped the idle connection.
+  - Free search fails silently. For a while Yandex returned nothing; 42 searches came back empty and one report became a refusal. Before the final runs we need a fallback engine, or a warning when a run's searches return no web results.
+- **Friction (Ornith):** with thinking off, one section fell into a loop, the same four sentences about 50 times. The writer now drops long lines it has already written.
