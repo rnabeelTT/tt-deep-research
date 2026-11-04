@@ -23,7 +23,7 @@ PAGE_ID = re.compile(r"^(.+)#p(\d+)\.\d+$")
 READ_SCALE = 1.5
 FIND_K = 10
 OPEN_MAX = 2
-KEYWORD_K = 10
+KEYWORD_K = 30
 """BM25 hits added to the embeddings' candidates (features.keywords), before reranking."""
 READ_PAGE = """This is page {page} of the document {doc}. Question: {question}
 

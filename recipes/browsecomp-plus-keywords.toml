@@ -1,0 +1,5 @@
+extends = "browsecomp-plus.toml"
+
+# BM25 hits join the embeddings' before reranking (`ttdr corpus keywords browsecomp-plus`).
+[features]
+keywords = true
