@@ -34,6 +34,10 @@ outside the page."""
 PAGE_LINK = re.compile(r"(?:corpus://([^#/\s]+)#page=|/pages/([^/\s]+)/)(\d+)$")
 
 
+class Offline(Exception):
+    """The recipe is offline (features.offline): the web is out of reach."""
+
+
 class Engine:
     def __init__(self, recipe: Recipe, http: httpx.AsyncClient, redis: Redis):
         self.recipe = recipe
@@ -177,7 +181,7 @@ class Engine:
     async def find(self, doc: str, terms: str, k: int = FIND_K) -> tuple[list[Evidence], int]:
         """Passages of one corpus document containing every word of terms, in page order, and
         how many matched in all."""
-        hits = await self.clients.corpus.store.find(doc, terms)
+        hits = await self.clients.corpus.find(doc, terms)
         items = list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits[:k])))
         await self.evidence.put(items)
         return items, len(hits)
@@ -189,7 +193,7 @@ class Engine:
             return []
         page = int(m[2])
         first, last = max(0, page - min(before, OPEN_MAX)), page + min(after, OPEN_MAX)
-        hits = await self.clients.corpus.store.pages(m[1], first, last)
+        hits = await self.clients.corpus.page_range(m[1], first, last)
         items = list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits)))
         await self.evidence.put(items)
         return items
@@ -200,6 +204,8 @@ class Engine:
         m = PAGE_LINK.search(url)
         if m and (items := await self.open_pages(f"{m[1] or m[2]}#p{int(m[3]) - 1}.0", 0, 0)):
             return items
+        if self.recipe.features.offline:
+            raise Offline("only document links can be opened")
         key = f"page:{url}"
         if hit := await self.evidence.cached(key):
             title, text = json.loads(hit)

@@ -103,15 +103,19 @@ class Features(BaseModel):
     """Run the web UI container."""
     auto_tool_choice: bool = False
     """AI-Q: let the model choose tools instead of forcing structured output (patch 0004)."""
+    offline: bool = False
+    """No web fetches either (fixed-corpus benchmarks); drop searxng too for no web search."""
 
 
 def _drop_empty(data: dict) -> dict:
-    """An overlay removes a role or optional service by setting it to ""."""
+    """An overlay removes a role, optional service or corpus by setting it to ""."""
     data = dict(data)
     if "roles" in data:
         data["roles"] = {k: v for k, v in data["roles"].items() if v}
     if "services" in data:
         data["services"] = {k: v for k, v in data["services"].items() if v != ""}
+    if "corpora" in data:
+        data["corpora"] = {k: v for k, v in data["corpora"].items() if v}
     return data
 
 
