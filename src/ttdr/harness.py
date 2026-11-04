@@ -30,6 +30,8 @@ from ttdr.recipe import Recipe
 RESEARCH_TOOLS = ("search", "fetch_page", "read_page", "get_evidence")
 DOC_TOOLS = ("find_in_document", "open_pages")
 MAIN_TOOLS = ("write_todos", "task", "verify")
+TASKS_PER_SUBQUESTION = 4
+"""The planner's hard cap on researcher tasks, per sub-question it may plan."""
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
 PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\n(?:URL: .*\n)?((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
@@ -288,14 +290,20 @@ class DeepAgentsHarness:
         # The planner sometimes picks Deep Agents' built-in general-purpose subagent, which has
         # no search tools and reports "no web search"; under that name it gets the researcher's.
         general = {**researcher, "name": "general-purpose", "description": "Same as researcher."}
+        # Thinking counts against max_tokens: at 8k a planner thinking hard about a puzzle ran out
+        # before its first tool call and the run ended empty (BrowseComp-Plus).
+        tokens = 32768 if self.thinking else 8192
         return create_deep_agent(
-            model=chat_model(self.recipe, self.thinking, 8192, self.context_tokens),
+            model=chat_model(self.recipe, self.thinking, tokens, self.context_tokens),
             tools=[t for t in tools if t.name == "verify"],
             system_prompt=INSTRUCTIONS.format(subs=subs, corpora=self.recipe.corpus_catalog())
             + scope,
             subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),
+                # The prompt asks for at most `subs` sub-questions; on hard puzzles the planner
+                # still launched over 100 researchers (BrowseComp-Plus). Reports use up to 12.
+                ToolCallLimitMiddleware(tool_name="task", run_limit=TASKS_PER_SUBQUESTION * subs),
                 OnlyTools(MAIN_TOOLS),
             ],
         )
