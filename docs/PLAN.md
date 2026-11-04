@@ -86,3 +86,12 @@ Each stage ends with something you can run and check. Done: **0a–10**. Results
 - **Vanilla AI-Q baseline:** same Ornith, AI-Q's own sources (Tavily web search, its knowledge layer over the same PDFs), no patches, vs AI-Q on our engine. A Tavily free-tier key (about 1,000 searches a month) covers a sampled comparison, not full suites.
 - **New eval sets:** DeepResearch Bench (English half) first, then MMLongBench-Doc (charts, tables, scans by evidence type), then FreshQA. Licences recorded in DATASETS.md before use.
 - **Model-swap A/Bs:** Kev vs Laya, LLM bake-offs.
+
+## Future improvements: retrieval (2026-11-04)
+
+Measured but not yet proven end to end. Details in LOG.md (2026-11-04, BrowseComp-Plus retrieval).
+
+- **BM25 keyword hits, end to end.** In the code and on by default; it only acts on corpora indexed with it (BrowseComp-Plus yes, FinanceBench and UniDoc no). Single-search gold-document recall on BrowseComp-Plus went from 42.7% to 52.7% at 10. Still owed: a paired dev-set A/B of answer accuracy (12 questions, both arms side by side on their own `ttdr mcp` processes).
+- **Bigger rerank pool.** `features.rerank_pool` (default 30; `recipes/browsecomp-plus-pool100.toml`). The reranker already surfaces nearly every gold document that reaches its pool, so the pool is the ceiling: a gold document is among 30 + 30 candidates for 53% of questions, 100 + 100 for 68%, 200 + 200 for 79%. Cost: one reranker chip fell behind on 200-candidate requests with three runs sharing it and timed searches out, so test it alone, and consider a cheaper first-pass reranker or a bigger per-request budget.
+- **Embed every chunk, not just each page's lead.** Dense search finds a gold document somewhere in its top 200 for 74% of questions from page openings alone; embedding all 2.9M chunks would likely help most, at days of embedder time.
+- **Query variants.** Have the model turn one search into two or three keyword-style queries and search them all.

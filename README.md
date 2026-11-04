@@ -38,7 +38,7 @@ On one QB2, graded by blinded Claude subagents; dev sets are 40 questions (8 tas
 | DeepResearch Bench dev (cited reports, RACE vs the reference; 0.5 = on par) | **0.445** (agents thinking, writer not; 0.381 off) |
 | Deep Agents vs AI-Q deep, same engine, DRB dev | Quality tie (0.429 vs 0.428), Deep Agents 4.5× faster (24 vs 107 min median) |
 | BrowseComp-Plus retrieval (100k pages, one search per question, gold doc in top 10) | 42.7% dense + rerank → **52.7%** with 30 BM25 hits added |
-| BrowseComp-Plus accuracy | dev run in progress. Published: GPT-5 71.7, o3 65.9, QUEST 61.0, Tongyi 44.5 |
+| BrowseComp-Plus accuracy | not yet graded (Published: GPT-5 71.7, o3 65.9, QUEST 61.0, Tongyi 44.5). Retrieval follow-ups in [docs/PLAN.md](docs/PLAN.md#future-improvements-retrieval-2026-11-04) |
 | Models rejected by A/B | gpt-oss-20b (tie, fewer features), QUEST-35B-RL (lost every DRB task, doesn't stop in this harness) |
 
 Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md](docs/COMPETITORS.md) lists them with sources, and the final DRB comparison re-judges competitors' published reports with the same Claude graders.
