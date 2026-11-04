@@ -656,3 +656,12 @@ Same arms on the 8 DRB dev tasks, side by side: `20261104-005512-deepagents` (of
 - Report length is back to normal: the short reports of the first thinking run came from the writer's reasoning, not the agents'.
 
 **Decision: adopt.** Thinking is now on by default for the planner and researchers (harness and eval), and off for the writer. It wins on short questions (+5 on FinanceBench and UniDoc dev) and on reports, at about 35–40% more time and twice the output tokens.
+
+### QUEST-35B-RL in Deep Agents with thinking on: probe (2026-11-04)
+
+The follow-up promised above: QUEST as the LLM in the Deep Agents harness, now with thinking on (writer off), on 4 FinanceBench dev questions and 2 DRB dev tasks, capped at 90 minutes. Runs `20261104-032646-deepagents` and `20261104-032656-deepagents`.
+
+- FinanceBench: two empty answers (one after 20 min and 45 model calls), one context-length error, and two answers after 72 and 84 minutes with 91 and 147 model calls (Ornith: about 4–5 minutes and 10–15 calls).
+- DRB: one empty report after 89 minutes and 125 model calls; the second task never finished.
+
+**Decision: reject, not graded.** With thinking on QUEST still doesn't stop in this harness; it keeps searching (up to 90 searches a question). Its own scaffold is the only place it works, and there it lost every DRB task.
