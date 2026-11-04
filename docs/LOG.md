@@ -682,4 +682,20 @@ The follow-up promised above: QUEST as the LLM in the Deep Agents harness, now w
 - +10 points at 10. The cost is a reranker pool of up to 60 instead of 30 per corpus search.
 - Inside real runs retrieval was already better than this single-query test suggests: in the 22 finished questions of the stopped dev run, agents' many short searches found a gold document in 16 of 19 runs that searched. The 3 misses are what this targets.
 
-**Decision: adopt for BrowseComp-Plus retrieval** (`features.keywords`, 30 hits, `recipes/browsecomp-plus-keywords.toml`); end-to-end A/B on the 40-question dev set next. FinanceBench and UniDoc stay off until checked there.
+**Decision: adopt for BrowseComp-Plus retrieval** (`features.keywords`, 30 hits, `recipes/browsecomp-plus-keywords.toml`); end-to-end A/B on the 40-question dev set next.
+
+### The same on FinanceBench and UniDoc (2026-11-04)
+
+Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_keywords`, 74,681 chunks, built in 5 s). Searches within a known document don't use BM25, so that row is unchanged.
+
+| | @1 | @5 | @10 | @20 |
+|---|---|---|---|---|
+| FinanceBench (150), dense + rerank | 56.0% | 80.7% | 88.7% | 95.3% |
+| FinanceBench, + 30 BM25 | 54.7% | 80.7% | 89.3% | 94.7% |
+| UniDoc (200), dense + rerank | 71.5% | 91.5% | 93.5% | 93.5% |
+| UniDoc, + 30 BM25 | 72.0% | 93.0% | 95.0% | 95.0% |
+
+- FinanceBench: no change (the 10-Ks share their vocabulary, as on 2026-10-30). UniDoc: +1.5 points, within noise.
+- The reranker no longer lets BM25 hurt (October's RRF lost 8 points here); it just has little to add where the embeddings already find 89–94%.
+
+**Decision: off for the private-document recipes.** It would double the reranker's work per search for no measurable gain; it stays on for BrowseComp-Plus, where questions hinge on exact names and phrases.
