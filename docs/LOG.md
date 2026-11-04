@@ -699,3 +699,11 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - The reranker no longer lets BM25 hurt (October's RRF lost 8 points here); it just has little to add where the embeddings already find 89–94%.
 
 **Decision: on by default, off for FinanceBench and UniDoc.** Customers' documents may hinge on exact names, codes and phrases the way BrowseComp-Plus does, and BM25 hurt nowhere. `features.keywords` defaults to on and `ttdr corpus index` builds the BM25 index; FinanceBench and UniDoc have none (`--no-keywords`), so their searches add no hits and the reranker does no extra work. A corpus indexed before BM25 searches as before until `ttdr corpus keywords NAME`.
+
+### End-to-end BrowseComp-Plus A/Bs: stopped (2026-11-04)
+
+- **Thinking fallback works:** in the dev rerun with it (`20261104-151458`), all 9 finished questions had answers, including bcp_1046, which came back empty in both earlier runs. Before it, 7 of 18 were empty.
+- **BM25 and pool A/B, 12 questions, arms side by side:** stopped before grading. The first attempt ran the 100 + 100 pool arm and a 150-question single-search check against one reranker chip alongside two other runs. The reranker fell behind (a 2-document request took over 10 minutes), and about 40% of searches in the new arms timed out, so the reranker was restarted. A clean rerun (`20261104-183749` without BM25, `20261104-183753` with) was stopped early to free the chips. No result.
+- An earlier "stopped" dev run (`20261104-123931`) had kept running for 3 hours, because `kill $!` hit the nohup wrapper, not the eval; it halved the next run's speed.
+
+**Decision:** keep the tested stack (`recipes/rerank.toml`, thinking on with the fallback, task cap, Brave fallback). BM25 stays on by default, but only BrowseComp-Plus has a keyword index. The open retrieval work is listed in PLAN.md under "Future improvements: retrieval".
