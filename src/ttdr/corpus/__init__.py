@@ -189,9 +189,11 @@ class Corpus:
                 corpus, [chunk.Chunk(p.doc, p.page, 0, "", p.flags) for p in batch], vecs
             )
 
-    async def index_dir(self, root: Path, corpus: str, concurrency: int = 4) -> dict:
-        """Index every PDF and text document under root; PDF page flags go to root/pages.jsonl
-        for the OCR stage."""
+    async def index_dir(
+        self, root: Path, corpus: str, concurrency: int = 4, keywords: bool = True
+    ) -> dict:
+        """Index every PDF and text document under root, and into BM25 unless KEYWORDS is off;
+        PDF page flags go to root/pages.jsonl for the OCR stage."""
         dim = len((await self.embedder.queries(["size"]))[0])
         for store in (self.store, self.pages):
             if store:
@@ -218,7 +220,7 @@ class Corpus:
             await asyncio.gather(*(one(p) for p in todo))
         texts = [p for p in sorted(root.glob("*.txt")) if p.stem not in done and p.stat().st_size]
         await self.index_texts(texts, corpus, concurrency)
-        if self.keywords:
+        if keywords and self.keywords:
             await self.index_keywords(corpus, concurrency)
         return {"indexed": len(todo) + len(texts), "skipped": len(done)}
 

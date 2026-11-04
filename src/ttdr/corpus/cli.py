@@ -33,11 +33,17 @@ def fetch(name: str) -> None:
 
 
 @app.command()
-def index(name: str, concurrency: int = 4, recipe_path: RecipeOpt = None) -> None:
-    """Extract, chunk and embed every PDF in data/corpus/<name> into Qdrant (resumable)."""
+def index(
+    name: str,
+    concurrency: int = 4,
+    keywords: Annotated[bool, typer.Option(help="Also build the BM25 keyword index")] = True,
+    recipe_path: RecipeOpt = None,
+) -> None:
+    """Extract, chunk and embed every document in data/corpus/<name> into Qdrant (resumable)."""
     start = time.perf_counter()
     stats = _with_corpus(
-        recipe_path, lambda c: c.index_dir(sources.CORPORA_DIR / name, name, concurrency)
+        recipe_path,
+        lambda c: c.index_dir(sources.CORPORA_DIR / name, name, concurrency, keywords),
     )
     console.print({**stats, "seconds": round(time.perf_counter() - start)})
 

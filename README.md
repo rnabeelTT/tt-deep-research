@@ -24,7 +24,7 @@ More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHI
 |---|---|
 | Engine (MCP, :9901) | `search` (web + corpus, reranked), `fetch_page`, `read_page` (the LLM reads a page image), `find_in_document`, `open_pages`, `get_evidence`, `verify` |
 | Web search | SearXNG: Yandex, Bing News, OpenAlex, with Brave as the fallback when they return nothing; keyed Tavily, Brave or Serper per recipe |
-| Corpus | Qdrant: dense chunks, optional BM25 keyword index (`features.keywords`), full-text index for in-document search |
+| Corpus | Qdrant: dense chunks, a BM25 keyword index whose 30 hits join the reranker's pool (on by default; `features.keywords = false` or `ttdr corpus index --no-keywords` per corpus), full-text index for in-document search |
 | Harness | LangChain Deep Agents: planner, researcher subagents, outline-then-sections writer for report requests, per-section citation repair |
 
 ## Results so far
@@ -51,13 +51,13 @@ Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md]
 | `ttdr research "…"` [`--shallow`] [`--harness deepagents`] | Research with live progress |
 | `ttdr verify report.md` [`--revise`] | Check each cited claim against its source |
 | `ttdr jobs` | Recent research jobs, with progress |
-| `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed, BM25-index, search, measure recall (`--rerank`, `--keywords N`) |
+| `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
 | `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank.toml --concurrency 4` |
 | `ttdr eval judge-export\|judge-import` | Blinded queues for short answers, graded by Claude subagents |
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-Recipes worth knowing: `recipe.toml` (default), `recipes/rerank.toml` (with the reranker; what evals use), `recipes/browsecomp-plus.toml` and `-keywords.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs).
+Recipes worth knowing: `recipe.toml` (default), `recipes/rerank.toml` (with the reranker; what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs).
 
 ## Layout
 
