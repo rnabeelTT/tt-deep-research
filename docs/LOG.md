@@ -622,3 +622,20 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - Thinking roughly doubles output tokens and adds about 40% to mean time; the slowest questions get much slower.
 
 **Decision: passes the short-question gate.** Next, both arms side by side on DRB dev, where the cost matters more.
+
+### Thinking on, DRB dev (2026-11-04)
+
+Same arms on the 8 DRB dev tasks, side by side: `20261104-005512-deepagents` (off) and `20261104-005527-deepagents` (on), one blinded RACE queue (`data/judge/ab_thinking_drb`).
+
+| | Thinking off | Thinking on |
+|---|---|---|
+| RACE overall | 0.415 | 0.410 (−0.005 [−0.028, +0.015], 3 / 5) |
+| Insight | 0.422 | 0.376 |
+| Median report length | ~40k chars | ~18k chars |
+| Median time | 27 min | 35 min |
+| Mean output tokens | 18k | 33k |
+
+- A tie overall, but for a fixable reason: the sections writer ran with thinking too, and its reasoning shares each section's 8k-token budget. Sections came out short and one report stopped mid-section.
+- The thinking-off arm had its own failure: one report (drb_89) fell into a loop, the same four sentences about 50 times each (203 repeated lines). Graders marked it down on readability.
+
+**Decision: not yet.** Next arm: thinking on for the planner and researchers, off for the writer (`writer_thinking`, new, default off).
