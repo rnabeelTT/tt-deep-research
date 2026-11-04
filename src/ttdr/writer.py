@@ -86,6 +86,19 @@ def material(ids: list[str], notes: list[str], passages: dict[str, str]) -> str:
     return "\n".join(lines) + ("\n\nPassages:\n" + "\n\n".join(found) if found else "")
 
 
+def without_repeats(text: str, min_chars: int = 40) -> str:
+    """Drop long lines already written above: a section stuck in a loop repeats whole sentences."""
+    seen: set[str] = set()
+    out = []
+    for line in text.split("\n"):
+        key = line.strip()
+        if len(key) >= min_chars and key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out))
+
+
 async def is_report(model, question: str) -> bool:
     """REPORT vs ANSWER, at temperature 0: at the recipe's 0.6 the same request flipped."""
     reply = await model.bind(temperature=0).ainvoke(
@@ -120,6 +133,6 @@ async def write(model, question: str, notes: list[str], passages: dict[str, str]
             for h, goal, ids in plan
         )
     )
-    body_text = "\n\n".join(s.strip() for s in body)
+    body_text = "\n\n".join(without_repeats(s.strip()) for s in body)
     opening = await ask(OPENING.format(question=question, body=body_text))
     return f"{opening.strip()}\n\n{body_text}"
