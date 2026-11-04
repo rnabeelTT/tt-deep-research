@@ -166,3 +166,53 @@ def test_offline_recipes_fetch_only_corpus_pages():
     engine.recipe = SimpleNamespace(features=SimpleNamespace(offline=True))
     with pytest.raises(Offline):
         asyncio.run(engine.fetch("https://example.org/"))
+
+
+def test_keyword_hits_follow_the_embeddings_and_text_documents_index_every_chunk(tmp_path):
+    import asyncio
+
+    from ttdr.corpus import Corpus
+    from ttdr.corpus.store import Hit
+
+    def hit(i):
+        return Hit(i, i.split("#")[0], 0, "t", [], 1.0, "web")
+
+    class Embedder:
+        async def queries(self, texts):
+            return [[0.0] * 4 for _ in texts]
+
+    class Store:
+        async def search(self, vec, k, corpus=None, doc=None):
+            return [hit("1#p0.0"), hit("2#p0.0")]
+
+        async def docs(self, corpus=None):
+            return {"42"}
+
+    class Keywords:
+        upserts = []
+
+        async def search(self, query, k, corpus=None):
+            return [hit("2#p0.0"), hit("3#p4.1")]
+
+        async def ensure(self):
+            pass
+
+        async def docs(self, corpus):
+            return set()
+
+        async def upsert(self, corpus, chunks):
+            self.upserts.extend(c.id for c in chunks)
+
+    corpus = Corpus(Embedder(), Store(), root=tmp_path, keywords=Keywords())
+    assert [h.id for h in asyncio.run(corpus.search("q", keywords=5))] == [
+        "1#p0.0",
+        "2#p0.0",
+        "3#p4.1",
+    ]
+    assert [h.id for h in asyncio.run(corpus.search("q"))] == ["1#p0.0", "2#p0.0"]
+
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "42.txt").write_text("\n".join(f"line {i} " * 20 for i in range(60)))
+    asyncio.run(corpus.index_keywords("web"))
+    assert len(Keywords.upserts) > 3 and Keywords.upserts[:2] == ["42#p0.0", "42#p0.1"]

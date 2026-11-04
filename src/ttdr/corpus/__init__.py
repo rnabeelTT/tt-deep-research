@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from ttdr.corpus import chunk, pdf
 from ttdr.corpus.sources import CORPORA_DIR
-from ttdr.corpus.store import Hit, Store
+from ttdr.corpus.store import Hit, Keywords, Store
 
 if TYPE_CHECKING:
     from ttdr.clients import Embedder
@@ -26,17 +26,25 @@ PAGE_TEXT = 2000
 DOC_NAME = re.compile(r"[A-Za-z0-9][\w.-]*")  # a document name from a URL: no paths or globs
 TEXT_PAGE_CHUNKS = 3
 """A text document (no PDF) reads as pages of this many chunks."""
+KEYWORD_BATCH = 256
 
 
 class Corpus:
     def __init__(
-        self, embedder: Embedder, store: Store, root: Path = CORPORA_DIR, pages: Store | None = None
+        self,
+        embedder: Embedder,
+        store: Store,
+        root: Path = CORPORA_DIR,
+        pages: Store | None = None,
+        keywords: Keywords | None = None,
     ):
         self.embedder = embedder
         self.store = store
         self.root = root
         self.pages = pages
         """Every page as an image, when the embedder is multimodal and the recipe asks for it."""
+        self.keywords = keywords
+        """BM25 over every chunk, for exact names and phrases the embeddings miss."""
         self._pages: dict[tuple[str, str, int, float], str] = {}
         self._render = asyncio.Lock()
 
@@ -79,20 +87,11 @@ class Corpus:
         return next((p for d in self.root.iterdir() if (p := d / f"{doc}.txt").exists()), None)
 
     def _text_hits(self, doc: str) -> list[Hit] | None:
-        """A text document's chunks as pages of TEXT_PAGE_CHUNKS; None when it isn't one."""
+        """A text document's chunks; None when it isn't one."""
         if not (path := self._text_doc(doc)):
             return None
         return [
-            Hit(
-                f"{doc}#p{i // TEXT_PAGE_CHUNKS}.{i % TEXT_PAGE_CHUNKS}",
-                doc,
-                i // TEXT_PAGE_CHUNKS,
-                t,
-                [],
-                1.0,
-                path.parent.name,
-            )
-            for i, t in enumerate(chunk.split(path.read_text()))
+            Hit(c.id, doc, c.page, c.text, [], 1.0, path.parent.name) for c in _text_chunks(path)
         ]
 
     async def page_range(self, doc: str, first: int, last: int) -> list[Hit]:
@@ -111,10 +110,22 @@ class Corpus:
         return [h for h in hits if all(w in h.text.lower() for w in words)]
 
     async def search(
-        self, query: str, k: int = 10, corpus: str | None = None, doc: str | None = None
+        self,
+        query: str,
+        k: int = 10,
+        corpus: str | None = None,
+        doc: str | None = None,
+        keywords: int = 0,
     ) -> list[Hit]:
+        """The top k chunks by embedding, then up to KEYWORDS more by BM25 that aren't among them."""
         [vec] = await self.embedder.queries([query])
-        return await self.store.search(vec, k, corpus, doc)
+        if not (keywords and self.keywords and doc is None):
+            return await self.store.search(vec, k, corpus, doc)
+        hits, extra = await asyncio.gather(
+            self.store.search(vec, k, corpus), self.keywords.search(query, keywords, corpus)
+        )
+        ids = {h.id for h in hits}
+        return hits + [h for h in extra if h.id not in ids]
 
     async def fused(self, query: str, k: int = 30, corpus: str | None = None) -> list[Hit]:
         """Whole pages for a reranker that reads them: the pages of the top chunks and the top
@@ -207,6 +218,8 @@ class Corpus:
             await asyncio.gather(*(one(p) for p in todo))
         texts = [p for p in sorted(root.glob("*.txt")) if p.stem not in done and p.stat().st_size]
         await self.index_texts(texts, corpus, concurrency)
+        if self.keywords:
+            await self.index_keywords(corpus, concurrency)
         return {"indexed": len(todo) + len(texts), "skipped": len(done)}
 
     async def index_texts(self, paths: list[Path], corpus: str, concurrency: int = 4) -> None:
@@ -225,3 +238,37 @@ class Corpus:
                 await self.store.upsert(corpus, leads, vecs)
 
         await asyncio.gather(*(one(paths[i : i + BATCH]) for i in range(0, len(paths), BATCH)))
+
+    async def index_keywords(self, corpus: str, concurrency: int = 4) -> dict:
+        """Every chunk of a corpus into the BM25 collection: text documents in full, PDFs as
+        already indexed (resumable)."""
+        await self.keywords.ensure()
+        done = await self.keywords.docs(corpus)
+        sem = asyncio.Semaphore(concurrency)
+
+        async def chunks(doc: str) -> list[chunk.Chunk]:
+            if path := self._text_doc(doc):
+                return await asyncio.to_thread(_text_chunks, path)
+            return [
+                chunk.Chunk(h.doc, h.page, int(h.id.rsplit(".", 1)[1]), h.text, h.flags)
+                for h in await self.store.chunks(doc)
+                if h.text
+            ]
+
+        async def one(doc: str) -> None:
+            async with sem:
+                cs = await chunks(doc)
+                for i in range(0, len(cs), KEYWORD_BATCH):
+                    await self.keywords.upsert(corpus, cs[i : i + KEYWORD_BATCH])
+
+        todo = sorted(await self.store.docs(corpus) - done)
+        await asyncio.gather(*(one(d) for d in todo))
+        return {"indexed": len(todo), "skipped": len(done)}
+
+
+def _text_chunks(path: Path) -> list[chunk.Chunk]:
+    """A text document's chunks, as pages of TEXT_PAGE_CHUNKS."""
+    return [
+        chunk.Chunk(path.stem, i // TEXT_PAGE_CHUNKS, i % TEXT_PAGE_CHUNKS, t, [])
+        for i, t in enumerate(chunk.split(path.read_text()))
+    ]

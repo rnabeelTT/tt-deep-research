@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from ttdr.corpus import Corpus
-from ttdr.corpus.store import Store
+from ttdr.corpus.store import Keywords, Store
 from ttdr.recipe import Model, Recipe
 
 
@@ -261,6 +261,7 @@ def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
             pages=Store(recipe.services.qdrant, recipe.embed.pages_collection)
             if recipe.embed.pages_collection
             else None,
+            keywords=Keywords(recipe.services.qdrant, f"{recipe.embed.collection}_keywords"),
         ),
         client(http, recipe.rerank) if recipe.rerank else None,
     )

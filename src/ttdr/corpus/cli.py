@@ -43,6 +43,17 @@ def index(name: str, concurrency: int = 4, recipe_path: RecipeOpt = None) -> Non
 
 
 @app.command()
+def keywords(name: str, concurrency: int = 8, recipe_path: RecipeOpt = None) -> None:
+    """Add every chunk of an indexed corpus to the BM25 collection (resumable)."""
+    start = time.perf_counter()
+    stats = _with_corpus(
+        recipe_path,
+        lambda c: c.index_keywords(name, concurrency),
+    )
+    console.print({**stats, "seconds": round(time.perf_counter() - start)})
+
+
+@app.command()
 def search(
     query: str,
     k: int = 5,
@@ -70,6 +81,7 @@ def recall(
         str, typer.Option(help="What the reranker sees: text, page (image) or both")
     ] = "text",
     known_doc: Annotated[bool, typer.Option(help="Also search within each known doc")] = True,
+    keywords: Annotated[int, typer.Option(help="Add this many BM25 hits per search")] = 0,
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Share of questions with a gold evidence page in the top k: whole corpus vs the known doc."""
@@ -100,7 +112,7 @@ def recall(
 
         async def one(item, doc):
             async with sem:
-                hits = await c.search(item["question"], n, suite, doc)
+                hits = await c.search(item["question"], n, suite, doc, keywords)
                 if ranker:
                     hits = await ranker.rerank(item["question"], hits)
             hits = hits[: ks[-1]]
