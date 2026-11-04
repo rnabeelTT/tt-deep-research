@@ -188,9 +188,9 @@ def test_keyword_hits_follow_the_embeddings_and_text_documents_index_every_chunk
         async def docs(self, corpus=None):
             return {"42"}
 
-    class Keywords:
-        upserts = []
+    upserts = []
 
+    class Keywords:
         async def search(self, query, k, corpus=None):
             return [hit("2#p0.0"), hit("3#p4.1")]
 
@@ -201,7 +201,7 @@ def test_keyword_hits_follow_the_embeddings_and_text_documents_index_every_chunk
             return set()
 
         async def upsert(self, corpus, chunks):
-            self.upserts.extend(c.id for c in chunks)
+            upserts.extend(c.id for c in chunks)
 
     corpus = Corpus(Embedder(), Store(), root=tmp_path, keywords=Keywords())
     assert [h.id for h in asyncio.run(corpus.search("q", keywords=5))] == [
@@ -215,4 +215,4 @@ def test_keyword_hits_follow_the_embeddings_and_text_documents_index_every_chunk
     web.mkdir()
     (web / "42.txt").write_text("\n".join(f"line {i} " * 20 for i in range(60)))
     asyncio.run(corpus.index_keywords("web"))
-    assert len(Keywords.upserts) > 3 and Keywords.upserts[:2] == ["42#p0.0", "42#p0.1"]
+    assert len(upserts) > 3 and upserts[:2] == ["42#p0.0", "42#p0.1"]

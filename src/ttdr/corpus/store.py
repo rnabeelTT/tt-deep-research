@@ -158,6 +158,7 @@ class Keywords:
     def __init__(self, url: str, collection: str):
         self.client = AsyncQdrantClient(url=url, cloud_inference=True)
         self.collection = collection
+        self._exists = False
 
     @staticmethod
     def _doc(text: str) -> models.Document:
@@ -200,6 +201,10 @@ class Keywords:
         )
 
     async def search(self, query: str, k: int = 10, corpus: str | None = None) -> list[Hit]:
+        """Nothing until the index is built, so corpora indexed before BM25 still search."""
+        self._exists = self._exists or await self.client.collection_exists(self.collection)
+        if not self._exists:
+            return []
         flt = None
         if corpus:
             match = models.MatchValue(value=corpus)
