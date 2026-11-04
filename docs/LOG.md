@@ -605,3 +605,20 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 - The scaffold is a partial reproduction. QUEST was trained with Google (Serper) results, Jina page text summarised toward the goal by an LLM, a context condenser, a Python tool and up to 400 turns. Ours has none of the summariser, condenser or Python tool. Two FinanceBench answers ended in an unexecuted `PythonInterpreter` call.
 
 **Decision: reject; Ornith stays.** It loses every DRB task and only ties on FinanceBench. Ornith's lead here comes as much from the harness (sections writer, per-section citation repair, request classifier, all tuned on Ornith) as from the model. Thinking has never been A/B'd in Deep Agents (it runs off); that's the next A/B, and if it helps, a short QUEST probe in Deep Agents with thinking on.
+
+## A/B: thinking on in Deep Agents (2026-11-04)
+
+**Change:** Ornith with thinking on (`-p thinking=true`) for every agent in the Deep Agents harness; until now it ran with thinking off. Everything else as the default (rerank recipe, 3 sub-questions, 8 tool calls, sections writer). Runs: `20261103-221836-deepagents` (off) and `20261103-221851-deepagents` (on), at the same time on the same stack. One blinded Claude queue for both (`data/judge/ab_thinking`).
+
+| | Thinking off | Thinking on | Diff [95% CI] | Wins / losses |
+|---|---|---|---|---|
+| FinanceBench dev (40) | 82.5% | **87.5%** | +5.0 [+0.0, +12.5] | 2 / 0 |
+| UniDoc dev (40) | 75.0% | **80.0%** | +5.0 [−7.5, +17.5] | 5 / 3 |
+| Median / mean time | 258 / 319 s | 278 / 453 s | | |
+| Mean output tokens | 4.1k | 8.4k | | |
+| Mean model calls | 11 | 15 | | |
+
+- Run-to-run noise is about this size: the thinking-off arm scored 82.5% on FinanceBench dev here and 77.5% in the QUEST A/B a few hours earlier. Running both arms side by side is what makes the comparison fair.
+- Thinking roughly doubles output tokens and adds about 40% to mean time; the slowest questions get much slower.
+
+**Decision: passes the short-question gate.** Next, both arms side by side on DRB dev, where the cost matters more.
