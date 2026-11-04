@@ -338,3 +338,11 @@ def test_quest_scaffold_formats_results_and_parses_calls():
     text = 'Let me search.\n<tool_call>\n{"name": "search", "arguments": {"query": ["a"]}}\n</tool_call>'
     assert quest.CALL.findall(text) == ['{"name": "search", "arguments": {"query": ["a"]}}']
     assert quest.ANSWER.search("x <answer>$1,577M</answer>").group(1) == "$1,577M"
+
+
+def test_writer_drops_lines_a_looping_section_repeats():
+    from ttdr.writer import without_repeats
+
+    loop = "Live-service games keep players engaged through regular content updates."
+    text = f"## Trends\n\n{loop}\n\n{loop}\n\n| a | b |\n| a | b |\n\n{loop}\nEnd."
+    assert without_repeats(text) == f"## Trends\n\n{loop}\n\n| a | b |\n| a | b |\n\nEnd."
