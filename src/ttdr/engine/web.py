@@ -26,6 +26,10 @@ def cosine(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b, strict=True)) / (na * nb) if na and nb else 0.0
 
 
+SEARXNG_FALLBACK = "brave"
+"""Asked for by name when SearXNG's default engines return nothing (configs/searxng)."""
+
+
 async def searxng(http: httpx.AsyncClient, base: str, query: str, **params) -> list[dict]:
     r = await http.get(
         f"{base}/search", params={"q": query, "format": "json", **params}, timeout=TIMEOUT_S
@@ -89,7 +93,9 @@ async def results(
 ) -> list[dict]:
     if backend in KEYED:
         return await KEYED[backend](http, os.environ[f"{backend.upper()}_API_KEY"], query)
-    return await searxng(http, searxng_url, query)
+    return await searxng(http, searxng_url, query) or await searxng(
+        http, searxng_url, query, engines=SEARXNG_FALLBACK
+    )
 
 
 async def rerank(
