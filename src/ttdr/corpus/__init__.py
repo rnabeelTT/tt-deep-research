@@ -214,14 +214,13 @@ class Corpus:
         retrievers embed a document's first 512 tokens; reading a page reads the whole file."""
         sem = asyncio.Semaphore(concurrency)
 
+        def lead(path: Path) -> chunk.Chunk:
+            text = chunk.split(path.read_text()[: 4 * chunk.CHUNK_CHARS])[0]
+            return chunk.Chunk(path.stem, 0, 0, text, [])
+
         async def one(batch: list[Path]) -> None:
-            leads = [
-                chunk.Chunk(
-                    p.stem, 0, 0, chunk.split(p.read_text()[: 4 * chunk.CHUNK_CHARS])[0], []
-                )
-                for p in batch
-            ]
             async with sem:
+                leads = await asyncio.to_thread(lambda: [lead(p) for p in batch])
                 vecs = await self.embedder.documents([(c.doc, c.text) for c in leads])
                 await self.store.upsert(corpus, leads, vecs)
 
