@@ -23,8 +23,6 @@ PAGE_ID = re.compile(r"^(.+)#p(\d+)\.\d+$")
 READ_SCALE = 1.5
 FIND_K = 10
 OPEN_MAX = 2
-KEYWORD_K = 30
-"""BM25 hits added to the embeddings' candidates (features.keywords), before reranking."""
 READ_PAGE = """This is page {page} of the document {doc}. Question: {question}
 
 Report everything on this page that bears on the question: exact values from tables, charts and
@@ -53,9 +51,10 @@ class Engine:
             if recipe.features.triage and decide
             else None
         )
-        self.rerank = Rerank(self.clients.rerank) if self.clients.rerank else None
+        pool = recipe.features.rerank_pool
+        self.rerank = Rerank(self.clients.rerank, pool) if self.clients.rerank else None
         self.page_rerank = (
-            Rerank(self.clients.rerank, mode="both", pages=self._page_images)
+            Rerank(self.clients.rerank, pool, mode="both", pages=self._page_images)
             if self.rerank and self.clients.corpus.pages
             else None
         )
@@ -86,7 +85,8 @@ class Engine:
         if self.page_rerank:
             hits = await c.fused(query, k, corpus)
         else:
-            extra = KEYWORD_K if self.recipe.features.keywords else 0
+            # As many BM25 hits as embedding hits (features.keywords), all before reranking.
+            extra = k if self.recipe.features.keywords else 0
             hits = await c.search(query, k, corpus, keywords=extra)
         return list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits)))
 

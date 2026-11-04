@@ -105,6 +105,8 @@ class Features(BaseModel):
     """AI-Q: let the model choose tools instead of forcing structured output (patch 0004)."""
     offline: bool = False
     """No web fetches either (fixed-corpus benchmarks); drop searxng too for no web search."""
+    rerank_pool: int = 30
+    """Embedding hits (and as many BM25 hits) the reranker orders per search."""
     keywords: bool = True
     """Corpus search adds BM25 hits to the embeddings' (`ttdr corpus index` builds both)."""
 
