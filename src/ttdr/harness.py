@@ -246,7 +246,7 @@ class DeepAgentsHarness:
     max_tool_calls: int = 12
     """Per researcher run and tool; past it the tool errors and the researcher wraps up."""
     max_model_calls: int = 60
-    thinking: bool = False
+    thinking: bool = True
     writer_thinking: bool = False
     """Thinking for the sections writer: its reasoning shares each section's 8k-token budget."""
     doc_tools: bool = True
