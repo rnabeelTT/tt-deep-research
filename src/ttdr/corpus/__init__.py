@@ -24,6 +24,8 @@ PAGE_SCALE = 1.0
 PAGE_CACHE = 512
 PAGE_TEXT = 2000
 DOC_NAME = re.compile(r"[A-Za-z0-9][\w.-]*")  # a document name from a URL: no paths or globs
+TEXT_PAGE_CHUNKS = 3
+"""A text document (no PDF) reads as pages of this many chunks."""
 
 
 class Corpus:
@@ -70,6 +72,43 @@ class Corpus:
             except pdf.pdfium.PdfiumError:
                 return None
         return png
+
+    def _text_doc(self, doc: str) -> Path | None:
+        if not DOC_NAME.fullmatch(doc):
+            return None
+        return next((p for d in self.root.iterdir() if (p := d / f"{doc}.txt").exists()), None)
+
+    def _text_hits(self, doc: str) -> list[Hit] | None:
+        """A text document's chunks as pages of TEXT_PAGE_CHUNKS; None when it isn't one."""
+        if not (path := self._text_doc(doc)):
+            return None
+        return [
+            Hit(
+                f"{doc}#p{i // TEXT_PAGE_CHUNKS}.{i % TEXT_PAGE_CHUNKS}",
+                doc,
+                i // TEXT_PAGE_CHUNKS,
+                t,
+                [],
+                1.0,
+                path.parent.name,
+            )
+            for i, t in enumerate(chunk.split(path.read_text()))
+        ]
+
+    async def page_range(self, doc: str, first: int, last: int) -> list[Hit]:
+        """Every chunk of pages first..last of one document, in reading order."""
+        hits = await asyncio.to_thread(self._text_hits, doc)
+        if hits is None:
+            return await self.store.pages(doc, first, last)
+        return [h for h in hits if first <= h.page <= last]
+
+    async def find(self, doc: str, terms: str) -> list[Hit]:
+        """Chunks of one document containing every word of terms, in page order."""
+        hits = await asyncio.to_thread(self._text_hits, doc)
+        if hits is None:
+            return await self.store.find(doc, terms)
+        words = terms.lower().split()
+        return [h for h in hits if all(w in h.text.lower() for w in words)]
 
     async def search(
         self, query: str, k: int = 10, corpus: str | None = None, doc: str | None = None
@@ -140,14 +179,17 @@ class Corpus:
             )
 
     async def index_dir(self, root: Path, corpus: str, concurrency: int = 4) -> dict:
-        """Index every PDF under root; page flags go to root/pages.jsonl for the OCR stage."""
+        """Index every PDF and text document under root; PDF page flags go to root/pages.jsonl
+        for the OCR stage."""
         dim = len((await self.embedder.queries(["size"]))[0])
         for store in (self.store, self.pages):
             if store:
                 await store.ensure(dim)
         done = await self.store.docs(corpus)
         todo = [p for p in sorted(root.glob("*.pdf")) if p.stem not in done]
-        if clash := {p.stem for p in todo} & (await self.store.docs() - done):
+        if clash := {p.stem for p in [*todo, *root.glob("*.txt")]} & (
+            await self.store.docs() - done
+        ):
             raise ValueError(
                 f"already indexed in another corpus, and would overwrite it: {sorted(clash)}"
             )
@@ -163,4 +205,24 @@ class Corpus:
 
         with ProcessPoolExecutor(concurrency) as pool:
             await asyncio.gather(*(one(p) for p in todo))
-        return {"indexed": len(todo), "skipped": len(done)}
+        texts = [p for p in sorted(root.glob("*.txt")) if p.stem not in done and p.stat().st_size]
+        await self.index_texts(texts, corpus, concurrency)
+        return {"indexed": len(todo) + len(texts), "skipped": len(done)}
+
+    async def index_texts(self, paths: list[Path], corpus: str, concurrency: int = 4) -> None:
+        """Text documents (web pages) embed their first chunk only, as BrowseComp-Plus's own
+        retrievers embed a document's first 512 tokens; reading a page reads the whole file."""
+        sem = asyncio.Semaphore(concurrency)
+
+        async def one(batch: list[Path]) -> None:
+            leads = [
+                chunk.Chunk(
+                    p.stem, 0, 0, chunk.split(p.read_text()[: 4 * chunk.CHUNK_CHARS])[0], []
+                )
+                for p in batch
+            ]
+            async with sem:
+                vecs = await self.embedder.documents([(c.doc, c.text) for c in leads])
+                await self.store.upsert(corpus, leads, vecs)
+
+        await asyncio.gather(*(one(paths[i : i + BATCH]) for i in range(0, len(paths), BATCH)))

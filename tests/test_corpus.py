@@ -111,3 +111,58 @@ def test_fetching_a_corpus_page_link_reads_the_page_from_the_corpus():
     for url in ("http://ui:3000/pages/3M_2018_10K/60", "corpus://3M_2018_10K#page=60"):
         assert asyncio.run(engine.fetch(url)) == ["passage"]
     assert asked == [("3M_2018_10K#p59.0", 0, 0)] * 2
+
+
+def test_text_documents_index_their_lead_chunk_and_read_as_pages(tmp_path):
+    import asyncio
+
+    from ttdr.corpus import TEXT_PAGE_CHUNKS, Corpus
+
+    upserts = []
+
+    class Embedder:
+        async def queries(self, texts):
+            return [[0.0] * 4 for _ in texts]
+
+        async def documents(self, docs):
+            return [[1.0] * 4 for _ in docs]
+
+    class Store:
+        async def ensure(self, dim):
+            pass
+
+        async def docs(self, corpus=None):
+            return set()
+
+        async def upsert(self, corpus, chunks, vecs):
+            upserts.extend((corpus, c.id) for c in chunks)
+
+    web = tmp_path / "web"
+    web.mkdir()
+    (web / "42.txt").write_text(
+        "https://example.org/a\n" + "\n".join(f"line {i} " * 20 for i in range(60))
+    )
+    (web / "43.txt").write_text("")
+    corpus = Corpus(Embedder(), Store(), root=tmp_path)
+    asyncio.run(corpus.index_dir(web, "web"))
+    assert upserts == [("web", "42#p0.0")]
+
+    page = asyncio.run(corpus.page_range("42", 1, 1))
+    assert [h.id for h in page] == [f"42#p1.{i}" for i in range(TEXT_PAGE_CHUNKS)]
+    assert all(h.corpus == "web" for h in page)
+    found = asyncio.run(corpus.find("42", "LINE 59"))
+    assert found and all("line 59" in h.text for h in found)
+
+
+def test_offline_recipes_fetch_only_corpus_pages():
+    import asyncio
+    from types import SimpleNamespace
+
+    import pytest
+
+    from ttdr.engine import Engine, Offline
+
+    engine = Engine.__new__(Engine)
+    engine.recipe = SimpleNamespace(features=SimpleNamespace(offline=True))
+    with pytest.raises(Offline):
+        asyncio.run(engine.fetch("https://example.org/"))

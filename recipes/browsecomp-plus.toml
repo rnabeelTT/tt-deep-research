@@ -1,0 +1,18 @@
+extends = "rerank.toml"
+
+# BrowseComp-Plus: its fixed ~100k-page corpus only, in its own collection so it never mixes with
+# the private documents. No web search and no web fetches (features.offline).
+[models.qwen3vl_embed]
+collection = "browsecomp_plus"
+
+[services]
+searxng = ""
+
+[features]
+offline = true
+ocr = false
+
+[corpora]
+financebench = ""
+unidoc = ""
+browsecomp-plus = "About 100,000 web pages (news, Wikipedia, blogs, forums, institutional sites in many languages) collected for hard multi-constraint browsing questions"

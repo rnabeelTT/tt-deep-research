@@ -71,7 +71,8 @@ async def passages(engine: Engine, ref: str, urls: dict[str, str], claim: str) -
     if not url:
         return []
     if m := CORPUS_URL.match(url):
-        hits = await engine.clients.corpus.store.page(m[1], int(m[2]) - 1)
+        page = int(m[2]) - 1
+        hits = await engine.clients.corpus.page_range(m[1], page, page)
         return [Evidence(h.id, "corpus", h.doc, url, h.text) for h in hits]
     try:
         return await engine.fetch(url, claim, FETCH_PASSAGES)

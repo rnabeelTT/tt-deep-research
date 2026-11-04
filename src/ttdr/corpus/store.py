@@ -154,6 +154,6 @@ class Store:
             self.collection,
             "doc",
             facet_filter=flt,
-            limit=10_000,
+            limit=1_000_000,
         )
         return {h.value for h in r.hits}

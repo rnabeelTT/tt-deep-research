@@ -74,4 +74,46 @@ async def fetch_unidoc() -> Path:
     return out
 
 
-FETCHERS = {"financebench": fetch_financebench, "unidoc": fetch_unidoc}
+BROWSECOMP_PLUS_CORPUS = (
+    "Tevatron/browsecomp-plus-corpus",
+    "b27b02bc3e45511b8b82a13e6f90ce761df726f6",
+)
+
+
+def _write_texts(parquets: list[Path], out: Path) -> int:
+    """One <docid>.txt per page, its URL on the first line (the parquet is untrusted)."""
+    import pyarrow.parquet as pq
+
+    from ttdr.corpus import DOC_NAME
+
+    n = 0
+    for path in parquets:
+        for row in pq.read_table(path, columns=["docid", "url", "text"]).to_pylist():
+            if DOC_NAME.fullmatch(row["docid"]) and not (out / f"{row['docid']}.txt").exists():
+                (out / f"{row['docid']}.txt").write_text(f"{row['url']}\n{row['text']}")
+            n += 1
+    return n
+
+
+async def fetch_browsecomp_plus() -> Path:
+    """BrowseComp-Plus's fixed corpus (MIT): 100,195 web pages as text documents."""
+    from huggingface_hub import snapshot_download
+
+    out = CORPORA_DIR / "browsecomp-plus"
+    out.mkdir(parents=True, exist_ok=True)
+    snap = await asyncio.to_thread(
+        snapshot_download,
+        BROWSECOMP_PLUS_CORPUS[0],
+        repo_type="dataset",
+        revision=BROWSECOMP_PLUS_CORPUS[1],
+        allow_patterns=["data/*.parquet"],
+    )
+    await asyncio.to_thread(_write_texts, sorted(Path(snap).glob("data/*.parquet")), out)
+    return out
+
+
+FETCHERS = {
+    "financebench": fetch_financebench,
+    "unidoc": fetch_unidoc,
+    "browsecomp-plus": fetch_browsecomp_plus,
+}
