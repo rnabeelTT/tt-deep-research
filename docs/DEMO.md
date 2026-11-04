@@ -21,7 +21,7 @@ Ours vs published numbers. "Fair?" records what differs between our run and thei
 | DeepResearch Bench (RACE) | Long cited reports | `deepresearch_bench` (50 English tasks) | Gemini, OpenAI, Perplexity, Kimi, Claude Research and others publish their **reports**, which we re-judge with the same Claude graders | Same judge and criteria for everyone: the fairest comparison we have | Web (final run: Tavily) |
 | FRAMES | Multi-hop factual questions (Wikipedia) | `frames` (150) | Google's paper baselines, and open agents (QUEST, MiroThinker, WebThinker…) | Their numbers use their own judges; we grade with Claude | Web (free search works) |
 | HLE, text-only | Expert-level questions | `hle` (150) | OpenAI deep research, Perplexity, Gemini, Kimi, open agents | Subset of the text-only split; published numbers are on the full set | Web |
-| BrowseComp-Plus | Hard browsing over a fixed corpus | to add (830 queries, ~100k docs) | QUEST, Tongyi, OpenResearcher, GPT-5 and others, on the same corpus | Same corpus, so retrieval is comparable. Needs the corpus indexed (several hours of embedder time) | None: fixed corpus |
+| BrowseComp-Plus | Hard browsing over a fixed corpus | `browsecomp-plus` (150), dev 40; `recipes/browsecomp-plus.toml` (offline) | QUEST, Tongyi, OpenResearcher, GPT-5 and others, on the same corpus | Same corpus, so retrieval is comparable. Needs the corpus indexed (several hours of embedder time) | None: fixed corpus |
 | SimpleQA | Short factual questions | `simpleqa` (150) | OpenAI, Perplexity Sonar, others | Sample, not the full 4,326 | Web |
 | FinanceBench | Questions over 10-K filings | `financebench` (150) | Patronus paper baselines (GPT-4 RAG etc.), vendor reports | Same open-book task | None |
 | UniDoc-Bench | Questions over figures and tables in PDFs | `unidoc` (200) | The paper's RAG baselines | Same task; licence allows internal evaluation only | None |
@@ -52,7 +52,7 @@ Record at 1080p with a clean browser profile, after a warm-up query so prefix ca
 
 ## Open items
 
-- Competitor numbers with sources: collect them in a table (benchmark, system, score, judge, date, URL) before the slides.
-- BrowseComp-Plus corpus indexing: schedule it when the chips are otherwise idle.
+- Competitor numbers with sources: collected in [COMPETITORS.md](COMPETITORS.md) (2026-11-04). DRB's official judge changed to GPT-5.5 in May 2026, so leaderboard RACE scores (Gemini-2.5-Pro or GPT-5.5 judge) can't sit beside our Claude-judged ones; the re-judging step puts competitors' published reports and ours under one judge. Check Tongyi's numbers against the paper PDF before the slides.
+- BrowseComp-Plus corpus indexing (lead chunk per page, 100k embeddings): after the thinking A/B.
 - GAIA: request access on its Hub page.
 - Decide the deck format (Slides artifact or Google Slides) and who presents.
