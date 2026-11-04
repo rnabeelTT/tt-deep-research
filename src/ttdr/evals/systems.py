@@ -213,7 +213,7 @@ class DeepAgents:
 
     max_subquestions: int = 3
     max_tool_calls: int = 8
-    thinking: bool = False
+    thinking: bool = True
     writer_thinking: bool = False
     doc_tools: bool = True
     context_tokens: int | None = None

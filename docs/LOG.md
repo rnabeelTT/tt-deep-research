@@ -639,3 +639,20 @@ Same arms on the 8 DRB dev tasks, side by side: `20261104-005512-deepagents` (of
 - The thinking-off arm had its own failure: one report (drb_89) fell into a loop, the same four sentences about 50 times each (203 repeated lines). Graders marked it down on readability.
 
 **Decision: not yet.** Next arm: thinking on for the planner and researchers, off for the writer (`writer_thinking`, new, default off).
+
+### Thinking on for the agents, off for the writer, DRB dev (2026-11-04)
+
+`writer_thinking=false` keeps each section's 8k-token budget for the section itself. Runs: `20261104-021721-deepagents` (off) and `20261104-021736-deepagents` (agents on, writer off), side by side; blinded RACE queue `data/judge/ab_writer_think`.
+
+| | Thinking off | Agents on, writer off |
+|---|---|---|
+| RACE overall | 0.381 | **0.445** (+0.064 [+0.011, +0.142], 5 / 3) |
+| Without drb_91 | 0.436 | **0.462** (4 / 3) |
+| Median report length | 43k chars | 48k chars |
+| Median time | 21 min | 29 min |
+| Mean output tokens | 13k | 29k |
+
+- In the off arm, drb_91 got no web results from any of its 42 searches (Yandex through SearXNG answered nothing for a while, then recovered) and the report was a refusal, scored 0. Without that task the gain is smaller but still positive.
+- Report length is back to normal: the short reports of the first thinking run came from the writer's reasoning, not the agents'.
+
+**Decision: adopt.** Thinking is now on by default for the planner and researchers (harness and eval), and off for the writer. It wins on short questions (+5 on FinanceBench and UniDoc dev) and on reports, at about 35–40% more time and twice the output tokens.
