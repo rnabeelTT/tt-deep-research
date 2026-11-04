@@ -197,6 +197,30 @@ class OnlyTools(AgentMiddleware):
         return await handler(self._keep(request))
 
 
+class ThinkingFallback(AgentMiddleware):
+    """Retry a call without thinking when it used its whole budget and made no tool call: on
+    BrowseComp-Plus puzzles Ornith thought in circles for all 32k tokens, and the run ended empty."""
+
+    def __init__(self, model: ChatOpenAI):
+        super().__init__()
+        self.model = model
+
+    @staticmethod
+    def _stuck(response) -> bool:
+        message = response.result[-1]
+        return message.response_metadata.get("finish_reason") == "length" and not message.tool_calls
+
+    def wrap_model_call(self, request, handler):
+        response = handler(request)
+        return handler(request.override(model=self.model)) if self._stuck(response) else response
+
+    async def awrap_model_call(self, request, handler):
+        response = await handler(request)
+        if self._stuck(response):
+            return await handler(request.override(model=self.model))
+        return response
+
+
 class EvidenceNotes(AgentMiddleware):
     """Researchers often drop evidence IDs from their notes; append the passages that back them.
 
@@ -266,6 +290,8 @@ class DeepAgentsHarness:
         subs, calls = subs or self.max_subquestions, calls or self.max_tool_calls
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
         research = [t for t in tools if t.name in allowed]
+        fallback = [ThinkingFallback(chat_model(self.recipe, False, 8192, self.context_tokens))]
+        fallback = fallback if self.thinking else []
         scope = SCOPE_NOTE.format(scope=SCOPE[self.sources]) if self.sources in SCOPE else ""
         researcher = {
             "name": "researcher",
@@ -285,6 +311,7 @@ class DeepAgentsHarness:
                 ModelCallLimitMiddleware(run_limit=3 * calls, exit_behavior="end"),
                 EvidenceNotes(),
                 OnlyTools(allowed),
+                *fallback,
             ],
         }
         # The planner sometimes picks Deep Agents' built-in general-purpose subagent, which has
@@ -305,6 +332,7 @@ class DeepAgentsHarness:
                 # still launched over 100 researchers (BrowseComp-Plus). Reports use up to 12.
                 ToolCallLimitMiddleware(tool_name="task", run_limit=TASKS_PER_SUBQUESTION * subs),
                 OnlyTools(MAIN_TOOLS),
+                *fallback,
             ],
         )
 

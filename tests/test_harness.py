@@ -346,3 +346,25 @@ def test_writer_drops_lines_a_looping_section_repeats():
     loop = "Live-service games keep players engaged through regular content updates."
     text = f"## Trends\n\n{loop}\n\n{loop}\n\n| a | b |\n| a | b |\n\n{loop}\nEnd."
     assert without_repeats(text) == f"## Trends\n\n{loop}\n\n| a | b |\n| a | b |\n\nEnd."
+
+
+def test_thinking_fallback_retries_a_call_that_ran_out_of_tokens():
+    from types import SimpleNamespace as NS
+
+    from langchain_core.messages import AIMessage
+
+    def reply(finish, calls=()):
+        tool_calls = [{"name": "task", "args": {}, "id": "1"}] if calls else []
+        return NS(
+            result=[
+                AIMessage("", tool_calls=tool_calls, response_metadata={"finish_reason": finish})
+            ]
+        )
+
+    fallback = harness.ThinkingFallback("plain")
+    request = NS(model="thinking", override=lambda model: NS(model=model))
+    answers = {"thinking": reply("length"), "plain": reply("stop")}
+    out = fallback.wrap_model_call(request, lambda r: answers[r.model])
+    assert out is answers["plain"]
+    answers["thinking"] = reply("length", calls=True)
+    assert fallback.wrap_model_call(request, lambda r: answers[r.model]) is answers["thinking"]
