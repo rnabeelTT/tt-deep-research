@@ -105,6 +105,8 @@ class Features(BaseModel):
     """AI-Q: let the model choose tools instead of forcing structured output (patch 0004)."""
     offline: bool = False
     """No web fetches either (fixed-corpus benchmarks); drop searxng too for no web search."""
+    keywords: bool = False
+    """Corpus search adds BM25 hits to the embeddings' (`ttdr corpus keywords` builds the index)."""
 
 
 def _drop_empty(data: dict) -> dict:

@@ -23,6 +23,8 @@ PAGE_ID = re.compile(r"^(.+)#p(\d+)\.\d+$")
 READ_SCALE = 1.5
 FIND_K = 10
 OPEN_MAX = 2
+KEYWORD_K = 10
+"""BM25 hits added to the embeddings' candidates (features.keywords), before reranking."""
 READ_PAGE = """This is page {page} of the document {doc}. Question: {question}
 
 Report everything on this page that bears on the question: exact values from tables, charts and
@@ -81,7 +83,11 @@ class Engine:
 
     async def _corpus(self, query: str, k: int, corpus: str | None) -> list[Evidence]:
         c = self.clients.corpus
-        hits = await (c.fused if self.page_rerank else c.search)(query, k, corpus)
+        if self.page_rerank:
+            hits = await c.fused(query, k, corpus)
+        else:
+            extra = KEYWORD_K if self.recipe.features.keywords else 0
+            hits = await c.search(query, k, corpus, keywords=extra)
         return list(await asyncio.gather(*(self._corpus_evidence(h) for h in hits)))
 
     async def _page_images(self, items: list[Evidence]) -> list[str | None]:
