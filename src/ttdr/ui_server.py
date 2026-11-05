@@ -3,6 +3,9 @@
 Every chat message becomes a deep-research job. The harness runs in a background task and its
 run events (ttdr.harness.Progress) become the job's SSE events, kept in memory so a reconnecting
 stream replays from its last event ID. Jobs live as long as the process.
+
+With a document library, the UI's file uploads land in it: every chat's collection is the one
+shared library, and corpus search covers it.
 """
 
 import asyncio
@@ -20,6 +23,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from ttdr.corpus.library import Library
 from ttdr.harness import EVIDENCE_ID
 
 HEARTBEAT_S = 15.0
@@ -27,6 +31,8 @@ DATA_SOURCES = [
     {"id": "web", "name": "Web search", "description": "Search the public web."},
     {"id": "documents", "name": "Our documents", "description": "The private document corpus."},
 ]
+KNOWLEDGE_LAYER = {"id": "knowledge_layer", "name": "Uploaded files", "description": ""}
+"""Its presence turns on the UI's file uploads; chats with files send it as a data source."""
 SCOPES = {frozenset({"web"}): "web", frozenset({"documents"}): "corpus"}
 PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\nURL: (\S+)\n((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
@@ -34,8 +40,10 @@ PASSAGE = re.compile(
 
 
 def scope(selected: list[str]) -> str:
-    """The harness's search scope for the UI's data-source selection (none or both: all)."""
-    return SCOPES.get(frozenset(selected) & {"web", "documents"}, "all")
+    """The harness's search scope for the UI's data-source selection (none or both: all);
+    uploaded files are documents."""
+    chosen = {"documents" if s == "knowledge_layer" else s for s in selected}
+    return SCOPES.get(frozenset(chosen) & {"web", "documents"}, "all")
 
 
 def _now() -> str:
@@ -175,9 +183,10 @@ async def _stream(job: Job, after: int):
             yield _frame("job.heartbeat", {"data": {"uptime_seconds": uptime}})
 
 
-def build(make_harness: Callable[[str], object]) -> Starlette:
+def build(make_harness: Callable[[str], object], library: Library | None = None) -> Starlette:
     """MAKE_HARNESS(sources) gives a harness whose search is limited to SOURCES ("web",
-    "corpus" or "all"); its run(question, events=...) is awaited per job."""
+    "corpus" or "all"); its run(question, events=...) is awaited per job. LIBRARY takes the
+    UI's file uploads."""
     jobs: dict[str, Job] = {}
 
     async def research(job: Job) -> None:
@@ -295,9 +304,39 @@ def build(make_harness: Callable[[str], object]) -> Starlette:
         return JSONResponse({"job_id": job.id, "status": "interrupted", "cancelled": True})
 
     async def data_sources(_: Request):
+        sources = [*DATA_SOURCES, *([KNOWLEDGE_LAYER] if library else [])]
         return JSONResponse(
-            [{**s, "default_enabled": True, "requires_auth": False} for s in DATA_SOURCES]
+            [{**s, "default_enabled": True, "requires_auth": False} for s in sources]
         )
+
+    async def collections(request: Request):
+        if request.method == "POST":
+            return JSONResponse(library.collection(), status_code=201)
+        return JSONResponse({"collections": [library.collection()]})
+
+    async def collection(request: Request):
+        if request.method == "DELETE":  # the UI drops a chat's collection; the library stays
+            return JSONResponse({"deleted": False})
+        return JSONResponse(library.collection())
+
+    async def documents(request: Request):
+        if request.method == "GET":
+            return JSONResponse({"files": [f.info() for f in library.files.values()]})
+        if request.method == "DELETE":
+            ids = (await request.json()).get("file_ids") or []
+            return JSONResponse({"deleted": await library.delete(ids)})
+        async with request.form(max_files=10_000) as form:
+            uploads = [(u.filename or "document", await u.read()) for u in form.getlist("files")]
+        if not uploads:
+            return JSONResponse({"detail": "no files in the upload"}, status_code=400)
+        job = library.add(uploads)
+        ids = [f.file_id for f in job.files]
+        return JSONResponse({"job_id": job.id, "file_ids": ids, "message": "indexing"})
+
+    async def ingest_status(request: Request):
+        if not (job := library.jobs.get(request.path_params["job_id"])):
+            return JSONResponse({"detail": "Job not found"}, status_code=404)
+        return JSONResponse(job.info())
 
     async def health(_: Request):
         return JSONResponse({"status": "healthy"})
@@ -314,15 +353,35 @@ def build(make_harness: Callable[[str], object]) -> Starlette:
             Route(f"{job_path}/cancel", cancel, methods=["POST"]),
             Route("/v1/data_sources", data_sources),
             Route("/health", health),
+            *(
+                [
+                    Route("/v1/collections", collections, methods=["GET", "POST"]),
+                    Route("/v1/collections/{name}", collection, methods=["GET", "DELETE"]),
+                    Route(
+                        "/v1/collections/{name}/documents",
+                        documents,
+                        methods=["GET", "POST", "DELETE"],
+                    ),
+                    Route("/v1/documents/{job_id}/status", ingest_status),
+                ]
+                if library
+                else []
+            ),
         ]
     )
 
 
 def serve(recipe, host: str, port: int) -> None:
+    import httpx
     import uvicorn
+    from redis.asyncio import Redis
 
+    from ttdr.clients import connect
+    from ttdr.engine.ocr import OcrQueue
     from ttdr.harness import DeepAgentsHarness
 
-    uvicorn.run(
-        build(lambda sources: DeepAgentsHarness(recipe, sources=sources)), host=host, port=port
-    )
+    ocr = OcrQueue(Redis.from_url(recipe.services.redis, decode_responses=True))
+    corpus = connect(recipe, httpx.AsyncClient(timeout=300)).corpus
+    library = Library(corpus, ocr=ocr if recipe.features.ocr else None)
+    app = build(lambda sources: DeepAgentsHarness(recipe, sources=sources), library)
+    uvicorn.run(app, host=host, port=port)

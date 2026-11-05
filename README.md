@@ -46,6 +46,10 @@ On one QB2, graded by blinded Claude subagents; dev sets are 40 questions (8 tas
 
 Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md](docs/COMPETITORS.md) lists them with sources, and the final DRB comparison re-judges competitors' published reports with the same Claude graders.
 
+## Your own documents
+
+Upload in the web UI (http://localhost:3000): add files at the chat input or in the Files tab of the data-sources panel. It takes PDF, Word (.docx), Markdown and text files. Every chat shares one library (`data/corpus/library`), searched with "Our documents" on. Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are read by OCR while indexing when the embedder is text-only (the cohosted bundle), or embedded as page images otherwise. Delete a file in the Files tab to drop it from the index. For a large first load, `ttdr corpus upload ~/docs` sends a whole folder through the same path. The UI caps the library at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap.
+
 ## Commands
 
 | Command | What |
@@ -54,6 +58,7 @@ Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md]
 | `ttdr research "…"` [`--shallow`] [`--harness deepagents`] | Research with live progress |
 | `ttdr verify report.md` [`--revise`] | Check each cited claim against its source |
 | `ttdr jobs` | Recent research jobs, with progress |
+| `ttdr corpus upload FOLDER` | Add a folder of your own documents to the web UI's library (`--url` the app's API, default :8200) |
 | `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
 | `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank.toml --concurrency 4` |
 | `ttdr eval judge-export\|judge-import` | Blinded queues for short answers, graded by Claude subagents |

@@ -265,3 +265,9 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
   - `tt serve` refuses cohost bundles ("unsupported kind 'cohost'"); `tt-model serve BUNDLE --local-only --port 8000 --detach` works, and readiness is on the bundle's status port (:8006).
   - Qwen3.8's default bundle profile has no multi-user vision; one page-image request killed the engine and the container. Recipes now say `vision = false` and agents lose `read_page`.
   - A cold cohost start takes 9–12 minutes.
+
+## 2026-11-05 (evening) · Users' own documents, through the UI we already had
+
+- **Imported, not built:** AI-Q's UI already had a polished file-upload flow, switched off unless the backend advertises it. Implementing its small API in our server turned it on; no frontend code changed.
+- **One library, not per-chat files:** AI-Q ties uploads to a chat and deletes them with it. For a standing private corpus, every chat's collection now maps to one shared library.
+- **Friction (ours):** the cohosted embedder is text-only, which we hadn't hit because the benchmark corpora were indexed with the separate vision embedder. A scanned PDF failed to upload. Scans are now OCR'd while indexing on text-only embedders.

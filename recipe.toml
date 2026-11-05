@@ -63,6 +63,7 @@ mcp = "http://localhost:9901/mcp"
 
 # What each private collection holds: agents read this to decide when to search the corpus.
 [corpora]
+library = "Documents the user uploaded in the web UI: their own reports, memos, manuals and notes"
 financebench = "Annual and quarterly reports (10-K, 10-Q, 8-K) of about 40 large US public companies, 2015-2023"
 unidoc = "Energy and construction documents: technical and research reports, standards, manuals, safety and planning documents, with many charts, diagrams and tables"
 

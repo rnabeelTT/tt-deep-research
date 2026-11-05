@@ -79,9 +79,10 @@ services:
     image: ttdr/engine:${TTDR_VERSION:-dev}
     network_mode: host
     working_dir: ${PWD}
-    volumes: ["${PWD}:${PWD}:ro"]
+    user: "${TTDR_UID:-1000}:${TTDR_GID:-1000}"   # uploads are the host user's files
+    volumes: ["${PWD}:${PWD}:ro", "${PWD}/data/corpus/library:${PWD}/data/corpus/library"]   # the UI's uploads
     command: ["ttdr", "ui-server"]
-    environment: { TTDR_RECIPE: "${TTDR_RECIPE:-recipe.toml}" }
+    environment: { TTDR_RECIPE: "${TTDR_RECIPE:-recipe.toml}", HOME: /tmp }
     depends_on: [engine]
     restart: unless-stopped
 
@@ -90,7 +91,12 @@ services:
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:
-      { BACKEND_URL: "http://127.0.0.1:8200", PORT: "3000", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
+      BACKEND_URL: "http://127.0.0.1:8200"
+      PORT: "3000"
+      REQUIRE_AUTH: "false"
+      PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}"
+      FILE_UPLOAD_MAX_FILE_COUNT: "${TTDR_UPLOAD_MAX_FILES:-1000}"   # the whole library, not one chat's files
+      FILE_UPLOAD_MAX_SIZE_MB: "${TTDR_UPLOAD_MAX_MB:-2048}"
     depends_on: [deepagents]
     restart: unless-stopped
 

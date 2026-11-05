@@ -26,6 +26,12 @@ def _hit(payload: dict, score: float) -> Hit:
     return Hit(*(payload[k] for k in keys), score, payload["corpus"])
 
 
+def _doc_filter(doc: str) -> models.Filter:
+    return models.Filter(
+        must=[models.FieldCondition(key="doc", match=models.MatchValue(value=doc))]
+    )
+
+
 def _point_id(evidence_id: str) -> str:
     """Keyed by evidence ID alone, so a document name must be unique across corpora."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, evidence_id))
@@ -146,6 +152,12 @@ class Store:
         )
         return {h.value for h in r.hits}
 
+    async def delete(self, doc: str) -> None:
+        """Every point of one document."""
+        if await self.client.collection_exists(self.collection):
+            selector = models.FilterSelector(filter=_doc_filter(doc))
+            await self.client.delete(self.collection, points_selector=selector)
+
 
 BM25 = "qdrant/bm25"
 KEYWORDS = "bm25"
@@ -219,3 +231,5 @@ class Keywords:
         flt = models.Filter(must=[models.FieldCondition(key="corpus", match=match)])
         r = await self.client.facet(self.collection, "doc", facet_filter=flt, limit=1_000_000)
         return {h.value for h in r.hits}
+
+    delete = Store.delete

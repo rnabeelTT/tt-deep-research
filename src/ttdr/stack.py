@@ -142,7 +142,7 @@ def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, 
         _run(["scripts/setup-aiq.sh"], log)
     log(f"rendered {aiq_config.write(recipe)}")
     write_env(compose_env(recipe, path))
-    for d in ("data/corpus", "data/aiq/app"):  # else Docker creates them as root
+    for d in ("data/corpus/library", "data/aiq/app"):  # else Docker creates them as root
         Path(d).mkdir(parents=True, exist_ok=True)
     services = app_services(recipe)
     flags = ["--build"] if build else []
