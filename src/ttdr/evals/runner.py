@@ -42,6 +42,19 @@ async def _answer_all(system, items: list[Item], recipe: Recipe, concurrency: in
         await asyncio.gather(*(one(i) for i in items))
 
 
+def _new_run_dir(name: str) -> Path:
+    """RUNS_DIR/name, or name-2, -3... when another run started in the same second."""
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    for n in range(1, 100):
+        run_dir = RUNS_DIR / (name if n == 1 else f"{name}-{n}")
+        try:
+            run_dir.mkdir()
+            return run_dir
+        except FileExistsError:
+            continue
+    raise FileExistsError(name)
+
+
 def run(
     system_name: str,
     suites: list[str],
@@ -52,8 +65,7 @@ def run(
 ) -> Path:
     system = SYSTEMS[system_name](**params)
     items = [i for s in suites for i in datasets.load(s)[:limit]]
-    run_dir = RUNS_DIR / f"{datetime.now():%Y%m%d-%H%M%S}-{system_name}"
-    run_dir.mkdir(parents=True)
+    run_dir = _new_run_dir(f"{datetime.now():%Y%m%d-%H%M%S}-{system_name}")
     config = {
         "system": system_name,
         "params": dataclasses.asdict(system),

@@ -205,3 +205,11 @@ def test_published_drb_reports_become_a_run(tmp_path):
     assert race.import_published(src, tmp_path / "run") == 2
     answers = race._answers(tmp_path / "run")
     assert answers["drb_51"].text == "report" and answers["drb_52"].text == ""
+
+
+def test_runs_started_in_the_same_second_get_their_own_directory(tmp_path, monkeypatch):
+    from ttdr.evals import runner
+
+    monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
+    assert runner._new_run_dir("x").name == "x"
+    assert runner._new_run_dir("x").name == "x-2"
