@@ -101,6 +101,19 @@ def export(run_dirs: list[Path], out_dir: Path, per_chunk: int = 5, seed: int = 
     return len(ids)
 
 
+def import_published(path: Path, out_dir: Path) -> int:
+    """A system's published DRB reports (the benchmark repo's {id, prompt, article} lines) as a run,
+    so race-export judges them beside ours with the same graders."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    answers = [
+        Answer(id=f"drb_{r['id']}", text=r.get("article") or "", latency_s=0.0)
+        for r in map(json.loads, jsonl.lines(path))
+    ]
+    (out_dir / "answers.jsonl").write_text("".join(a.model_dump_json() + "\n" for a in answers))
+    (out_dir / "config.json").write_text(json.dumps({"system": "published", "source": str(path)}))
+    return len(answers)
+
+
 def total(scores: dict[str, list[float]], criteria: dict) -> dict[str, float]:
     """Criterion-weighted score per dimension and the dimension-weighted total."""
     out = {}

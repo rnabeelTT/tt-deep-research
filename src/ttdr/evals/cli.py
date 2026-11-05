@@ -173,6 +173,14 @@ def race_export(
     )
 
 
+@app.command("race-published")
+def race_published(
+    path: Path, out: Annotated[Path, typer.Option(help="Run directory to write")]
+) -> None:
+    """A system's published DeepResearch Bench reports as a run, to judge beside ours."""
+    console.print(f"{race.import_published(path, out)} reports → {out}")
+
+
 @app.command("race-import")
 def race_import(
     queue: Path, judge: Annotated[str, typer.Option(help="Judge name to record")]

@@ -193,3 +193,15 @@ def test_jsonl_lines_keep_unicode_separators_inside_strings(tmp_path):
     path = tmp_path / "answers.jsonl"
     path.write_text(json.dumps({"text": "a b"}, ensure_ascii=False) + "\n\n")
     assert [json.loads(x)["text"] for x in jsonl.lines(path)] == ["a b"]
+
+
+def test_published_drb_reports_become_a_run(tmp_path):
+    from ttdr.evals import race
+
+    src = tmp_path / "x.jsonl"
+    src.write_text(
+        '{"id": "51", "prompt": "p", "article": "report"}\n{"id": "52", "prompt": "q"}\n'
+    )
+    assert race.import_published(src, tmp_path / "run") == 2
+    answers = race._answers(tmp_path / "run")
+    assert answers["drb_51"].text == "report" and answers["drb_52"].text == ""
