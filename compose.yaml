@@ -100,6 +100,18 @@ services:
     depends_on: [deepagents]
     restart: unless-stopped
 
+  # Sandboxed Python for agents (Pydantic's mcp-run-python): opt in with services.code in the recipe
+  # (recipes/code.toml). Code runs in Pyodide under Deno with no network and no host files.
+  pyrun:
+    profiles: [code]
+    build: { context: docker, dockerfile: pyrun.Dockerfile }
+    image: ttdr/pyrun:${TTDR_VERSION:-dev}
+    ports: ["127.0.0.1:9910:9910"]
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 2g
+    restart: unless-stopped
+
   ocr:
     profiles: [app]
     build: { context: workers/ocr }

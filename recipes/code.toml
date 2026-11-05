@@ -1,0 +1,6 @@
+extends = "ornith-35b-cohost.toml"
+
+# Agents compute with sandboxed Python (run_python_code) instead of in their heads: for FRAMES-style
+# arithmetic over gathered facts (docs/LOG.md). Start it with `docker compose --profile code up -d pyrun`.
+[services]
+code = "http://localhost:9910/mcp"

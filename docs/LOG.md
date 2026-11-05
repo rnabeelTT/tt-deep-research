@@ -765,3 +765,11 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - **Files tab "setup backend to enable files":** the deployed app server predated uploads; it lists `knowledge_layer` after the restart.
 - Live check on a test server: one FinanceBench question streamed 5 model replies, all with reasoning, and a task list that ended completed.
 - `ttdr up` now serves cohost bundles with `tt-model serve --detach` (models a bundle cohosts aren't served separately) and waits for them; `tt serve` refuses cohost bundles.
+
+## Sandboxed Python for agents: set up, not yet A/B'd (2026-11-05)
+
+**Why:** FRAMES final 66%, weakest on numerical reasoning (21/42); grader notes on the misses show off-by-one counts and wrong totals.
+
+**What:** Pydantic's `mcp-run-python` 0.0.22 (Pyodide in Deno) as compose service `pyrun` on 127.0.0.1:9910 (profile `code`), read-only container. Its own `--disable-networking` also denies the server its listening port, so the image runs the package's Deno program with network limited to that port: sandboxed code reaches nothing else and sees only Pyodide's virtual filesystem (checked: date and mean arithmetic correct, an HTTP request fails, `/` lists only Pyodide's dirs). `services.code` in a recipe (`recipes/code.toml`) gives researchers and the planner `run_python_code` and one prompt line asking them to compute rather than do arithmetic in their heads; unset, nothing changes.
+
+**First look (2 FRAMES misses rerun, not a benchmark):** both used the tool and computed correctly, and both still missed for other reasons: Steve Jobs' share of 1984 US life expectancy (56/75 = 74.67%; the gold 75.68% uses 74 years), and the Galileo library question (Laurentian 1571 vs Picton 1879 = 308; gold 222, a different fact). So some numerical misses are facts, not arithmetic; the gain needs the FRAMES dev A/B (40 questions, with and without `recipes/code.toml`), queued for when benchmarks resume.

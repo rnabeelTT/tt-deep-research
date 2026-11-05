@@ -88,6 +88,9 @@ class Services(BaseModel):
     mcp: str
     searxng: str | None = None
     """Without it (and without a keyed web_search), search covers the private corpus only."""
+    code: str | None = None
+    """MCP URL of a sandboxed Python (mcp-run-python, compose service `pyrun`): agents get
+    run_python_code for arithmetic. Unset, they have no code tool."""
     web_search: Literal["tavily", "brave", "serper"] | None = None
     """A keyed web search API, used when its key (TAVILY_API_KEY, BRAVE_API_KEY or
     SERPER_API_KEY) is set in the environment; otherwise SearXNG."""
