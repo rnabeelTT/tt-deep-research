@@ -1,4 +1,4 @@
-extends = "rerank.toml"
+extends = "ornith-35b-cohost.toml"
 
 # BrowseComp-Plus: its fixed ~100k-page corpus only, in its own collection so it never mixes with
 # the private documents. No web search and no web fetches (features.offline).
