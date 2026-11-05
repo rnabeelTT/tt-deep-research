@@ -1,0 +1,8 @@
+extends = "rerank.toml"
+
+# Ornith 1.5 35B-A3B cohosted with the embedder and reranker on all four chips, one bundle, instead
+# of three bundles on chips 0-1, 2 and 3 (docs/LOG.md).
+[models.ornith]
+bundle = "raahemnabeel/cohost-ornith-35b-qwen3vl"
+profile = "ornith35b"
+serve_args = []

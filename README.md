@@ -14,6 +14,8 @@ More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHI
 
 ## The stack
 
+Recommended serving (docs/LOG.md, 2026-11-05) is the same three models as one cohost bundle on all four chips; the default recipe still serves them separately:
+
 | Chip | Model | Role |
 |---|---|---|
 | 0–1 | Ornith 1.5 35B-A3B (Qwen3.5-based, vision) | LLM: planner and researchers with thinking on, writer with thinking off |
@@ -39,7 +41,8 @@ On one QB2, graded by blinded Claude subagents; dev sets are 40 questions (8 tas
 | Deep Agents vs AI-Q deep, same engine, DRB dev | Quality tie (0.429 vs 0.428), Deep Agents 4.5× faster (24 vs 107 min median) |
 | BrowseComp-Plus retrieval (100k pages, one search per question, gold doc in top 10) | 42.7% dense + rerank → **52.7%** with 30 BM25 hits added |
 | BrowseComp-Plus accuracy | not yet graded (Published: GPT-5 71.7, o3 65.9, QUEST 61.0, Tongyi 44.5). Retrieval follow-ups in [docs/PLAN.md](docs/PLAN.md#future-improvements-retrieval-2026-11-04) |
-| Models rejected by A/B | gpt-oss-20b (tie, fewer features), QUEST-35B-RL (lost every DRB task, doesn't stop in this harness) |
+| LLM size, 12 FinanceBench + 12 BrowseComp-Plus | Ornith 122B and Qwen3.8-27B tie the 35B; the 35B cohosted with the embedder and reranker is the fastest (197 tok/s single, 1,039 at 32) and is the recommended serving |
+| Models rejected by A/B | gpt-oss-20b (tie, fewer features), QUEST-35B-RL (lost every DRB task, doesn't stop in this harness), Ornith 122B (tie, 2× slower), Qwen3.8-27B (no multi-user vision, lower on 10-Ks) |
 
 Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md](docs/COMPETITORS.md) lists them with sources, and the final DRB comparison re-judges competitors' published reports with the same Claude graders.
 
@@ -57,7 +60,7 @@ Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md]
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-Recipes worth knowing: `recipe.toml` (default), `recipes/rerank.toml` (with the reranker; what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs).
+Recipes worth knowing: `recipe.toml` (default), `recipes/rerank.toml` (with the reranker; what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (recommended: the 35B, embedder and reranker as one bundle on all four chips; serve it with `tt-model serve raahemnabeel/cohost-ornith-35b-qwen3vl --local-only --port 8000 --detach`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
 
 ## Layout
 
