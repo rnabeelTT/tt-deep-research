@@ -78,16 +78,18 @@ def _task_file(item_id: str, prompt: str, criteria: dict, reports: dict[str, str
 
 
 def export(run_dirs: list[Path], out_dir: Path, per_chunk: int = 5, seed: int = 0) -> int:
-    """One task file per task (reports from every run plus the reference, shuffled letters)."""
+    """One task file per task of the first run: every run's report for it plus the reference, under
+    shuffled letters. A run without a report for a task (a competitor's missing one) is left out."""
     criteria, references = _criteria(), _references()
     runs = {str(r): _answers(r) for r in run_dirs}
-    ids = sorted(set.intersection(*(set(a) for a in runs.values())), key=_task_number)
+    ids = sorted(runs[str(run_dirs[0])], key=_task_number)
     rng = random.Random(seed)
     out_dir.mkdir(parents=True, exist_ok=True)
     keymap = {}
     for item_id in ids:
         n = _task_number(item_id)
-        sources = [*((r, a[item_id].text) for r, a in runs.items()), (REFERENCE, references[n])]
+        sources = [(r, a[item_id].text) for r, a in runs.items() if item_id in a]
+        sources.append((REFERENCE, references[n]))
         rng.shuffle(sources)
         letters = string.ascii_uppercase[: len(sources)]
         keymap[item_id] = {letter: src for letter, (src, _) in zip(letters, sources, strict=True)}

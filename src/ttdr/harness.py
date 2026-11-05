@@ -25,6 +25,7 @@ from langchain_openai import ChatOpenAI
 from mcp import Client
 
 from ttdr import writer
+from ttdr.corpus import library
 from ttdr.recipe import Recipe
 
 RESEARCH_TOOLS = ("search", "fetch_page", "read_page", "get_evidence")
@@ -92,6 +93,7 @@ open_pages reads the whole page around a passage and the pages after it, for tab
 that continue."""
 
 SCOPE = {"web": "web search", "corpus": "the private document collections"}
+NO_CORPORA = "- (none: no private documents are indexed)"
 SCOPE_NOTE = """
 
 Search is limited to {scope} for this request: search returns only that, whatever sources you
@@ -287,9 +289,18 @@ class DeepAgentsHarness:
     """(sub-questions, tool calls) for short-answer requests; None plans them like reports."""
     sources: str = "all"
     """Search scope: "web" or "corpus" pins search's sources argument; "all" lets agents choose."""
+    corpora: tuple[str, ...] = ()
+    """The collections search covers (the UI's selection); empty, every one with documents."""
 
-    def agent(self, tools: list[StructuredTool], subs: int | None = None, calls: int | None = None):
+    def agent(
+        self,
+        tools: list[StructuredTool],
+        subs: int | None = None,
+        calls: int | None = None,
+        catalog: str | None = None,
+    ):
         subs, calls = subs or self.max_subquestions, calls or self.max_tool_calls
+        catalog = (self.recipe.corpus_catalog() if catalog is None else catalog) or NO_CORPORA
         vision = self.recipe.llm.vision
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
         allowed = allowed if vision else tuple(t for t in allowed if t != "read_page")
@@ -303,7 +314,7 @@ class DeepAgentsHarness:
             "returns bullet notes with evidence IDs.",
             "system_prompt": RESEARCHER.format(
                 calls=calls,
-                corpora=self.recipe.corpus_catalog(),
+                corpora=catalog,
                 read_page=READ_PAGE_HINT if vision else "",
                 doc_tools=DOC_TOOLS_HINT if self.doc_tools else "",
             )
@@ -328,8 +339,7 @@ class DeepAgentsHarness:
         return create_deep_agent(
             model=chat_model(self.recipe, self.thinking, tokens, self.context_tokens),
             tools=[t for t in tools if t.name == "verify"],
-            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=self.recipe.corpus_catalog())
-            + scope,
+            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=catalog) + scope,
             subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),
@@ -340,6 +350,9 @@ class DeepAgentsHarness:
                 *fallback,
             ],
         )
+
+    async def catalog(self) -> str:
+        return await library.catalog(self.recipe, self.corpora)
 
     async def run(
         self, question: str, log=lambda _: None, events: Callable[[str, dict], None] | None = None
@@ -357,8 +370,11 @@ class DeepAgentsHarness:
         budget = self.quick if self.quick and not report_kind else ()
         subs, calls = budget or (self.max_subquestions, self.max_tool_calls)
         progress.emit("plan", {"report": report_kind, "subquestions": subs, "tool_calls": calls})
-        fixed = {"search": {"sources": self.sources}} if self.sources in SCOPE else None
-        agent = self.agent(mcp_tools(client, await client.list_tools(), fixed), *budget)
+        pinned = {"sources": self.sources} if self.sources in SCOPE else {}
+        pinned |= {"corpus": ",".join(self.corpora)} if self.corpora else {}
+        fixed = {"search": pinned} if pinned else None
+        tools = mcp_tools(client, await client.list_tools(), fixed)
+        agent = self.agent(tools, *budget, catalog=await self.catalog())
         final, seen, passages, notes = None, {}, {}, []
         async for namespace, mode, update in agent.astream(
             {"messages": [{"role": "user", "content": question}]},

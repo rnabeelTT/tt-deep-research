@@ -388,3 +388,27 @@ def test_thinking_fallback_retries_a_call_that_ran_out_of_tokens():
     assert out is answers["plain"]
     answers["thinking"] = reply("length", calls=True)
     assert fallback.wrap_model_call(request, lambda r: answers[r.model]) is answers["thinking"]
+
+
+def test_agents_hear_only_of_collections_that_hold_documents(monkeypatch, tmp_path):
+    import asyncio
+
+    from ttdr import recipe
+    from ttdr.corpus import library, store
+    from ttdr.harness import DeepAgentsHarness
+
+    class Store:
+        def __init__(self, url, collection):
+            pass
+
+        async def corpora(self):
+            return {"financebench", "contracts"}
+
+    monkeypatch.setattr(store, "Store", Store)
+    monkeypatch.setattr(library, "described", lambda: {"library": "uploads", "contracts": "Leases"})
+    r = recipe.load(None)
+    everything = asyncio.run(DeepAgentsHarness(r).catalog())
+    assert "- contracts: Leases" in everything and "- financebench:" in everything
+    assert "unidoc" not in everything and "library" not in everything
+    picked = asyncio.run(DeepAgentsHarness(r, corpora=("contracts", "unidoc")).catalog())
+    assert picked == "- contracts: Leases"

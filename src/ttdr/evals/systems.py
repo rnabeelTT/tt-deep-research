@@ -207,6 +207,19 @@ class AIQ:
         )
 
 
+SUITE_SOURCES = {
+    "deepresearch_bench": ("web", ()),
+    "simpleqa": ("web", ()),
+    "frames": ("web", ()),
+    "hle": ("web", ()),
+    "financebench": ("corpus", ("financebench",)),
+    "unidoc": ("corpus", ("unidoc",)),
+    "browsecomp-plus": ("corpus", ("browsecomp-plus",)),
+}
+"""Each suite searches only what it tests: web suites never see the benchmark document sets,
+and each document suite sees only its own."""
+
+
 @dataclass
 class DeepAgents:
     """LangChain Deep Agents (ttdr.harness) over the engine's MCP tools."""
@@ -221,6 +234,8 @@ class DeepAgents:
     quick_subquestions: int = 0
     """With quick_tool_calls, the plan for short-answer requests; 0 plans them like reports."""
     quick_tool_calls: int = 0
+    scoped: bool = True
+    """Search pinned to the suite's sources (SUITE_SOURCES); off, agents choose (before 11-05)."""
 
     async def answer(self, item: Item, clients: Clients) -> Answer:
         from ttdr.harness import DeepAgentsHarness
@@ -238,6 +253,11 @@ class DeepAgents:
             quick=(self.quick_subquestions, self.quick_tool_calls)
             if self.quick_subquestions
             else None,
+            **(
+                dict(zip(("sources", "corpora"), SUITE_SOURCES[item.suite], strict=True))
+                if self.scoped and item.suite in SUITE_SOURCES
+                else {}
+            ),
         )
         r = await h.run(item.question)
         return Answer(

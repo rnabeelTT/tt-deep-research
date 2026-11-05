@@ -90,7 +90,9 @@ def retry(run_dir: Path, concurrency: int = 8) -> int:
     failed = {a.id for a in answers if a.error} | ({i.id for i in items} - {a.id for a in answers})
     if not failed:
         return 0
-    system = SYSTEMS[config["system"]](**config["params"])
+    cls = SYSTEMS[config["system"]]
+    legacy = {"scoped": False} if "scoped" in {f.name for f in dataclasses.fields(cls)} else {}
+    system = cls(**{**legacy, **config["params"]})  # runs from before a param keep its old value
     redo = run_dir / "answers.retry.jsonl"
     redo.unlink(missing_ok=True)
     asyncio.run(

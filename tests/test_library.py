@@ -5,7 +5,7 @@ import zipfile
 from starlette.testclient import TestClient
 
 from ttdr import ui_server
-from ttdr.corpus.library import Library, doc_name, docx_text
+from ttdr.corpus.library import Collection, Library, doc_name, docx_text
 
 
 class FakeCorpus:
@@ -50,7 +50,7 @@ def test_uploads_index_in_the_background_and_survive_a_restart(tmp_path):
     corpus = FakeCorpus(fail=("broken",))
 
     async def go():
-        lib = Library(corpus, tmp_path)
+        lib = Collection(corpus, "library", tmp_path)
         job = lib.add(
             [
                 ("memo.md", b"# Memo\nRevenue rose."),
@@ -76,13 +76,15 @@ def test_uploads_index_in_the_background_and_survive_a_restart(tmp_path):
     assert [n for _, n in corpus.indexed] == [f"{f.doc}.txt" for f in job.files[:2]] and {
         c for c, _ in corpus.indexed
     } == {"library"}
-    assert "Rated at 40 kW." in (tmp_path / f"{job.files[1].doc}.txt").read_text()
+    assert "Rated at 40 kW." in (tmp_path / "library" / f"{job.files[1].doc}.txt").read_text()
     broken = job.files[2]
-    assert corpus.deleted == [broken.doc] and not (tmp_path / f"{broken.doc}.pdf").exists()
+    assert (
+        corpus.deleted == [broken.doc] and not (tmp_path / "library" / f"{broken.doc}.pdf").exists()
+    )
     assert "unsupported" in job.files[3].error
-    assert lib.collection()["chunk_count"] == 14
+    assert lib.info()["chunk_count"] == 14
 
-    again = Library(FakeCorpus(), tmp_path)
+    again = Collection(FakeCorpus(), "library", tmp_path)
     assert {f.file_name: f.status for f in again.files.values()} == status
 
 
@@ -90,7 +92,7 @@ def test_deleting_a_file_removes_it_from_the_index_and_disk(tmp_path):
     corpus = FakeCorpus()
 
     async def go():
-        lib = Library(corpus, tmp_path)
+        lib = Collection(corpus, "library", tmp_path)
         job = lib.add([("a.txt", b"alpha"), ("b.txt", b"beta")])
         await job.task
         return lib, job, await lib.delete([job.files[0].file_id, "nope"])
@@ -98,50 +100,82 @@ def test_deleting_a_file_removes_it_from_the_index_and_disk(tmp_path):
     lib, job, n = asyncio.run(go())
     a, b = job.files
     assert n == 1 and corpus.deleted == [a.doc] and list(lib.files) == [b.file_id]
-    assert not (tmp_path / f"{a.doc}.txt").exists() and (tmp_path / f"{b.doc}.txt").exists()
+    assert not (tmp_path / "library" / f"{a.doc}.txt").exists()
+    assert (tmp_path / "library" / f"{b.doc}.txt").exists()
 
 
 class FakeHarness:
-    def __init__(self, sources):
-        self.sources = sources
+    def __init__(self, sources, corpora=()):
+        self.sources, self.corpora = sources, corpora
 
 
-def test_the_ui_uploads_into_one_shared_library(tmp_path):
+CHAT_1, CHAT_2 = "s_" + "1" * 32, "s_" + "2" * 32
+
+
+def upload(client, collection, name, text):
+    r = client.post(
+        f"/v1/collections/{collection}/documents",
+        files=[("files", (name, text, "text/plain"))],
+    )
+    job_id = r.json()["job_id"]
+    for _ in range(100):
+        status = client.get(f"/v1/documents/{job_id}/status").json()
+        if status["status"] == "completed":
+            return r.json()["file_ids"][0], status
+        asyncio.run(asyncio.sleep(0.01))
+    raise AssertionError(status)
+
+
+def test_chats_upload_to_the_library_and_named_collections_are_data_sources(tmp_path):
     corpus = FakeCorpus()
+    present = {"financebench"}
+
+    class Store:
+        async def corpora(self):
+            return set(present)
+
+    corpus.store = Store()
+    (tmp_path / "financebench").mkdir()
     lib = Library(corpus, tmp_path)
-    harnesses = []
-
-    def make(sources):
-        harnesses.append(FakeHarness(sources))
-        return harnesses[-1]
-
-    with TestClient(ui_server.build(make, lib)) as client:
-        ids = [s["id"] for s in client.get("/v1/data_sources").json()]
-        assert "knowledge_layer" in ids
-        assert client.post("/v1/collections", json={"name": "chat-1"}).status_code == 201
-        r = client.post(
-            "/v1/collections/chat-1/documents",
-            files=[("files", ("notes.txt", b"Pump P-101 is rated at 40 kW.", "text/plain"))],
-        )
-        job_id, [file_id] = r.json()["job_id"], r.json()["file_ids"]
-        for _ in range(50):
-            status = client.get(f"/v1/documents/{job_id}/status").json()
-            if status["status"] == "completed":
-                break
-            asyncio.run(asyncio.sleep(0.01))
+    about = {"financebench": "10-K filings"}
+    with TestClient(ui_server.build(FakeHarness, lib, about)) as client:
+        assert client.post("/v1/collections", json={"name": CHAT_1}).status_code == 201
+        file_id, status = upload(client, CHAT_1, "notes.txt", b"Pump P-101 is rated at 40 kW.")
         assert status["file_details"][0]["status"] == "success"
+        assert status["collection_name"] == "library"
 
-        files = client.get("/v1/collections/chat-2/documents").json()["files"]
+        files = client.get(f"/v1/collections/{CHAT_2}/documents").json()["files"]
         assert [f["file_name"] for f in files] == ["notes.txt"]
-        assert client.get("/v1/collections/chat-2").json()["file_count"] == 1
-        client.delete("/v1/collections/chat-1")
-        assert len(lib.files) == 1
-        r = client.request("DELETE", "/v1/collections/x/documents", json={"file_ids": [file_id]})
-        assert r.json() == {"deleted": 1} and not lib.files
+        client.delete(f"/v1/collections/{CHAT_1}")
+        assert len(lib.collections["library"].files) == 1
+
+        r = client.post("/v1/collections", json={"name": "contracts", "description": "Leases"})
+        assert r.status_code == 201 and r.json()["description"] == "Leases"
+        upload(client, "contracts", "lease.md", b"Rent is 4,000 EUR a month.")
+        assert client.post("/v1/collections", json={"name": "Bad Name!"}).status_code == 400
+        assert client.post("/v1/collections", json={"name": "financebench"}).status_code == 400
+        assert client.get("/v1/collections/nope/documents").status_code == 404
+
+        sources = {s["id"]: s for s in client.get("/v1/data_sources").json()}
+        assert list(sources) == [
+            "web",
+            "docs:contracts",
+            "docs:financebench",
+            "docs:library",
+            "knowledge_layer",
+        ]
+        assert sources["docs:contracts"]["description"] == "Leases"
+        assert sources["docs:financebench"]["description"] == "10-K filings"
+        assert sources["docs:library"]["name"] == "My uploads"
+
+        r = client.request(
+            "DELETE", f"/v1/collections/{CHAT_2}/documents", json={"file_ids": [file_id]}
+        )
+        assert r.json() == {"deleted": 1} and not lib.collections["library"].files
         assert client.get("/v1/documents/nope/status").status_code == 404
 
-    assert ui_server.scope(["web", "knowledge_layer"]) == "all"
-    assert ui_server.scope(["knowledge_layer"]) == "corpus"
+    reopened = Library(FakeCorpus(), tmp_path)
+    assert set(reopened.collections) == {"contracts", "library"}
 
 
 def test_no_library_no_uploads():
@@ -202,7 +236,7 @@ def test_scanned_pages_are_read_by_ocr_when_the_embedder_takes_no_images(tmp_pat
             return "Invoice 8812, total 18,400 EUR" if page == 0 else None
 
     async def go(corpus, ocr):
-        lib = Library(corpus, tmp_path, ocr)
+        lib = Collection(corpus, "library", tmp_path, ocr)
         job = lib.add([("scan.pdf", b"%PDF-")])
         await job.task
         return job.files[0]
@@ -212,7 +246,7 @@ def test_scanned_pages_are_read_by_ocr_when_the_embedder_takes_no_images(tmp_pat
     assert ocr.queued == [("library", f.doc, 0), ("library", f.doc, 3)]
     assert text_only.ocr_pages == [(f.doc, 0, "Invoice 8812, total 18,400 EUR")]
     assert f.status == "success" and f.chunks == 9 and f.unread_pages == [3]
-    assert f.info()["metadata"]["unread_pages"] == [3]
+    assert f.info("library")["metadata"]["unread_pages"] == [3]
 
     multimodal, ocr = FakeCorpus(scanned=[0], images=True), Ocr()
     f = asyncio.run(go(multimodal, ocr))

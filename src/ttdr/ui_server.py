@@ -4,8 +4,8 @@ Every chat message becomes a deep-research job. The harness runs in a background
 run events (ttdr.harness.Progress) become the job's SSE events, kept in memory so a reconnecting
 stream replays from its last event ID. Jobs live as long as the process.
 
-With a document library, the UI's file uploads land in it: every chat's collection is the one
-shared library, and corpus search covers it.
+With a document library, each collection with documents is a data source the user can switch
+on or off, and the UI's file uploads land in the shared library (every chat's collection).
 """
 
 import asyncio
@@ -23,7 +23,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from ttdr.corpus.library import Library
+from ttdr.corpus.library import LIBRARY, Library, described
 from ttdr.harness import EVIDENCE_ID
 
 HEARTBEAT_S = 15.0
@@ -33,17 +33,22 @@ DATA_SOURCES = [
 ]
 KNOWLEDGE_LAYER = {"id": "knowledge_layer", "name": "Uploaded files", "description": ""}
 """Its presence turns on the UI's file uploads; chats with files send it as a data source."""
-SCOPES = {frozenset({"web"}): "web", frozenset({"documents"}): "corpus"}
+COLLECTION = "docs:"
+"""Data-source ID prefix of one collection."""
 PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\nURL: (\S+)\n((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
 )
 
 
-def scope(selected: list[str]) -> str:
-    """The harness's search scope for the UI's data-source selection (none or both: all);
-    uploaded files are documents."""
-    chosen = {"documents" if s == "knowledge_layer" else s for s in selected}
-    return SCOPES.get(frozenset(chosen) & {"web", "documents"}, "all")
+def scope(selected: list[str]) -> tuple[str, tuple[str, ...]]:
+    """The harness's search scope and collections for the UI's data-source selection: web,
+    "documents" (every collection) or single collections, and the library when the chat has
+    uploads (knowledge_layer). Nothing selected searches everything."""
+    corpora = [s.removeprefix(COLLECTION) for s in selected if s.startswith(COLLECTION)]
+    corpora += [LIBRARY] if "knowledge_layer" in selected and LIBRARY not in corpora else []
+    web, docs = "web" in selected, bool(corpora) or "documents" in selected
+    sources = "all" if web == docs else "web" if web else "corpus"
+    return sources, tuple(corpora) if "documents" not in selected else ()
 
 
 def _now() -> str:
@@ -55,6 +60,7 @@ class Job:
     id: str
     question: str
     sources: str
+    corpora: tuple[str, ...] = ()
     status: str = "running"
     error: str | None = None
     report: str | None = None
@@ -183,16 +189,22 @@ async def _stream(job: Job, after: int):
             yield _frame("job.heartbeat", {"data": {"uptime_seconds": uptime}})
 
 
-def build(make_harness: Callable[[str], object], library: Library | None = None) -> Starlette:
-    """MAKE_HARNESS(sources) gives a harness whose search is limited to SOURCES ("web",
-    "corpus" or "all"); its run(question, events=...) is awaited per job. LIBRARY takes the
-    UI's file uploads."""
+def build(
+    make_harness: Callable[[str, tuple[str, ...]], object],
+    library: Library | None = None,
+    about: dict[str, str] | None = None,
+) -> Starlette:
+    """MAKE_HARNESS(sources, corpora) gives a harness whose search is limited to SOURCES
+    ("web", "corpus" or "all") and CORPORA (empty: all); its run(question, events=...) is
+    awaited per job. LIBRARY holds the user's collections and takes the UI's file uploads;
+    ABOUT describes other corpora (the recipe's)."""
     jobs: dict[str, Job] = {}
 
     async def research(job: Job) -> None:
         job.add("job.status", {"data": {"status": "running"}})
         try:
-            await make_harness(job.sources).run(job.question, events=Translate(job))
+            harness = make_harness(job.sources, job.corpora)
+            await harness.run(job.question, events=Translate(job))
         except asyncio.CancelledError:
             job.finish("interrupted", "cancelled by user")
             raise
@@ -202,7 +214,7 @@ def build(make_harness: Callable[[str], object], library: Library | None = None)
             job.finish("success")
 
     def submit(question: str, selected: list[str]) -> Job:
-        job = Job(uuid.uuid4().hex, question, scope(selected))
+        job = Job(uuid.uuid4().hex, question, *scope(selected))
         jobs[job.id] = job
         job.task = asyncio.create_task(research(job))
         return job
@@ -304,37 +316,66 @@ def build(make_harness: Callable[[str], object], library: Library | None = None)
         return JSONResponse({"job_id": job.id, "status": "interrupted", "cancelled": True})
 
     async def data_sources(_: Request):
-        sources = [*DATA_SOURCES, *([KNOWLEDGE_LAYER] if library else [])]
+        sources = DATA_SOURCES if not library else [DATA_SOURCES[0], *await _collections()]
         return JSONResponse(
             [{**s, "default_enabled": True, "requires_auth": False} for s in sources]
         )
 
+    async def _collections() -> list[dict]:
+        """One data source per collection with documents, then the switch for uploads."""
+        present = await library.corpus.store.corpora()
+        names = present | {n for n, c in library.collections.items() if c.files}
+        descriptions = {**described(library.root), **(about or {})}
+        return [
+            *(
+                {
+                    "id": COLLECTION + n,
+                    "name": "My uploads" if n == LIBRARY else n,
+                    "description": descriptions.get(n, ""),
+                }
+                for n in sorted(names)
+            ),
+            KNOWLEDGE_LAYER,
+        ]
+
+    def missing_collection(name: str) -> JSONResponse:
+        return JSONResponse({"detail": f"No collection {name!r}"}, status_code=404)
+
     async def collections(request: Request):
         if request.method == "POST":
-            return JSONResponse(library.collection(), status_code=201)
-        return JSONResponse({"collections": [library.collection()]})
+            body = await request.json()
+            try:
+                c = library.create(body.get("name", ""), body.get("description"))
+            except ValueError as e:
+                return JSONResponse({"detail": str(e)}, status_code=400)
+            return JSONResponse(c.info(), status_code=201)
+        return JSONResponse({"collections": [c.info() for c in library.collections.values()]})
 
     async def collection(request: Request):
-        if request.method == "DELETE":  # the UI drops a chat's collection; the library stays
+        if not (c := library.get(request.path_params["name"])):
+            return missing_collection(request.path_params["name"])
+        if request.method == "DELETE":  # the UI drops a chat's collection; documents stay
             return JSONResponse({"deleted": False})
-        return JSONResponse(library.collection())
+        return JSONResponse(c.info())
 
     async def documents(request: Request):
+        if not (c := library.get(request.path_params["name"])):
+            return missing_collection(request.path_params["name"])
         if request.method == "GET":
-            return JSONResponse({"files": [f.info() for f in library.files.values()]})
+            return JSONResponse({"files": [f.info(c.name) for f in c.files.values()]})
         if request.method == "DELETE":
             ids = (await request.json()).get("file_ids") or []
-            return JSONResponse({"deleted": await library.delete(ids)})
+            return JSONResponse({"deleted": await c.delete(ids)})
         async with request.form(max_files=10_000) as form:
             uploads = [(u.filename or "document", await u.read()) for u in form.getlist("files")]
         if not uploads:
             return JSONResponse({"detail": "no files in the upload"}, status_code=400)
-        job = library.add(uploads)
+        job = c.add(uploads)
         ids = [f.file_id for f in job.files]
         return JSONResponse({"job_id": job.id, "file_ids": ids, "message": "indexing"})
 
     async def ingest_status(request: Request):
-        if not (job := library.jobs.get(request.path_params["job_id"])):
+        if not (job := library.job(request.path_params["job_id"])):
             return JSONResponse({"detail": "Job not found"}, status_code=404)
         return JSONResponse(job.info())
 
@@ -383,5 +424,9 @@ def serve(recipe, host: str, port: int) -> None:
     ocr = OcrQueue(Redis.from_url(recipe.services.redis, decode_responses=True))
     corpus = connect(recipe, httpx.AsyncClient(timeout=300)).corpus
     library = Library(corpus, ocr=ocr if recipe.features.ocr else None)
-    app = build(lambda sources: DeepAgentsHarness(recipe, sources=sources), library)
+    app = build(
+        lambda sources, corpora: DeepAgentsHarness(recipe, sources=sources, corpora=corpora),
+        library,
+        recipe.corpora,
+    )
     uvicorn.run(app, host=host, port=port)
