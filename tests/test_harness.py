@@ -412,3 +412,35 @@ def test_agents_hear_only_of_collections_that_hold_documents(monkeypatch, tmp_pa
     assert "unidoc" not in everything and "library" not in everything
     picked = asyncio.run(DeepAgentsHarness(r, corpora=("contracts", "unidoc")).catalog())
     assert picked == "- contracts: Leases"
+
+
+def test_progress_reports_each_model_reply_and_only_the_planners_todos():
+    from langchain_core.messages import AIMessage
+
+    from ttdr.harness import Progress
+
+    events = []
+    p = Progress(lambda k, d: events.append((k, d)))
+    p.agents["tools:1"] = "tA"
+    planner = AIMessage(
+        content="",
+        additional_kwargs={"reasoning_content": "Split it in two."},
+        tool_calls=[{"name": "write_todos", "args": {"todos": [{"content": "a"}]}, "id": "w1"}],
+        usage_metadata={"input_tokens": 10, "output_tokens": 3, "total_tokens": 13},
+    )
+    researcher = AIMessage(
+        content="", tool_calls=[{"name": "write_todos", "args": {"todos": []}, "id": "w2"}]
+    )
+    p.message((), planner)
+    p.message(("tools:1",), researcher)
+    assert events[0] == (
+        "llm",
+        {
+            "agent": None,
+            "text": "",
+            "thinking": "Split it in two.",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+        },
+    )
+    assert [k for k, _ in events] == ["llm", "todos", "llm"]
+    assert events[2][1]["agent"] == "tA"

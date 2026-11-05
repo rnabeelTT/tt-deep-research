@@ -1,5 +1,25 @@
 # Evals
 
+## On a new machine
+
+```bash
+git clone https://github.com/rnabeelTT/tt-deep-research && cd tt-deep-research
+uv run hf auth login                       # gated datasets (HLE)
+scripts/setup-evals.sh                     # stack, suites, benchmark documents, search indexes
+```
+
+Embedding BrowseComp-Plus's 100k pages takes hours, and the cohosted embedder is text-only, so UniDoc's image-only pages aren't embedded as page images when indexed from scratch (search finds them only through other pages until OCR). For an exact copy of this machine's indexes, save them here and restore them there:
+
+```bash
+uv run ttdr corpus snapshot --out ~/snapshots          # on the old machine: every Qdrant collection
+scp -r ~/snapshots newbox:                             # files stay between your machines
+scripts/setup-evals.sh ~/snapshots                     # on the new one: restore instead of embedding
+```
+
+Benchmark data (suites, documents, snapshots) is internal-use only: keep it under `data/` or your own machines, never in the repo or a public place.
+
+## Commands
+
 ```bash
 uv run ttdr eval build                                   # pinned suites → data/suites/*.jsonl
 uv run ttdr eval run b0 --concurrency 32                 # answer → runs/<ts>-b0/ (no grading)

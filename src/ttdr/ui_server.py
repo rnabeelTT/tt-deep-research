@@ -33,6 +33,8 @@ DATA_SOURCES = [
 ]
 KNOWLEDGE_LAYER = {"id": "knowledge_layer", "name": "Uploaded files", "description": ""}
 """Its presence turns on the UI's file uploads; chats with files send it as a data source."""
+TASK_CHARS = 160
+"""A researcher's task in the Tasks tab: the first sentence of its brief."""
 COLLECTION = "docs:"
 """Data-source ID prefix of one collection."""
 PASSAGE = re.compile(
@@ -94,6 +96,9 @@ class Translate:
         self.job = job
         self.researchers: dict[str, str] = {}
         """Researcher ID (its task call) -> subagent name."""
+        self.planned = False
+        """The planner wrote its own todo list; until then the researchers are the tasks."""
+        self.tasks: dict[str, dict] = {}
 
     def __call__(self, kind: str, data: dict) -> None:
         getattr(self, kind.replace(".", "_"), lambda _: None)(data)
@@ -117,21 +122,46 @@ class Translate:
         self._event("workflow.end", "planner", "planner", {"output": f"{kind}: {budget}"}, meta)
 
     def todos(self, d: dict) -> None:
+        self.planned = True
         items = [
             {"id": str(i), "content": t.get("content", ""), "status": t.get("status", "pending")}
             for i, t in enumerate(d["todos"])
         ]
         self._artifact({"type": "todo", "content": items})
 
+    def _task(self, id: str, content: str | None, status: str) -> None:
+        if self.planned:
+            return
+        title = re.split(r"(?<=[.?!])\s", (content or "").strip(), maxsplit=1)[0][:TASK_CHARS]
+        task = self.tasks.setdefault(id, {"id": str(len(self.tasks)), "content": title})
+        task["status"] = status
+        self._artifact({"type": "todo", "content": [dict(t) for t in self.tasks.values()]})
+
     def researcher_start(self, d: dict) -> None:
         self.researchers[d["id"]] = d["subagent"]
         meta = {"agent_id": d["id"]}
         self._event("workflow.start", d["id"], d["subagent"], {"input": d["question"]}, meta)
+        self._task(d["id"], d["question"], "in_progress")
 
     def researcher_end(self, d: dict) -> None:
         name = self.researchers.get(d["id"], "researcher")
         meta = {"agent_id": d["id"]}
         self._event("workflow.end", d["id"], name, {"output": d["notes"]}, meta)
+        self._task(d["id"], None, "completed")
+
+    def llm(self, d: dict) -> None:
+        """One model reply as the UI's start, chunk and end, back to back, so parallel
+        researchers' replies never interleave."""
+        agent = d["agent"] or "planner"
+        name = "planner" if agent == "planner" else self.researchers.get(agent, "researcher")
+        meta = {"workflow": name, "agent_id": agent}
+        id = uuid.uuid4().hex
+        self.job.add("llm.start", {"id": id, "name": name, "timestamp": _now(), "metadata": meta})
+        if d["text"]:
+            self.job.add("llm.chunk", {"id": id, "chunk": d["text"], "timestamp": _now()})
+        end = {**meta, "thinking": d["thinking"], "usage": d["usage"]}
+        body = {"id": id, "name": name, "timestamp": _now(), "data": {"output": d["text"]}}
+        self.job.add("llm.end", {**body, "metadata": end})
 
     def _tool_meta(self, d: dict) -> dict:
         agent = d["agent"] or "planner"

@@ -66,6 +66,8 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | `ttdr jobs` | Recent research jobs, with progress |
 | `ttdr corpus upload FOLDER` [`--collection NAME --description "…"`] | Add a folder of your own documents to a collection (default: the UI's uploads), through the running app (`--url`, default :8200) |
 | `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
+| `scripts/setup-evals.sh` [`SNAPSHOT_DIR`] | Everything the evals need on a new machine (docs/EVALS.md) |
+| `ttdr corpus snapshot\|restore` | Save the search indexes to files / load them on another machine, instead of re-embedding |
 | `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank.toml --concurrency 4` |
 | `ttdr eval judge-export\|judge-import` | Blinded queues for short answers, graded by Claude subagents |
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |

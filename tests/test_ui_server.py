@@ -209,3 +209,39 @@ def test_bad_message_gets_an_error(client):
     with client.websocket_connect("/websocket") as ws:
         ws.send_json({**message(""), "content": {"messages": []}})
         assert ws.receive_json()["type"] == "error_message"
+
+
+def test_model_replies_fill_the_thinking_trace_and_researchers_fill_the_tasks():
+    job = ui_server.Job("j", "q", "all")
+    t = ui_server.Translate(job)
+    t("researcher.start", {"id": "tA", "subagent": "researcher", "question": "Find capex"})
+    reply = {"text": "", "thinking": "Search the 10-K.", "usage": {"prompt_tokens": 5}}
+    t("llm", {"agent": "tA", **reply})
+    t("researcher.end", {"id": "tA", "notes": "- Capex $1.5B"})
+    names = [e for e, _ in job.events]
+    start = names.index("llm.start")
+    assert names[start : start + 2] == ["llm.start", "llm.end"]  # no text, no chunk
+    end = job.events[start + 1][1]
+    assert end["metadata"] == {
+        "workflow": "researcher",
+        "agent_id": "tA",
+        "thinking": "Search the 10-K.",
+        "usage": {"prompt_tokens": 5},
+    }
+    todos = [d["data"]["content"] for e, d in job.events if d.get("data", {}).get("type") == "todo"]
+    assert [[(x["content"], x["status"]) for x in l] for l in todos] == [
+        [("Find capex", "in_progress")],
+        [("Find capex", "completed")],
+    ]
+    assert all(
+        "workflow" not in d.get("metadata", {}) for e, d in job.events if e == "artifact.update"
+    )
+
+    t("todos", {"todos": [{"content": "Plan", "status": "pending"}]})
+    t("researcher.start", {"id": "tB", "subagent": "researcher", "question": "More"})
+    last = [d["data"]["content"] for e, d in job.events if d.get("data", {}).get("type") == "todo"]
+    assert last[-1] == [{"id": "0", "content": "Plan", "status": "pending"}]
+
+    t("llm", {"agent": None, "text": "Done.", "thinking": "", "usage": {}})
+    assert [e for e, _ in job.events[-3:]] == ["llm.start", "llm.chunk", "llm.end"]
+    assert job.events[-2][1]["chunk"] == "Done." and job.events[-3][1]["name"] == "planner"
