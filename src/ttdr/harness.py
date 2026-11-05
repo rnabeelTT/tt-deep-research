@@ -31,6 +31,8 @@ from ttdr.recipe import Recipe
 RESEARCH_TOOLS = ("search", "fetch_page", "read_page", "get_evidence")
 DOC_TOOLS = ("find_in_document", "open_pages")
 MAIN_TOOLS = ("write_todos", "task", "verify")
+CODE_TOOLS = ("run_python_code",)
+"""From the recipe's code service (mcp-run-python): sandboxed Python for researchers and planner."""
 TASKS_PER_SUBQUESTION = 4
 """The planner's hard cap on researcher tasks, per sub-question it may plan."""
 EVIDENCE_ID = re.compile(r"\[((?:W[0-9a-f]{8}(?:\.\d+)?)|(?:[^\[\]\s]+#p\d+\.\d+))\]")
@@ -77,7 +79,7 @@ fetch_page (with focus set to the sub-question) on the most promising URLs. You 
 search sources="corpus" first for anything the private collections cover:
 {corpora}
 Use sources="web" for anything outside them, and rephrase if a search finds
-nothing useful.{read_page}{doc_tools} Every passage
+nothing useful.{read_page}{doc_tools}{code} Every passage
 has an evidence ID in square brackets. Never repeat a search. When you have enough, or after about
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
 evidence IDs it comes from, e.g.
@@ -91,6 +93,9 @@ DOC_TOOLS_HINT = """ Inside a document you
 found, find_in_document looks up exact words (a line item, a defined term, a note number) and
 open_pages reads the whole page around a passage and the pages after it, for tables and notes
 that continue."""
+
+CODE_HINT = """ For any arithmetic, date difference, count, percentage or unit
+conversion, compute it with run_python_code (print the result) instead of in your head."""
 
 SCOPE = {"web": "web search", "corpus": "the private document collections"}
 NO_CORPORA = "- (none: no private documents are indexed)"
@@ -316,7 +321,10 @@ class DeepAgentsHarness:
         subs, calls = subs or self.max_subquestions, calls or self.max_tool_calls
         catalog = (self.recipe.corpus_catalog() if catalog is None else catalog) or NO_CORPORA
         vision = self.recipe.llm.vision
-        allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
+        code = any(t.name in CODE_TOOLS for t in tools)
+        allowed = (
+            RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ()) + (CODE_TOOLS if code else ())
+        )
         allowed = allowed if vision else tuple(t for t in allowed if t != "read_page")
         research = [t for t in tools if t.name in allowed]
         fallback = [ThinkingFallback(chat_model(self.recipe, False, 8192, self.context_tokens))]
@@ -331,6 +339,7 @@ class DeepAgentsHarness:
                 corpora=catalog,
                 read_page=READ_PAGE_HINT if vision else "",
                 doc_tools=DOC_TOOLS_HINT if self.doc_tools else "",
+                code=CODE_HINT if code else "",
             )
             + scope,
             "tools": research,
@@ -352,15 +361,17 @@ class DeepAgentsHarness:
         tokens = 32768 if self.thinking else 8192
         return create_deep_agent(
             model=chat_model(self.recipe, self.thinking, tokens, self.context_tokens),
-            tools=[t for t in tools if t.name == "verify"],
-            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=catalog) + scope,
+            tools=[t for t in tools if t.name in ("verify", *CODE_TOOLS)],
+            system_prompt=INSTRUCTIONS.format(subs=subs, corpora=catalog)
+            + (CODE_HINT if code else "")
+            + scope,
             subagents=[researcher, general],
             middleware=[
                 ModelCallLimitMiddleware(run_limit=self.max_model_calls),
                 # The prompt asks for at most `subs` sub-questions; on hard puzzles the planner
                 # still launched over 100 researchers (BrowseComp-Plus). Reports use up to 12.
                 ToolCallLimitMiddleware(tool_name="task", run_limit=TASKS_PER_SUBQUESTION * subs),
-                OnlyTools(MAIN_TOOLS),
+                OnlyTools(MAIN_TOOLS + (CODE_TOOLS if code else ())),
                 *fallback,
             ],
         )
@@ -388,6 +399,11 @@ class DeepAgentsHarness:
         pinned |= {"corpus": ",".join(self.corpora)} if self.corpora else {}
         fixed = {"search": pinned} if pinned else None
         tools = mcp_tools(client, await client.list_tools(), fixed)
+        if self.recipe.services.code:
+            sandbox = Engine(self.recipe.services.code)
+            tools += [
+                t for t in mcp_tools(sandbox, await sandbox.list_tools()) if t.name in CODE_TOOLS
+            ]
         agent = self.agent(tools, *budget, catalog=await self.catalog())
         final, seen, passages, notes = None, {}, {}, []
         async for namespace, mode, update in agent.astream(
