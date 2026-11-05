@@ -1,0 +1,474 @@
+diff --git a/frontends/ui/src/features/layout/components/CollectionsSection.spec.tsx b/frontends/ui/src/features/layout/components/CollectionsSection.spec.tsx
+new file mode 100644
+index 0000000..0209814
+--- /dev/null
++++ b/frontends/ui/src/features/layout/components/CollectionsSection.spec.tsx
+@@ -0,0 +1,113 @@
++import { render, screen, waitFor } from '@/test-utils'
++import userEvent from '@testing-library/user-event'
++import { vi, describe, test, expect, beforeEach } from 'vitest'
++import { CollectionsSection } from './CollectionsSection'
++
++const client = {
++  listCollections: vi.fn(),
++  listFiles: vi.fn(),
++  createCollection: vi.fn(),
++  uploadFiles: vi.fn(),
++  getJobStatus: vi.fn(),
++  deleteFiles: vi.fn(),
++}
++
++vi.mock('@/adapters/api', () => ({ createDocumentsClient: () => client }))
++vi.mock('@/adapters/auth', () => ({ useAuth: () => ({ idToken: undefined }) }))
++vi.mock('@/shared/context', () => ({ useAppConfig: () => ({ fileUpload: { acceptedTypes: '.pdf,.md' } }) }))
++vi.mock('@/features/documents', () => ({ mapToDisplayStatus: (status: string) => status }))
++vi.mock('./FileSourceCard', () => ({
++  FileSourceCard: ({ title, onDelete, id }: { title: string; id: string; onDelete: (id: string) => void }) => (
++    <button onClick={() => onDelete(id)}>{title}</button>
++  ),
++}))
++
++const layout = {
++  enabledDataSourceIds: ['web'],
++  setEnabledDataSources: vi.fn((ids: string[]) => (layout.enabledDataSourceIds = ids)),
++  refreshDataSourceStatus: vi.fn(async () => {}),
++}
++vi.mock('../store', () => {
++  const useLayoutStore = (selector: (s: typeof layout) => unknown) => selector(layout)
++  useLayoutStore.getState = () => layout
++  return { useLayoutStore }
++})
++
++const collection = (name: string, files = 0, description: string | null = null) => ({
++  name,
++  description,
++  file_count: files,
++  chunk_count: 0,
++  backend: 'qdrant',
++  metadata: {},
++})
++
++const file = (name: string, status = 'success') => ({
++  file_id: `id-${name}`,
++  file_name: name,
++  collection_name: 'contracts',
++  status,
++  file_size: 10,
++  chunk_count: 1,
++  metadata: {},
++})
++
++describe('CollectionsSection', () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    layout.enabledDataSourceIds = ['web']
++    client.listCollections.mockResolvedValue([collection('library', 3), collection('contracts', 1, 'Signed leases')])
++    client.listFiles.mockResolvedValue([file('lease.pdf')])
++  })
++
++  test('lists named collections, not the chat uploads', async () => {
++    render(<CollectionsSection />)
++    expect(await screen.findByText('contracts')).toBeInTheDocument()
++    expect(screen.getByText('Signed leases')).toBeInTheDocument()
++    expect(screen.getByText('Collections (1)')).toBeInTheDocument()
++    expect(screen.queryByText('library')).not.toBeInTheDocument()
++  })
++
++  test('creates a collection with its description and opens it', async () => {
++    const user = userEvent.setup()
++    client.createCollection.mockResolvedValue(collection('hr'))
++    render(<CollectionsSection />)
++    await user.click(await screen.findByText('+ New collection'))
++    await user.type(screen.getByLabelText('Collection name'), 'HR')
++    await user.type(screen.getByLabelText('Collection description'), 'Policies')
++    await user.click(screen.getByText('Create'))
++    expect(client.createCollection).toHaveBeenCalledWith('hr', 'Policies')
++  })
++
++  test('refuses a name the backend would reject', async () => {
++    const user = userEvent.setup()
++    render(<CollectionsSection />)
++    await user.click(await screen.findByText('+ New collection'))
++    await user.type(screen.getByLabelText('Collection name'), 'my docs!')
++    await user.click(screen.getByText('Create'))
++    expect(client.createCollection).not.toHaveBeenCalled()
++    expect(screen.getByText(/lowercase letters, digits/)).toBeInTheDocument()
++  })
++
++  test('uploads into the open collection, waits for indexing, then switches it on', async () => {
++    const user = userEvent.setup()
++    client.uploadFiles.mockResolvedValue({ job_id: 'j1', file_ids: ['f1'] })
++    client.getJobStatus.mockResolvedValue({ status: 'completed' })
++    render(<CollectionsSection />)
++    await user.click(await screen.findByText('contracts'))
++    expect(await screen.findByText('lease.pdf')).toBeInTheDocument()
++    const memo = new File(['rent'], 'memo.md', { type: 'text/markdown' })
++    await user.upload(screen.getByLabelText('Add files to collection'), memo)
++    await waitFor(() => expect(layout.setEnabledDataSources).toHaveBeenCalledWith(['web', 'docs:contracts']))
++    expect(client.uploadFiles).toHaveBeenCalledWith('contracts', [memo])
++    expect(layout.refreshDataSourceStatus).toHaveBeenCalled()
++  })
++
++  test('deletes a file from its collection', async () => {
++    const user = userEvent.setup()
++    render(<CollectionsSection />)
++    await user.click(await screen.findByText('contracts'))
++    await user.click(await screen.findByText('lease.pdf'))
++    expect(client.deleteFiles).toHaveBeenCalledWith('contracts', ['id-lease.pdf'])
++  })
++})
+diff --git a/frontends/ui/src/features/layout/components/CollectionsSection.tsx b/frontends/ui/src/features/layout/components/CollectionsSection.tsx
+new file mode 100644
+index 0000000..b2b6bfc
+--- /dev/null
++++ b/frontends/ui/src/features/layout/components/CollectionsSection.tsx
+@@ -0,0 +1,252 @@
++/**
++ * CollectionsSection Component
++ *
++ * Named document collections beside the chat's uploads: create one (name and a description the
++ * agents read), add files to it, watch them index, delete them. Each collection with documents is
++ * a data source the user switches on or off; a collection's first upload switches it on.
++ */
++
++'use client'
++
++import { type FC, useCallback, useEffect, useRef, useState } from 'react'
++import { Flex, Text, Button, Banner } from '@/adapters/ui'
++import { createDocumentsClient } from '@/adapters/api'
++import type { CollectionInfo, FileInfo } from '@/adapters/api/documents-schemas'
++import { useAuth } from '@/adapters/auth'
++import { useAppConfig } from '@/shared/context'
++import { mapToDisplayStatus } from '@/features/documents'
++import { useLayoutStore } from '../store'
++import { FileSourceCard } from './FileSourceCard'
++
++/** The chats' shared uploads, listed above this section. */
++const UPLOADS = 'library'
++const NAME = /^[a-z0-9][a-z0-9_-]{0,47}$/
++const POLL_MS = 3000
++
++const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
++
++const inputClass =
++  'w-full rounded border border-base bg-surface-raised px-3 py-2 text-sm text-primary outline-none focus:border-brand'
++
++export const CollectionsSection: FC = () => {
++  const { idToken } = useAuth()
++  const { fileUpload } = useAppConfig()
++  const client = useRef(createDocumentsClient({ authToken: idToken }))
++  const refreshDataSourceStatus = useLayoutStore((s) => s.refreshDataSourceStatus)
++
++  const [collections, setCollections] = useState<CollectionInfo[]>([])
++  const [files, setFiles] = useState<Record<string, FileInfo[]>>({})
++  const [open, setOpen] = useState<string | null>(null)
++  const [creating, setCreating] = useState(false)
++  const [name, setName] = useState('')
++  const [description, setDescription] = useState('')
++  const [indexing, setIndexing] = useState<string | null>(null)
++  const [error, setError] = useState<string | null>(null)
++  const fileInput = useRef<HTMLInputElement>(null)
++
++  useEffect(() => {
++    client.current = createDocumentsClient({ authToken: idToken })
++  }, [idToken])
++
++  const loadCollections = useCallback(async () => {
++    const all = await client.current.listCollections()
++    setCollections(all.filter((c) => c.name !== UPLOADS))
++  }, [])
++
++  const loadFiles = useCallback(async (collection: string) => {
++    const list = await client.current.listFiles(collection)
++    setFiles((current) => ({ ...current, [collection]: list }))
++  }, [])
++
++  useEffect(() => {
++    loadCollections().catch((e) => setError(message(e)))
++  }, [loadCollections])
++
++  const toggle = useCallback(
++    (collection: string) => {
++      const next = open === collection ? null : collection
++      setOpen(next)
++      if (next) loadFiles(next).catch((e) => setError(message(e)))
++    },
++    [open, loadFiles]
++  )
++
++  /** List the collection as a data source and switch it on, keeping the user's other choices. */
++  const enable = useCallback(
++    async (collection: string) => {
++      await refreshDataSourceStatus(idToken)
++      const { enabledDataSourceIds, setEnabledDataSources } = useLayoutStore.getState()
++      const id = `docs:${collection}`
++      if (!enabledDataSourceIds.includes(id)) setEnabledDataSources([...enabledDataSourceIds, id])
++    },
++    [idToken, refreshDataSourceStatus]
++  )
++
++  const create = useCallback(async () => {
++    if (!NAME.test(name)) {
++      setError('A collection name is lowercase letters, digits, - and _ (up to 48).')
++      return
++    }
++    try {
++      await client.current.createCollection(name, description.trim() || undefined)
++      await loadCollections()
++      setFiles((current) => ({ ...current, [name]: [] }))
++      setOpen(name)
++      setCreating(false)
++      setName('')
++      setDescription('')
++      setError(null)
++    } catch (e) {
++      setError(message(e))
++    }
++  }, [name, description, loadCollections])
++
++  const upload = useCallback(
++    async (collection: string, picked: File[]) => {
++      setIndexing(collection)
++      setError(null)
++      try {
++        const { job_id } = await client.current.uploadFiles(collection, picked)
++        await loadFiles(collection)
++        for (;;) {
++          const job = await client.current.getJobStatus(job_id)
++          if (!job || job.status === 'completed' || job.status === 'failed') break
++          await new Promise((resolve) => setTimeout(resolve, POLL_MS))
++          await loadFiles(collection)
++        }
++        await loadFiles(collection)
++        await loadCollections()
++        await enable(collection)
++      } catch (e) {
++        setError(message(e))
++      } finally {
++        setIndexing(null)
++      }
++    },
++    [loadFiles, loadCollections, enable]
++  )
++
++  const remove = useCallback(
++    async (collection: string, fileId: string) => {
++      try {
++        await client.current.deleteFiles(collection, [fileId])
++        await loadFiles(collection)
++        await loadCollections()
++      } catch (e) {
++        setError(message(e))
++      }
++    },
++    [loadFiles, loadCollections]
++  )
++
++  return (
++    <Flex direction="col" gap="2" className="mt-6 border-t border-base pt-4">
++      <input
++        ref={fileInput}
++        type="file"
++        multiple
++        accept={fileUpload.acceptedTypes}
++        className="hidden"
++        aria-label="Add files to collection"
++        onChange={(e) => {
++          const picked = Array.from(e.target.files || [])
++          if (open && picked.length > 0) void upload(open, picked)
++          e.target.value = ''
++        }}
++      />
++
++      <Flex align="center" justify="between" className="mb-1">
++        <Text kind="label/semibold/xs" className="text-subtle uppercase">
++          Collections ({collections.length})
++        </Text>
++        <Button kind="tertiary" size="small" onClick={() => setCreating((c) => !c)}>
++          + New collection
++        </Button>
++      </Flex>
++      <Text kind="body/regular/sm" className="text-subtle">
++        Named sets of documents, shared by every chat. Switch each one on or off under Connections.
++      </Text>
++
++      {error && (
++        <Banner kind="inline" status="error" onClose={() => setError(null)}>
++          {error}
++        </Banner>
++      )}
++
++      {creating && (
++        <Flex direction="col" gap="2" className="rounded border border-base p-3">
++          <input
++            className={inputClass}
++            placeholder="name, e.g. contracts"
++            aria-label="Collection name"
++            value={name}
++            onChange={(e) => setName(e.target.value.toLowerCase())}
++          />
++          <input
++            className={inputClass}
++            placeholder="What's in it (the agents read this)"
++            aria-label="Collection description"
++            value={description}
++            onChange={(e) => setDescription(e.target.value)}
++          />
++          <Flex gap="2" justify="end">
++            <Button kind="tertiary" size="small" onClick={() => setCreating(false)}>
++              Cancel
++            </Button>
++            <Button kind="primary" size="small" onClick={() => void create()} disabled={!name}>
++              Create
++            </Button>
++          </Flex>
++        </Flex>
++      )}
++
++      {collections.map((c) => (
++        <Flex key={c.name} direction="col" gap="2" className="rounded border border-base p-3">
++          <button
++            type="button"
++            className="flex w-full items-start justify-between gap-2 text-left"
++            aria-expanded={open === c.name}
++            onClick={() => toggle(c.name)}
++          >
++            <Flex direction="col" gap="1">
++              <Text kind="label/semibold/sm">{c.name}</Text>
++              {c.description && (
++                <Text kind="body/regular/xs" className="text-subtle">
++                  {c.description}
++                </Text>
++              )}
++            </Flex>
++            <Text kind="body/regular/xs" className="text-subtle whitespace-nowrap">
++              {indexing === c.name ? 'Indexing…' : `${c.file_count} file${c.file_count === 1 ? '' : 's'}`}
++            </Text>
++          </button>
++
++          {open === c.name && (
++            <Flex direction="col" gap="2">
++              {(files[c.name] ?? []).map((f) => (
++                <FileSourceCard
++                  key={f.file_id}
++                  id={f.file_id}
++                  title={f.file_name}
++                  fileSize={f.file_size}
++                  uploadedAt={f.uploaded_at}
++                  status={mapToDisplayStatus(f.status)}
++                  errorMessage={f.error_message ?? undefined}
++                  onDelete={(id) => void remove(c.name, id)}
++                />
++              ))}
++              <Button
++                kind="tertiary"
++                size="small"
++                disabled={indexing !== null}
++                onClick={() => fileInput.current?.click()}
++              >
++                + Add files
++              </Button>
++            </Flex>
++          )}
++        </Flex>
++      ))}
++    </Flex>
++  )
++}
+diff --git a/frontends/ui/src/features/layout/components/FileSourcesTab.spec.tsx b/frontends/ui/src/features/layout/components/FileSourcesTab.spec.tsx
+index bc463c4..d923b46 100644
+--- a/frontends/ui/src/features/layout/components/FileSourcesTab.spec.tsx
++++ b/frontends/ui/src/features/layout/components/FileSourcesTab.spec.tsx
+@@ -86,6 +86,10 @@ vi.mock('./FileSourceCard', () => ({
+   ),
+ }))
+ 
++vi.mock('./CollectionsSection', () => ({
++  CollectionsSection: () => null,
++}))
++
+ vi.mock('./DeleteFileConfirmationModal', () => ({
+   DeleteFileConfirmationModal: ({
+     open,
+@@ -114,9 +118,9 @@ describe('FileSourcesTab', () => {
+   test('renders empty state when no files', () => {
+     render(<FileSourcesTab />)
+ 
+-    expect(screen.getByText('No Attached Files')).toBeInTheDocument()
++    expect(screen.getByText('My uploads')).toBeInTheDocument()
+     expect(
+-      screen.getByText('All attached files will be accessible to agents in this session unless removed.')
++      screen.getByText('Files added here are shared by every chat, under My uploads in Connections.')
+     ).toBeInTheDocument()
+   })
+ 
+@@ -159,7 +163,7 @@ describe('FileSourcesTab', () => {
+ 
+     render(<FileSourcesTab />)
+ 
+-    expect(screen.getByText(/uploaded files \(1\)/i)).toBeInTheDocument()
++    expect(screen.getByText(/my uploads \(1\)/i)).toBeInTheDocument()
+   })
+ 
+   test('opens delete confirmation modal when delete is clicked', async () => {
+@@ -279,7 +283,7 @@ describe('FileSourcesTab', () => {
+ 
+     // Spinner should NOT appear because the upload is for a different session
+     expect(screen.queryByText('Checking for files...')).not.toBeInTheDocument()
+-    expect(screen.getByText('No Attached Files')).toBeInTheDocument()
++    expect(screen.getByText('My uploads')).toBeInTheDocument()
+   })
+ 
+   test('displays upload error when present', () => {
+diff --git a/frontends/ui/src/features/layout/components/FileSourcesTab.tsx b/frontends/ui/src/features/layout/components/FileSourcesTab.tsx
+index 16582e0..7d0b187 100644
+--- a/frontends/ui/src/features/layout/components/FileSourcesTab.tsx
++++ b/frontends/ui/src/features/layout/components/FileSourcesTab.tsx
+@@ -16,6 +16,7 @@ import { Flex, Text, Button, Banner } from '@/adapters/ui'
+ import { LoadingSpinner } from '@/adapters/ui/icons'
+ import { FileSourceCard } from './FileSourceCard'
+ import { DeleteFileConfirmationModal } from './DeleteFileConfirmationModal'
++import { CollectionsSection } from './CollectionsSection'
+ import { useFileUpload, useDocumentsStore, FileUploadZone, mapToDisplayStatus } from '@/features/documents'
+ import { sessionHasKnownCollection } from '@/features/documents/persistence'
+ import { useChatStore } from '@/features/chat/store'
+@@ -170,10 +171,10 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
+         {knowledgeLayerAvailable && (
+           <Flex direction="col" gap="1">
+             <Text kind="label/semibold/xs" className="text-subtle uppercase">
+-              No Attached Files
++              My uploads
+             </Text>
+             <Text kind="body/regular/sm" className="text-subtle">
+-              All attached files will be accessible to agents in this session unless removed.
++              Files added here are shared by every chat, under My uploads in Connections.
+             </Text>
+           </Flex>
+         )}
+@@ -195,6 +196,8 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
+             isUploading={isUploading}
+           />
+         )}
++
++        {knowledgeLayerAvailable && <CollectionsSection />}
+       </Flex>
+     )
+   }
+@@ -221,7 +224,7 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
+       {/* Header with count and add button */}
+       <Flex align="center" justify="between" className="mb-1">
+         <Text kind="label/semibold/xs" className="text-subtle uppercase">
+-          Uploaded Files ({sessionFiles.length})
++          My uploads ({sessionFiles.length})
+         </Text>
+         <Button
+           kind="tertiary"
+@@ -249,6 +252,8 @@ export const FileSourcesTab: FC<FileSourcesTabProps> = ({ onDeleteFile }) => {
+         />
+       ))}
+ 
++      <CollectionsSection />
++
+       {/* Delete Confirmation Modal */}
+       <DeleteFileConfirmationModal
+         open={isDeleteModalOpen}

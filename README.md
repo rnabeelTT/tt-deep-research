@@ -51,7 +51,7 @@ Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md]
 Documents live in collections; a fresh install has none, and agents are told only about collections that hold documents.
 
 - **Upload in the web UI** (http://localhost:3000): add files at the chat input or in the Files tab of the data-sources panel. It takes PDF, Word (.docx), Markdown and text files, into the shared "My uploads" collection.
-- **Named collections:** `ttdr corpus upload ~/contracts --collection contracts --description "Signed leases and supplier contracts"` makes one from a folder (or adds to it). The description tells agents what's inside.
+- **Named collections:** in the Files tab, "+ New collection" takes a name and a description (agents read it to decide when to search it); open a collection to add, watch and delete its files. From a folder: `ttdr corpus upload ~/contracts --collection contracts --description "Signed leases and supplier contracts"`.
 - **Choose what to search:** every collection with documents is a switch in the data-sources panel, beside web search. Research searches only the ones switched on.
 
 Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are read by OCR while indexing when the embedder is text-only (the cohosted bundle), or embedded as page images otherwise. Delete a file in the Files tab to drop it from the index. The UI caps uploads at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap. Benchmark document sets (`ttdr corpus fetch`) appear as collections only once indexed.
