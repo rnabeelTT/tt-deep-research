@@ -143,6 +143,8 @@ class Engine:
         """The LLM (multimodal) reads the page behind a corpus passage for one question: figures,
         charts and table cells the text layer doesn't carry. None for web evidence."""
         m = PAGE_ID.match(evidence_id)
+        if not self.recipe.llm.vision:
+            return None
         found = await self.get([evidence_id]) if m else []
         if not found or found[0].source == "web":
             return None
