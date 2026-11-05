@@ -738,3 +738,13 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - **35B cohost:** the same model as before, decoding 1.5–1.7× faster; one FinanceBench question either way and one more BrowseComp-Plus question are within noise at 12 items.
 
 **Decision: keep Ornith 1.5 35B-A3B, served cohosted** (`recipes/ornith-35b-cohost.toml`). Quality ties across all three LLMs at this size of test, so speed decides: the cohost is the fastest bundle with vision. Reject the 122B (slower, no gain) and Qwen3.8-27B (no vision, lower on documents).
+
+## Your own documents: uploads in the web UI (2026-11-05)
+
+**What:** AI-Q's web UI already ships a finished file-upload feature (drop zone, progress, ingest polling, a Files tab), off unless the backend lists a `knowledge_layer` source. `ttdr ui-server` now implements its collections/documents API over one shared library corpus (`data/corpus/library`), so no frontend code changed. `ttdr corpus upload FOLDER` sends a folder through the same API.
+
+- Each upload batch indexes in the background, one batch at a time: PDFs as before (text chunks, page flags), Word and Markdown converted to text, and text files with every chunk embedded (the BrowseComp-Plus path embeds only a document's first chunk). All chunks go into BM25 too.
+- Documents are named from the file plus a short ID (`Board_memo-7e974e`), so citations read as the file name and two users' `report.pdf` don't collide.
+- The UI's per-chat collections all map to the library; dropping a chat no longer deletes anything. Deleting a file removes its points from the chunk, page-image and BM25 collections.
+- **Scanned pages on the cohost bundle:** its embedder is text-only (the server rejects images unless started with `QWEN3VL_COHOST_VISION=1`), so image-only pages couldn't be embedded as page images and the whole upload failed. Embedders now take `vision = false` (set in the cohost recipe): their scanned pages are queued for the PaddleOCR worker while indexing, and each page's OCR text is embedded and BM25-indexed when it lands (up to 15 minutes; pages still unread are listed on the file). With a vision embedder, scans are embedded as page images and OCR stays lazy, as before.
+- **Checked end to end** on the live stack (a second ui-server on :8201): a text PDF (12 chunks), a Markdown note, a Word memo and an image-only scanned PDF (OCR'd in 48 s) all indexed, and corpus search put the right upload first for each fact.

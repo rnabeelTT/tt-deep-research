@@ -262,6 +262,7 @@ def connect(recipe: Recipe, http: httpx.AsyncClient) -> Clients:
             if recipe.embed.pages_collection
             else None,
             keywords=Keywords(recipe.services.qdrant, f"{recipe.embed.collection}_keywords"),
+            images=recipe.embed.vision,
         ),
         client(http, recipe.rerank) if recipe.rerank else None,
     )

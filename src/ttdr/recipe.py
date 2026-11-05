@@ -39,8 +39,9 @@ class Model(BaseModel):
     reasoning: Reasoning | None = None
     """How this model's thinking is switched: Qwen-style template flag or gpt-oss effort."""
     vision: bool = True
-    """Chat models: takes page images. Off, agents get no read_page (one image request kills a
-    server built without multi-user vision)."""
+    """Takes page images. Chat models off: agents get no read_page (one image request kills a
+    server built without multi-user vision). Embedders off: scanned pages aren't embedded as
+    images, so they're found only once OCR has read them."""
     max_state_tokens: int | None = None
     """Decision models only: tokens per state (Laya 512, Kev 65,536)."""
     serve_args: list[str] = []

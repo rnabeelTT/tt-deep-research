@@ -37,6 +37,7 @@ class Corpus:
         root: Path = CORPORA_DIR,
         pages: Store | None = None,
         keywords: Keywords | None = None,
+        images: bool = True,
     ):
         self.embedder = embedder
         self.store = store
@@ -45,6 +46,8 @@ class Corpus:
         """Every page as an image, when the embedder is multimodal and the recipe asks for it."""
         self.keywords = keywords
         """BM25 over every chunk, for exact names and phrases the embeddings miss."""
+        self.images = images
+        """The embedder takes images: scanned pages are embedded as page images."""
         self._pages: dict[tuple[str, str, int, float], str] = {}
         self._render = asyncio.Lock()
 
@@ -160,7 +163,9 @@ class Corpus:
             batch = chunks[i : i + BATCH]
             vecs = await self.embedder.documents([(c.doc, c.text) for c in batch])
             await self.store.upsert(corpus, batch, vecs)
-        await self.index_images(path, [p for p in pages if "image_only" in p.flags], corpus, pool)
+        if self.images:
+            scanned = [p for p in pages if "image_only" in p.flags]
+            await self.index_images(path, scanned, corpus, pool)
         if self.pages:
             await self.index_images(path, pages, corpus, pool, self.pages)
         return pages
@@ -240,6 +245,50 @@ class Corpus:
                 await self.store.upsert(corpus, leads, vecs)
 
         await asyncio.gather(*(one(paths[i : i + BATCH]) for i in range(0, len(paths), BATCH)))
+
+    async def index_document(
+        self, path: Path, corpus: str, pool: ProcessPoolExecutor | None = None
+    ) -> tuple[int, list[int]]:
+        """One document (a PDF, or text read as pages) with every chunk embedded and in BM25:
+        the number of chunks and page images indexed, and the scanned pages that have no text
+        to index (for OCR). PDF page flags join root/pages.jsonl."""
+        dim = len((await self.embedder.queries(["size"]))[0])
+        for store in (self.store, self.pages):
+            if store:
+                await store.ensure(dim)
+        if path.suffix != ".pdf":
+            chunks = await asyncio.to_thread(_text_chunks, path)
+            await self._index_chunks(chunks, corpus)
+            return len(chunks), []
+        pages = await self.index_pdf(path, corpus, pool)
+        chunks = [c for p in pages if "image_only" not in p.flags for c in chunk.chunks(p)]
+        await self._index_chunks(chunks, corpus, embed=False)
+        scanned = [p.page for p in pages if "image_only" in p.flags]
+        with (path.parent / "pages.jsonl").open("a") as f:
+            for p in pages:
+                f.write(json.dumps({**asdict(p), "text": None, "chars": len(p.text)}) + "\n")
+        return len(chunks) + (len(scanned) if self.images else 0), scanned
+
+    async def index_ocr_page(self, doc: str, page: int, text: str, corpus: str) -> int:
+        """A scanned page's OCR text, embedded and in BM25 like a text page."""
+        chunks = chunk.chunks(pdf.Page(doc, page, text, ["image_only", "ocr"]))
+        await self._index_chunks(chunks, corpus)
+        return len(chunks)
+
+    async def _index_chunks(self, chunks: list[chunk.Chunk], corpus: str, embed: bool = True):
+        for i in range(0, len(chunks) if embed else 0, BATCH):
+            batch = chunks[i : i + BATCH]
+            vecs = await self.embedder.documents([(c.doc, c.text) for c in batch])
+            await self.store.upsert(corpus, batch, vecs)
+        if self.keywords and chunks:
+            await self.keywords.ensure()
+            for i in range(0, len(chunks), KEYWORD_BATCH):
+                await self.keywords.upsert(corpus, chunks[i : i + KEYWORD_BATCH])
+
+    async def delete_document(self, doc: str) -> None:
+        for store in (self.store, self.pages, self.keywords):
+            if store:
+                await store.delete(doc)
 
     async def index_keywords(self, corpus: str, concurrency: int = 4) -> dict:
         """Every chunk of a corpus into the BM25 collection: text documents in full, PDFs as

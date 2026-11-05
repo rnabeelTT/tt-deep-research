@@ -6,3 +6,7 @@ extends = "rerank.toml"
 bundle = "raahemnabeel/cohost-ornith-35b-qwen3vl"
 profile = "ornith35b"
 serve_args = []
+
+# The bundle's embedder is text-only unless served with QWEN3VL_COHOST_VISION=1.
+[models.qwen3vl_embed]
+vision = false
