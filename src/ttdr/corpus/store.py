@@ -26,6 +26,13 @@ def _hit(payload: dict, score: float) -> Hit:
     return Hit(*(payload[k] for k in keys), score, payload["corpus"])
 
 
+def corpus_condition(corpus: str) -> models.FieldCondition:
+    """One corpus, or several as a comma-separated list."""
+    names = [c.strip() for c in corpus.split(",") if c.strip()]
+    match = models.MatchValue(value=names[0]) if len(names) == 1 else models.MatchAny(any=names)
+    return models.FieldCondition(key="corpus", match=match)
+
+
 def _doc_filter(doc: str) -> models.Filter:
     return models.Filter(
         must=[models.FieldCondition(key="doc", match=models.MatchValue(value=doc))]
@@ -89,11 +96,9 @@ class Store:
     async def search(
         self, vector: list[float], k: int = 10, corpus: str | None = None, doc: str | None = None
     ) -> list[Hit]:
-        must = [
-            models.FieldCondition(key=key, match=models.MatchValue(value=val))
-            for key, val in (("corpus", corpus), ("doc", doc))
-            if val
-        ]
+        must = [corpus_condition(corpus)] if corpus else []
+        if doc:
+            must.append(models.FieldCondition(key="doc", match=models.MatchValue(value=doc)))
         r = await self.client.query_points(
             self.collection,
             query=vector,
@@ -140,16 +145,20 @@ class Store:
 
     async def docs(self, corpus: str | None = None) -> set[str]:
         """Document names in a corpus, or in every corpus."""
-        flt = None
-        if corpus:
-            match = models.MatchValue(value=corpus)
-            flt = models.Filter(must=[models.FieldCondition(key="corpus", match=match)])
+        flt = models.Filter(must=[corpus_condition(corpus)]) if corpus else None
         r = await self.client.facet(
             self.collection,
             "doc",
             facet_filter=flt,
             limit=1_000_000,
         )
+        return {h.value for h in r.hits}
+
+    async def corpora(self) -> set[str]:
+        """Corpora with at least one indexed chunk."""
+        if not await self.client.collection_exists(self.collection):
+            return set()
+        r = await self.client.facet(self.collection, "corpus", limit=10_000)
         return {h.value for h in r.hits}
 
     async def delete(self, doc: str) -> None:
@@ -217,18 +226,14 @@ class Keywords:
         self._exists = self._exists or await self.client.collection_exists(self.collection)
         if not self._exists:
             return []
-        flt = None
-        if corpus:
-            match = models.MatchValue(value=corpus)
-            flt = models.Filter(must=[models.FieldCondition(key="corpus", match=match)])
+        flt = models.Filter(must=[corpus_condition(corpus)]) if corpus else None
         r = await self.client.query_points(
             self.collection, query=self._doc(query), using=KEYWORDS, limit=k, query_filter=flt
         )
         return [_hit(p.payload, p.score) for p in r.points]
 
     async def docs(self, corpus: str) -> set[str]:
-        match = models.MatchValue(value=corpus)
-        flt = models.Filter(must=[models.FieldCondition(key="corpus", match=match)])
+        flt = models.Filter(must=[corpus_condition(corpus)])
         r = await self.client.facet(self.collection, "doc", facet_filter=flt, limit=1_000_000)
         return {h.value for h in r.hits}
 

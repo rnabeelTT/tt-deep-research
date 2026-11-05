@@ -51,23 +51,32 @@ def index(
 @app.command()
 def upload(
     folder: Path,
+    collection: Annotated[
+        str, typer.Option(help="A named collection (made if new); default: the UI's uploads")
+    ] = "library",
+    description: Annotated[
+        str | None, typer.Option(help="What a new collection holds; agents read it")
+    ] = None,
     url: Annotated[str, typer.Option(help="The app's API (ttdr ui-server)")] = (
         "http://localhost:8200"
     ),
     batch: int = 20,
 ) -> None:
-    """Add every PDF, Word, Markdown and text file under FOLDER to the web UI's document
-    library, through the running app, as the UI's uploads do."""
+    """Add every PDF, Word, Markdown and text file under FOLDER to one of your document
+    collections, through the running app, as the UI's uploads do."""
     from ttdr.corpus.library import SUFFIXES
 
     paths = sorted(p for p in folder.rglob("*") if p.suffix.lower() in SUFFIXES)
     console.print(f"{len(paths)} files")
     failed = 0
     with httpx.Client(base_url=url, timeout=600) as http:
+        r = http.post("/v1/collections", json={"name": collection, "description": description})
+        if r.status_code >= 400:
+            raise typer.BadParameter(r.json().get("detail", r.text), param_hint="--collection")
         for i in range(0, len(paths), batch):
             part = paths[i : i + batch]
             files = [("files", (p.name, p.read_bytes())) for p in part]
-            r = http.post("/v1/collections/library/documents", files=files)
+            r = http.post(f"/v1/collections/{collection}/documents", files=files)
             r.raise_for_status()
             while (s := http.get(f"/v1/documents/{r.json()['job_id']}/status").json())[
                 "status"

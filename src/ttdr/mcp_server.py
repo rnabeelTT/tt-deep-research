@@ -1,5 +1,6 @@
 """The engine's MCP server: research tools any MCP client (AI-Q, Hermes) can call."""
 
+import asyncio
 import hmac
 import os
 import re
@@ -11,6 +12,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import Response
 
+from ttdr.corpus import library
 from ttdr.engine import Engine
 from ttdr.engine.evidence import Evidence
 from ttdr.recipe import Recipe
@@ -62,10 +64,13 @@ SCOPE_TOOLS = {
 }
 
 
-def build(recipe: Recipe, engine: Engine | None = None, scope: str = "all") -> MCPServer:
+def build(
+    recipe: Recipe, engine: Engine | None = None, scope: str = "all", catalog: str | None = None
+) -> MCPServer:
     """scope "web" or "corpus" serves only that source's tools, with search pinned to it, so a
-    client can offer the web and the private collections as separate data sources."""
-    catalog = recipe.corpus_catalog() or "- (none described)"
+    client can offer the web and the private collections as separate data sources. CATALOG
+    describes the collections (default: every one the recipe names)."""
+    catalog = (recipe.corpus_catalog() if catalog is None else catalog) or "- (none indexed)"
     server = MCPServer(
         "ttdr",
         instructions=(
@@ -243,9 +248,10 @@ def serve(recipe: Recipe, host: str, port: int, path: str) -> None:
     security = (
         None if host in LOCAL else TransportSecuritySettings(enable_dns_rebinding_protection=False)
     )
+    catalog = asyncio.run(library.catalog(recipe))
     engine = Engine.open(recipe)
     apps = [
-        build(recipe, engine, scope).streamable_http_app(
+        build(recipe, engine, scope, catalog).streamable_http_app(
             streamable_http_path=p, host=host, transport_security=security
         )
         for scope, p in (("all", path), ("web", f"{path}/web"), ("corpus", f"{path}/docs"))

@@ -48,7 +48,13 @@ Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md]
 
 ## Your own documents
 
-Upload in the web UI (http://localhost:3000): add files at the chat input or in the Files tab of the data-sources panel. It takes PDF, Word (.docx), Markdown and text files. Every chat shares one library (`data/corpus/library`), searched with "Our documents" on. Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are read by OCR while indexing when the embedder is text-only (the cohosted bundle), or embedded as page images otherwise. Delete a file in the Files tab to drop it from the index. For a large first load, `ttdr corpus upload ~/docs` sends a whole folder through the same path. The UI caps the library at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap.
+Documents live in collections; a fresh install has none, and agents are told only about collections that hold documents.
+
+- **Upload in the web UI** (http://localhost:3000): add files at the chat input or in the Files tab of the data-sources panel. It takes PDF, Word (.docx), Markdown and text files, into the shared "My uploads" collection.
+- **Named collections:** `ttdr corpus upload ~/contracts --collection contracts --description "Signed leases and supplier contracts"` makes one from a folder (or adds to it). The description tells agents what's inside.
+- **Choose what to search:** every collection with documents is a switch in the data-sources panel, beside web search. Research searches only the ones switched on.
+
+Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are read by OCR while indexing when the embedder is text-only (the cohosted bundle), or embedded as page images otherwise. Delete a file in the Files tab to drop it from the index. The UI caps uploads at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap. Benchmark document sets (`ttdr corpus fetch`) appear as collections only once indexed.
 
 ## Commands
 
@@ -58,7 +64,7 @@ Upload in the web UI (http://localhost:3000): add files at the chat input or in 
 | `ttdr research "…"` [`--shallow`] [`--harness deepagents`] | Research with live progress |
 | `ttdr verify report.md` [`--revise`] | Check each cited claim against its source |
 | `ttdr jobs` | Recent research jobs, with progress |
-| `ttdr corpus upload FOLDER` | Add a folder of your own documents to the web UI's library (`--url` the app's API, default :8200) |
+| `ttdr corpus upload FOLDER` [`--collection NAME --description "…"`] | Add a folder of your own documents to a collection (default: the UI's uploads), through the running app (`--url`, default :8200) |
 | `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
 | `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank.toml --concurrency 4` |
 | `ttdr eval judge-export\|judge-import` | Blinded queues for short answers, graded by Claude subagents |

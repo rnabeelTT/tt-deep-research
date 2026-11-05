@@ -1,5 +1,6 @@
-"""The web UI's document library: one shared corpus of the user's uploads, saved under
-data/corpus/library and indexed in the background, one upload batch at a time."""
+"""The user's document collections: each a corpus saved under data/corpus/<name> and indexed in
+the background, one upload batch at a time. The web UI's uploads go to the shared "library";
+named collections are made with `ttdr corpus upload --collection`."""
 
 from __future__ import annotations
 
@@ -22,8 +23,13 @@ from ttdr.corpus.sources import CORPORA_DIR
 if TYPE_CHECKING:
     from ttdr.corpus import Corpus
     from ttdr.engine.ocr import OcrQueue
+    from ttdr.recipe import Recipe
 
 LIBRARY = "library"
+UNNAMED = "Documents the user uploaded"
+NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,47}")
+SESSION = re.compile(r"s_[0-9a-f_]{32,}")
+"""The UI names each chat's collection after the chat; those all mean the library."""
 SUFFIXES = (".pdf", ".txt", ".md", ".docx")
 MAX_DOCX_XML = 200 * 1024 * 1024
 OCR_WAIT_S = 900
@@ -67,11 +73,11 @@ class File:
     ingested_at: str | None = None
     error: str | None = None
 
-    def info(self) -> dict:
+    def info(self, collection: str) -> dict:
         return {
             "file_id": self.file_id,
             "file_name": self.file_name,
-            "collection_name": LIBRARY,
+            "collection_name": collection,
             "status": self.status,
             "file_size": self.size,
             "chunk_count": self.chunks,
@@ -85,6 +91,7 @@ class File:
 @dataclass
 class Job:
     id: str
+    collection: str
     files: list[File]
     submitted_at: str = field(default_factory=_now)
     started_at: str | None = None
@@ -118,26 +125,33 @@ class Job:
                 }
                 for f in self.files
             ],
-            "collection_name": LIBRARY,
+            "collection_name": self.collection,
             "backend": "qdrant",
             "error_message": None,
             "metadata": {},
         }
 
 
-class Library:
+class Collection:
     def __init__(
-        self, corpus: Corpus, root: Path = CORPORA_DIR / LIBRARY, ocr: OcrQueue | None = None
+        self,
+        corpus: Corpus,
+        name: str = LIBRARY,
+        root: Path = CORPORA_DIR,
+        ocr: OcrQueue | None = None,
+        turn: asyncio.Lock | None = None,
     ):
         self.corpus = corpus
+        self.name = name
         self.ocr = ocr
         """With a text-only embedder, scanned pages are OCR'd while indexing and their text
         embedded; otherwise their page images are, and OCR runs when search first finds them."""
-        self.root = root
-        self.manifest = root / "files.jsonl"
+        self.root = root / name
+        self.manifest = self.root / "files.jsonl"
+        self.about = self.root / "collection.json"
         self.files: dict[str, File] = {}
         self.jobs: dict[str, Job] = {}
-        self._turn = asyncio.Lock()
+        self._turn = turn or asyncio.Lock()
         """One batch indexes at a time; the embedder is shared with research."""
         if self.manifest.exists():
             for line in self.manifest.read_text().splitlines():
@@ -152,11 +166,19 @@ class Library:
         tmp.write_text("".join(json.dumps(asdict(f)) + "\n" for f in self.files.values()))
         tmp.replace(self.manifest)
 
-    def collection(self) -> dict:
+    @property
+    def description(self) -> str:
+        return json.loads(self.about.read_text())["description"] if self.about.exists() else ""
+
+    def describe(self, description: str) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.about.write_text(json.dumps({"description": description}))
+
+    def info(self) -> dict:
         ok = [f for f in self.files.values() if f.status == "success"]
         return {
-            "name": LIBRARY,
-            "description": "Documents uploaded in the web UI",
+            "name": self.name,
+            "description": self.description or UNNAMED,
             "file_count": len(self.files),
             "chunk_count": sum(f.chunks for f in ok),
             "created_at": min((f.uploaded_at for f in self.files.values()), default=None),
@@ -180,7 +202,7 @@ class Library:
             files.append(f)
             self.files[fid] = f
         self._save()
-        job = Job(uuid.uuid4().hex, files)
+        job = Job(uuid.uuid4().hex, self.name, files)
         self.jobs[job.id] = job
         job.task = asyncio.create_task(self._index(job))
         return job
@@ -211,7 +233,7 @@ class Library:
                         continue
                     try:
                         f.chunks, scanned = await self.corpus.index_document(
-                            self._path(f), LIBRARY, pool
+                            self._path(f), self.name, pool
                         )
                         if scanned and not self.corpus.images:
                             await self._read_scans(f, scanned)
@@ -226,13 +248,13 @@ class Library:
         """Queue the pages for the OCR worker and index each page's text as it lands."""
         todo = set(pages)
         if self.ocr:
-            await self.ocr.backfill([(LIBRARY, f.doc, p) for p in pages])
+            await self.ocr.backfill([(self.name, f.doc, p) for p in pages])
             deadline = time.monotonic() + OCR_WAIT_S
             while todo and time.monotonic() < deadline:
                 for p in sorted(todo):
                     if (text := await self.ocr.text(f.doc, p)) is not None:
                         todo.discard(p)
-                        f.chunks += await self.corpus.index_ocr_page(f.doc, p, text, LIBRARY)
+                        f.chunks += await self.corpus.index_ocr_page(f.doc, p, text, self.name)
                 if todo:
                     await asyncio.sleep(OCR_POLL_S)
         f.unread_pages = sorted(todo)
@@ -250,3 +272,58 @@ class Library:
             del self.files[f.file_id]
         self._save()
         return len(gone)
+
+
+def described(root: Path = CORPORA_DIR) -> dict[str, str]:
+    """The user's collections and their descriptions, from disk."""
+    return {LIBRARY: UNNAMED} | {
+        p.parent.name: json.loads(p.read_text())["description"] or UNNAMED
+        for p in root.glob("*/collection.json")
+    }
+
+
+async def catalog(recipe: Recipe, selected: tuple[str, ...] = ()) -> str:
+    """The collections that hold documents (of SELECTED, if any), described for agents; a fresh
+    install with nothing indexed lists none."""
+    from ttdr.corpus.store import Store
+
+    try:
+        present = await Store(recipe.services.qdrant, recipe.embed.collection).corpora()
+    except Exception:  # noqa: BLE001 - Qdrant down: describe what the recipe names
+        return recipe.corpus_catalog()
+    names = [n for n in (selected or sorted(present)) if n in present]
+    return recipe.corpus_catalog(names, described())
+
+
+class Library:
+    """Every collection of the user's: the library, and named ones (a folder with a
+    collection.json). Benchmark corpora have neither and are never touched."""
+
+    def __init__(self, corpus: Corpus, root: Path = CORPORA_DIR, ocr: OcrQueue | None = None):
+        self.corpus, self.root, self.ocr = corpus, root, ocr
+        self._turn = asyncio.Lock()
+        names = {LIBRARY} | {p.parent.name for p in root.glob("*/collection.json")}
+        self.collections = {n: self._open(n) for n in sorted(names)}
+
+    def _open(self, name: str) -> Collection:
+        return Collection(self.corpus, name, self.root, self.ocr, self._turn)
+
+    def get(self, name: str) -> Collection | None:
+        """A chat's own collection is the library; other names must exist."""
+        return self.collections[LIBRARY] if SESSION.fullmatch(name) else self.collections.get(name)
+
+    def create(self, name: str, description: str | None) -> Collection:
+        """A chat's collection is the library; a new named collection needs a free name."""
+        if found := self.get(name):
+            return found
+        if not NAME.fullmatch(name):
+            raise ValueError("a collection name is lowercase letters, digits, - and _")
+        if (self.root / name).exists():
+            raise ValueError(f"{name!r} is already a document set that isn't a collection")
+        c = self._open(name)
+        c.describe(description or "")
+        self.collections[name] = c
+        return c
+
+    def job(self, job_id: str) -> Job | None:
+        return next((c.jobs[job_id] for c in self.collections.values() if job_id in c.jobs), None)

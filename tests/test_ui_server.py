@@ -70,8 +70,9 @@ def made():
 
 @pytest.fixture
 def client(made):
-    def make(sources):
+    def make(sources, corpora):
         made.append(FakeHarness(sources))
+        made[-1].corpora = corpora
         return made[-1]
 
     with TestClient(ui_server.build(make)) as c:
@@ -142,7 +143,7 @@ def test_reconnect_replays_from_the_last_event_id(client):
 def test_live_stream_switches_mode_and_follows_new_events():
     gate = {}
 
-    def make(sources):
+    def make(sources, corpora):
         gate["event"] = asyncio.Event()
         return FakeHarness(sources, gate["event"])
 
@@ -164,12 +165,21 @@ async def _release(event):
 
 
 @pytest.mark.parametrize(
-    "selected, scope",
-    [(["web", "documents"], "all"), (["web"], "web"), (["documents"], "corpus"), ([], "all")],
+    "selected, scope, corpora",
+    [
+        (["web", "documents"], "all", ()),
+        (["web"], "web", ()),
+        (["documents"], "corpus", ()),
+        ([], "all", ()),
+        (["docs:contracts"], "corpus", ("contracts",)),
+        (["web", "docs:contracts", "docs:library"], "all", ("contracts", "library")),
+        (["web", "knowledge_layer"], "all", ("library",)),
+        (["docs:contracts", "knowledge_layer"], "corpus", ("contracts", "library")),
+    ],
 )
-def test_data_sources_choose_the_search_scope(client, made, selected, scope):
+def test_data_sources_choose_the_search_scope(client, made, selected, scope, corpora):
     submit(client, sources=selected)
-    assert made[-1].sources == scope
+    assert (made[-1].sources, made[-1].corpora) == (scope, corpora)
 
 
 def test_data_sources_lists_web_and_documents(client):
@@ -182,7 +192,7 @@ def test_data_sources_lists_web_and_documents(client):
 
 
 def test_cancel_interrupts_the_job():
-    def make(sources):
+    def make(sources, corpora):
         return FakeHarness(sources, asyncio.Event())
 
     with TestClient(ui_server.build(make)) as client:

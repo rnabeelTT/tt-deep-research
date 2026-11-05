@@ -213,3 +213,38 @@ def test_runs_started_in_the_same_second_get_their_own_directory(tmp_path, monke
     monkeypatch.setattr(runner, "RUNS_DIR", tmp_path)
     assert runner._new_run_dir("x").name == "x"
     assert runner._new_run_dir("x").name == "x-2"
+
+
+def test_deep_agents_search_only_what_each_suite_tests(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from ttdr import harness
+    from ttdr.evals.schema import Item
+    from ttdr.evals.systems import DeepAgents
+
+    scopes = []
+
+    class Harness:
+        def __init__(self, *a, sources="all", corpora=(), **kw):
+            scopes.append((sources, corpora))
+
+        async def run(self, question):
+            stats = {"input tokens": 0, "output tokens": 0}
+            return SimpleNamespace(report="", seen=[], stats=stats)
+
+    monkeypatch.setattr(harness, "DeepAgentsHarness", Harness)
+    monkeypatch.setattr("ttdr.evals.systems.recipe.load", lambda: None)
+    for suite in ("deepresearch_bench", "frames", "financebench", "unidoc", "other"):
+        asyncio.run(DeepAgents().answer(Item(id="i", suite=suite, question="q", answer=""), None))
+    asyncio.run(
+        DeepAgents(scoped=False).answer(Item(id="i", suite="hle", question="q", answer=""), None)
+    )
+    assert scopes == [
+        ("web", ()),
+        ("web", ()),
+        ("corpus", ("financebench",)),
+        ("corpus", ("unidoc",)),
+        ("all", ()),
+        ("all", ()),
+    ]

@@ -171,9 +171,12 @@ class Recipe(BaseModel):
             raise ValueError("triage needs a decide or chat model; a claim checker only verifies")
         return self
 
-    def corpus_catalog(self) -> str:
-        """One line per collection: `- name: description`."""
-        return "\n".join(f"- {name}: {about}" for name, about in self.corpora.items())
+    def corpus_catalog(self, names=None, about: dict[str, str] | None = None) -> str:
+        """One line per collection: `- name: description`; with NAMES, just those, described
+        by the recipe or else ABOUT (the user's own collections)."""
+        about = {**(about or {}), **self.corpora}
+        names = self.corpora if names is None else names
+        return "\n".join(f"- {n}: {about.get(n, 'private documents')}" for n in names)
 
     def role(self, name: str) -> Model | None:
         return self.models[self.roles[name]] if name in self.roles else None
