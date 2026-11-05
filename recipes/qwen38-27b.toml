@@ -1,0 +1,10 @@
+extends = "rerank.toml"
+
+# Qwen3.8-27B (dense) cohosted with the embedder and reranker on all four chips, one bundle; the
+# bundle brings its own chat template and thinking budget, and takes no images (docs/LOG.md).
+[models.ornith]
+bundle = "raahemnabeel/cohost-qwen38-27b-qwen3vl"
+profile = "qwen38"
+model = "Qwen/Qwen3.8-27B"
+serve_args = []
+vision = false   # the default profile has no multi-user vision

@@ -76,13 +76,15 @@ fetch_page (with focus set to the sub-question) on the most promising URLs. You 
 search sources="corpus" first for anything the private collections cover:
 {corpora}
 Use sources="web" for anything outside them, and rephrase if a search finds
-nothing useful. When a document passage mentions a figure, chart or table, or lacks the number
-you need, call read_page with its evidence ID to see the page itself.{doc_tools} Every passage
+nothing useful.{read_page}{doc_tools} Every passage
 has an evidence ID in square brackets. Never repeat a search. When you have enough, or after about
 {calls} tool calls, stop and reply with research notes: short bullet facts, each ending with the
 evidence IDs it comes from, e.g.
 - 3M's 2018 capital expenditure was $1,577 million [3M_2018_10K#p59.2]
 Copy IDs exactly as the tools print them; never make one up. Say what you could not find."""
+
+READ_PAGE_HINT = """ When a document passage mentions a figure, chart or table, or lacks the number
+you need, call read_page with its evidence ID to see the page itself."""
 
 DOC_TOOLS_HINT = """ Inside a document you
 found, find_in_document looks up exact words (a line item, a defined term, a note number) and
@@ -288,7 +290,9 @@ class DeepAgentsHarness:
 
     def agent(self, tools: list[StructuredTool], subs: int | None = None, calls: int | None = None):
         subs, calls = subs or self.max_subquestions, calls or self.max_tool_calls
+        vision = self.recipe.llm.vision
         allowed = RESEARCH_TOOLS + (DOC_TOOLS if self.doc_tools else ())
+        allowed = allowed if vision else tuple(t for t in allowed if t != "read_page")
         research = [t for t in tools if t.name in allowed]
         fallback = [ThinkingFallback(chat_model(self.recipe, False, 8192, self.context_tokens))]
         fallback = fallback if self.thinking else []
@@ -300,6 +304,7 @@ class DeepAgentsHarness:
             "system_prompt": RESEARCHER.format(
                 calls=calls,
                 corpora=self.recipe.corpus_catalog(),
+                read_page=READ_PAGE_HINT if vision else "",
                 doc_tools=DOC_TOOLS_HINT if self.doc_tools else "",
             )
             + scope,

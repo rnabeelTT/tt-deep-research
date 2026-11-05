@@ -1,0 +1,8 @@
+extends = "rerank.toml"
+
+# Ornith 1.5 122B cohosted with the embedder and reranker on all four chips, one bundle (docs/LOG.md).
+[models.ornith]
+bundle = "raahemnabeel/cohost-ornith-122b-qwen3vl"
+profile = "ornith122b"
+model = "ornith-ai/Ornith-1.5-122B"
+serve_args = []

@@ -50,6 +50,26 @@ def test_deep_agent_builds_with_a_researcher_subagent():
     assert agent is not None
 
 
+def test_a_model_without_vision_gets_no_read_page(monkeypatch):
+    schema = {"type": "object", "properties": {}}
+    tools = harness.mcp_tools(
+        FakeClient(),
+        [
+            SimpleNamespace(name=n, description="d", input_schema=schema)
+            for n in ("search", "read_page", "get_evidence")
+        ],
+    )
+    seen = {}
+    monkeypatch.setattr(harness, "create_deep_agent", lambda **kw: seen.update(kw))
+    blind = RECIPE.model_copy(deep=True)
+    blind.llm.vision = False
+    for r, read in ((RECIPE, True), (blind, False)):
+        harness.DeepAgentsHarness(r).agent(tools)
+        researcher = seen["subagents"][0]
+        assert ("read_page" in {t.name for t in researcher["tools"]}) is read
+        assert ("read_page" in researcher["system_prompt"]) is read
+
+
 def test_evidence_ids_in_reports():
     report = "Capex was $1,577M [3M_2018_10K#p59.0]; see also [Wdeadbeef.2] and [1]."
     assert harness.EVIDENCE_ID.findall(report) == ["3M_2018_10K#p59.0", "Wdeadbeef.2"]

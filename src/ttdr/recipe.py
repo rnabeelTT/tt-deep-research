@@ -38,6 +38,9 @@ class Model(BaseModel):
     sampling: dict[str, float | int] = {}
     reasoning: Reasoning | None = None
     """How this model's thinking is switched: Qwen-style template flag or gpt-oss effort."""
+    vision: bool = True
+    """Chat models: takes page images. Off, agents get no read_page (one image request kills a
+    server built without multi-user vision)."""
     max_state_tokens: int | None = None
     """Decision models only: tokens per state (Laya 512, Kev 65,536)."""
     serve_args: list[str] = []
