@@ -6,6 +6,9 @@ The engine is an MCP server (`services.mcp` in the recipe, `http://localhost:990
 |---|---|
 | `search(query, sources, max_results, corpus)` | Web and/or private documents; every passage has an evidence ID |
 | `fetch_page(url, focus, max_passages)` | Reads a web page or PDF; with `focus`, the most relevant passages |
+| `find_in_document(doc, terms)` | Exact words inside one document |
+| `open_pages(evidence_id, before, after)` | A passage's whole page and the pages after it |
+| `read_page(evidence_id, question)` | The LLM looks at the page image (charts, scans, dense tables) |
 | `get_evidence(ids)` | Full text of passages by evidence ID |
 | `verify(claim, evidence_ids)` | Checks a claim against the passages it cites (only when the recipe has a `decide` role) |
 
@@ -42,7 +45,7 @@ Hermes is in the tt CLI (`tt launch hermes`), which points it at a served model 
 
 ```bash
 hermes mcp add ttdr --url http://localhost:9901/mcp   # press Enter at the token prompt (no auth), Y to enable the tools
-hermes mcp test ttdr                                  # lists search, fetch_page, get_evidence, verify
+hermes mcp test ttdr                                  # lists the engine's tools
 tt launch hermes                                      # Hermes on the recipe's LLM, with the engine's tools
 ```
 
