@@ -707,3 +707,34 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - An earlier "stopped" dev run (`20261104-123931`) had kept running for 3 hours, because `kill $!` hit the nohup wrapper, not the eval; it halved the next run's speed.
 
 **Decision:** keep the tested stack (`recipes/rerank.toml`, thinking on with the fallback, task cap, Brave fallback). BM25 stays on by default, but only BrowseComp-Plus has a keyword index. The open retrieval work is listed in PLAN.md under "Future improvements: retrieval".
+
+## 2026-11-05 · A/B: the LLM — Ornith 1.5 122B, Qwen3.8-27B and Ornith 35B, each cohosted with the embedder and reranker
+
+**Question:** does a bigger or newer LLM answer better, and does serving the LLM, embedder and reranker as one bundle on all four chips ("cohost") cost retrieval or speed? Each arm is one bundle (`recipes/ornith-122b.toml`, `recipes/qwen38-27b.toml`, `recipes/ornith-35b-cohost.toml`) against the 35B on its own chips with separate embed and rerank bundles. Thinking on, 4 questions at a time, blinded Claude grading.
+
+**Retrieval is unchanged by cohosting.** Re-embedding 32 stored chunks gives cosine 0.9995 against the stored vectors in every bundle. FinanceBench page recall, 150 questions, dense + rerank:
+
+| | @1 | @5 | @10 | @20 |
+|---|---|---|---|---|
+| Separate chips | 56.0% | 80.7% | 88.7% | 95.3% |
+| 122B cohost | 56.0% | 80.7% | 88.0% | 96.0% |
+| Qwen3.8 cohost | 55.3% | 81.3% | 88.0% | 95.3% |
+| 35B cohost | 55.3% | 80.7% | 88.0% | 96.0% |
+
+**Quality and speed** (seconds per question at concurrency 4; decode tok/s for one user and total at 32):
+
+| | FinanceBench 12 correct | median s | BrowseComp-Plus, 10 paired | all 12 | median / mean / max s | decode 1 / 32 |
+|---|---|---|---|---|---|---|
+| 35B, separate chips | 10 | 585* | 5 | — | 2181 / 2917 / 11214 | 119 / 689 |
+| 122B cohost | 10 | 322 | 5 | 6 | 3157 / 6074 / 17611 | 134 / 336 |
+| Qwen3.8-27B cohost (no vision) | 8 | 162 | 5 | 6 | 423 / 852 / 2663 | 62 / 282 |
+| **35B cohost** | 9 | 189 | **6** | **8** | 1023 / 1170 / 4160 | **197 / 1039** |
+
+\* older run, before the researcher task cap and with a second eval on the box.
+
+- Runs: FinanceBench 122B `20261104-210423`, Qwen3.8 `20261105-032957`, 35B cohost `20261105-045741`; BrowseComp-Plus (offline, keywords off to match `20261104-151458`) 122B `20261104-213443`, Qwen3.8 `20261105-034038`, 35B cohost `20261105-053151`.
+- **122B:** no better on either set, twice as slow on hard puzzles (100k output tokens a question vs 31k), a third the throughput.
+- **Qwen3.8-27B:** fastest end to end because its bundle caps thinking (about 4k output tokens per FinanceBench question vs 12–15k), but lost 2 FinanceBench questions, left one BrowseComp-Plus answer empty, and its bundle has no multi-user vision: one image request kills the server, so `models.X.vision = false` takes `read_page` away.
+- **35B cohost:** the same model as before, decoding 1.5–1.7× faster; one FinanceBench question either way and one more BrowseComp-Plus question are within noise at 12 items.
+
+**Decision: keep Ornith 1.5 35B-A3B, served cohosted** (`recipes/ornith-35b-cohost.toml`). Quality ties across all three LLMs at this size of test, so speed decides: the cohost is the fastest bundle with vision. Reject the 122B (slower, no gain) and Qwen3.8-27B (no vision, lower on documents).

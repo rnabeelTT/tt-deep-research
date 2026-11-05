@@ -256,3 +256,12 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - **Friction (ours):**
   - **Bigger pools need the reranker to themselves.** On one shared reranker chip, 200-candidate requests from parallel runs built a backlog: tiny requests waited over 10 minutes, and 40% of searches timed out. Restarting the container cleared it.
   - **`kill $!` on a `nohup uv run` stops only the wrapper.** The eval kept running for 3 hours alongside its replacement.
+
+## 2026-11-05 · A bigger LLM didn't help; serving all three models as one bundle did
+
+- **Model size wasn't the bottleneck.** Ornith 122B, Qwen3.8-27B and Ornith 35B tied on 12-question FinanceBench and BrowseComp-Plus sets. The 122B spent three times the tokens on hard puzzles for the same score. At this harness and retrieval, more parameters buy nothing we can measure.
+- **One bundle on four chips is faster than three bundles on their own chips.** The cohosted 35B decodes 197 tok/s for one user and 1,039 in total at 32 (vs 119 / 689), and the embedder and reranker lost nothing (cosine 0.9995, recall within 1 point).
+- **Friction (tooling):**
+  - `tt serve` refuses cohost bundles ("unsupported kind 'cohost'"); `tt-model serve BUNDLE --local-only --port 8000 --detach` works, and readiness is on the bundle's status port (:8006).
+  - Qwen3.8's default bundle profile has no multi-user vision; one page-image request killed the engine and the container. Recipes now say `vision = false` and agents lose `read_page`.
+  - A cold cohost start takes 9–12 minutes.
