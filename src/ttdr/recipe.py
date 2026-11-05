@@ -66,6 +66,9 @@ class Model(BaseModel):
     """`repo@revision` snapshots `ttdr up` downloads into the model cache before serving."""
     serve_order: int = 0
     """`ttdr up` serves models largest first (lowest order first), so tt assigns chips in order."""
+    cohosts: list[str] = []
+    """A cohost bundle (served with tt-model): the other models it serves at their own URLs,
+    which `ttdr up` then doesn't serve itself."""
 
     def request_settings(self, thinking: bool | None = None) -> dict:
         """OpenAI-client settings: temperature/top_p, plus the rest of the sampling and the

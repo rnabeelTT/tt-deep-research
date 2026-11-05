@@ -166,13 +166,27 @@ def mcp_tools(client, tools, fixed: dict[str, dict] | None = None) -> list[Struc
     return [wrap(t) for t in tools]
 
 
+class ReasoningChatOpenAI(ChatOpenAI):
+    """ChatOpenAI that keeps the server's reasoning text (vLLM's reasoning_content), which the
+    base class drops, in the message's additional_kwargs, for the UI's thinking trace."""
+
+    def _create_chat_result(self, response, generation_info=None):
+        result = super()._create_chat_result(response, generation_info)
+        raw = response if isinstance(response, dict) else response.model_dump()
+        for gen, choice in zip(result.generations, raw.get("choices") or [], strict=False):
+            message = choice.get("message") or {}
+            if reasoning := message.get("reasoning_content") or message.get("reasoning"):
+                gen.message.additional_kwargs["reasoning_content"] = reasoning
+        return result
+
+
 def chat_model(
     recipe: Recipe, thinking: bool, max_tokens: int, context_tokens: int | None = None
 ) -> ChatOpenAI:
     """context_tokens is the budget Deep Agents sizes its summarization from (85% triggers it,
     the last 10% is kept); unset, it summarizes only past 170k tokens."""
     m = recipe.llm
-    return ChatOpenAI(
+    return ReasoningChatOpenAI(
         model=m.model,
         base_url=m.url,
         api_key="none",
@@ -446,6 +460,7 @@ class Progress:
     - researcher.start {id, subagent, question} / researcher.end {id, notes}: one task call
     - tool.start {id, agent, name, input} / tool.end {id, agent, name, output}: agent is the
       researcher's task call ID (None for the planner's own tools); output is the full text
+    - llm {agent, text, thinking, usage}: one model reply, its reasoning and token counts
     - report {report}: the final report, Sources list included
     """
 
@@ -464,10 +479,24 @@ class Progress:
         agent = self.agents.get(namespace[0]) if namespace else None
         kind = getattr(msg, "type", "")
         if kind == "ai":
+            usage = getattr(msg, "usage_metadata", None) or {}
+            self.emit(
+                "llm",
+                {
+                    "agent": agent,
+                    "text": _content(msg),
+                    "thinking": msg.additional_kwargs.get("reasoning_content", ""),
+                    "usage": {
+                        "prompt_tokens": usage.get("input_tokens", 0),
+                        "completion_tokens": usage.get("output_tokens", 0),
+                    },
+                },
+            )
             for call in getattr(msg, "tool_calls", None) or []:
                 name, args = call["name"], call.get("args", {})
-                if name == "write_todos" and not namespace:
-                    self.emit("todos", {"todos": args.get("todos", [])})
+                if name == "write_todos":  # a researcher's own list isn't the plan
+                    if not namespace:
+                        self.emit("todos", {"todos": args.get("todos", [])})
                 elif name == "task" and not namespace:
                     self.emit(
                         "researcher.start",

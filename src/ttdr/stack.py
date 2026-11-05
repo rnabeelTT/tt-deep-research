@@ -39,6 +39,9 @@ def _run(cmd: list[str], log) -> None:
 
 def serve_command(m: Model) -> list[str]:
     port = str(urlparse(m.url).port)
+    if m.cohosts:  # `tt serve` refuses cohost bundles
+        profile = ["--profile", m.profile] if m.profile else []
+        return ["tt-model", "serve", m.bundle, "--port", port, "--detach", *profile]
     extra = ["--profile", m.profile] if m.profile else []
     if m.chat_template:
         extra += ["--chat-template", f"/hf/{TEMPLATE_DIR}/{Path(m.chat_template).name}"]
@@ -51,11 +54,16 @@ def app_services(recipe: Recipe) -> list[str]:
     return [s for s in APP if (s not in UI_SERVICES or f.ui) and (s != "ocr" or f.ocr)]
 
 
-def serve_models(recipe: Recipe, log) -> None:
+def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
     up = {c.name.split(" ")[0]: c.ok for c in asyncio.run(health.run(recipe))}
-    for name, m in recipe.served().items():
+    served = recipe.served()
+    cohosted = {c for m in served.values() for c in m.cohosts}
+    detached = False
+    for name, m in served.items():
         if up.get(name):
             log(f"{name}: already serving ({m.bundle or m.url})")
+            continue
+        if name in cohosted:
             continue
         if not m.bundle:
             log(f"{name}: no bundle, not served by tt; start it at {m.url}")
@@ -68,6 +76,16 @@ def serve_models(recipe: Recipe, log) -> None:
             (MODEL_CACHE / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.copy(m.chat_template, MODEL_CACHE / TEMPLATE_DIR)
         _run(serve_command(m), log)
+        detached |= bool(m.cohosts)
+    if detached:  # a detached bundle takes 10-15 minutes from cold
+        log("waiting for the cohost bundle's models")
+        deadline = time.time() + timeout_s
+        while not all(
+            c.ok for c in asyncio.run(health.run(recipe)) if c.name.split(" ")[0] in served
+        ):
+            if time.time() > deadline:
+                raise TimeoutError("models not ready; see `docker logs` of the bundle's container")
+            time.sleep(15)
 
 
 MCP_INIT = {

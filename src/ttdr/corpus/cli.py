@@ -91,6 +91,51 @@ def upload(
 
 
 @app.command()
+def snapshot(
+    out: Path = Path("data/snapshots"),
+    collection: Annotated[
+        list[str] | None, typer.Option(help="Qdrant collections (default: every one)")
+    ] = None,
+    recipe_path: RecipeOpt = None,
+) -> None:
+    """Save Qdrant collections (chunks, page images, BM25) as OUT/<collection>.snapshot files,
+    so another machine restores them with `ttdr corpus restore` instead of re-embedding."""
+    url = recipe.load(recipe_path).services.qdrant
+    out.mkdir(parents=True, exist_ok=True)
+    with httpx.Client(base_url=url, timeout=None) as http:
+        names = collection or [
+            c["name"] for c in http.get("/collections").json()["result"]["collections"]
+        ]
+        for name in names:
+            snap = http.post(f"/collections/{name}/snapshots").raise_for_status().json()
+            path = out / f"{name}.snapshot"
+            with http.stream("GET", f"/collections/{name}/snapshots/{snap['result']['name']}") as r:
+                r.raise_for_status()
+                with path.open("wb") as f:
+                    for part in r.iter_bytes(1 << 20):
+                        f.write(part)
+            http.delete(f"/collections/{name}/snapshots/{snap['result']['name']}")
+            console.print(f"{name} → {path} ({path.stat().st_size >> 20} MB)")
+
+
+@app.command()
+def restore(snapshots: list[Path], recipe_path: RecipeOpt = None) -> None:
+    """Load <collection>.snapshot files into Qdrant, replacing collections of the same name."""
+    url = recipe.load(recipe_path).services.qdrant
+    with httpx.Client(base_url=url, timeout=None) as http:
+        for path in snapshots:
+            name = path.name.removesuffix(".snapshot")
+            with path.open("rb") as f:
+                r = http.post(
+                    f"/collections/{name}/snapshots/upload",
+                    params={"priority": "snapshot"},
+                    files={"snapshot": (path.name, f)},
+                )
+            r.raise_for_status()
+            console.print(f"{name} restored")
+
+
+@app.command()
 def keywords(name: str, concurrency: int = 8, recipe_path: RecipeOpt = None) -> None:
     """Add every chunk of an indexed corpus to the BM25 collection (resumable)."""
     start = time.perf_counter()

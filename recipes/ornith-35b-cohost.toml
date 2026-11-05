@@ -6,6 +6,7 @@ extends = "rerank.toml"
 bundle = "raahemnabeel/cohost-ornith-35b-qwen3vl"
 profile = "ornith35b"
 serve_args = []
+cohosts = ["qwen3vl_embed", "reranker"]   # `ttdr up` serves the bundle with tt-model, not tt
 
 # The bundle's embedder is text-only unless served with QWEN3VL_COHOST_VISION=1.
 [models.qwen3vl_embed]

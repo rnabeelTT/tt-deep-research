@@ -757,3 +757,11 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - **DRB 20 rerun:** free search and Tavily, both web only, side by side at 07:00 UTC, judged against the same 20 tasks of the scope-"all" run.
 - **Agents hear only of collections that hold documents** (a facet on Qdrant): a fresh install lists none, where the recipe's catalog used to describe FinanceBench and UniDoc to every agent.
 - **Collections:** `ttdr corpus upload FOLDER --collection NAME --description …` makes named collections beside the UI's uploads. The UI lists each collection with documents as a data source; the chat's selection pins search to those collections (`corpus` takes a comma-separated list).
+
+## UI: thinking trace and tasks fill while a job runs (2026-11-05)
+
+- **Thinking trace was empty:** AI-Q's UI fills it only from `llm.start`/`llm.chunk`/`llm.end` events, which the Deep Agents server never sent, and LangChain's `ChatOpenAI` drops the server's `reasoning_content`. A small subclass keeps it (not sent back to the model); every planner and researcher reply now becomes one start/chunk/end with its reasoning and token counts.
+- **Tasks tab was often empty:** it shows only the planner's `write_todos`, which the planner often skips. Until it writes one, each researcher is a task (in progress, then completed). A researcher's own `write_todos` no longer leaves a tool call "running" forever.
+- **Files tab "setup backend to enable files":** the deployed app server predated uploads; it lists `knowledge_layer` after the restart.
+- Live check on a test server: one FinanceBench question streamed 5 model replies, all with reasoning, and a task list that ended completed.
+- `ttdr up` now serves cohost bundles with `tt-model serve --detach` (models a bundle cohosts aren't served separately) and waits for them; `tt serve` refuses cohost bundles.
