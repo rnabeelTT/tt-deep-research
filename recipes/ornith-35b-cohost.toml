@@ -4,11 +4,6 @@ extends = "rerank.toml"
 # of three bundles on chips 0-1, 2 and 3 (docs/LOG.md).
 [models.ornith]
 bundle = "raahemnabeel/cohost-ornith-35b-qwen3vl"
-profile = "ornith35b"
+profile = "ornith35b-vision"   # the bundle's default since 2026-11-06: the embedder and reranker take images
 serve_args = []
 cohosts = ["qwen3vl_embed", "reranker"]   # `ttdr up` serves the bundle with tt-model, not tt
-
-# The bundle's embedder is text-only: its ornith35b-vision profile (QWEN3VL_COHOST_VISION=1) fails
-# to boot in the published image (docs/LOG.md, 2026-11-06).
-[models.qwen3vl_embed]
-vision = false

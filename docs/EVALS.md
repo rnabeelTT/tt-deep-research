@@ -8,7 +8,7 @@ uv run hf auth login                       # gated datasets (HLE)
 scripts/setup-evals.sh                     # stack, suites, benchmark documents, search indexes
 ```
 
-Embedding BrowseComp-Plus's 100k pages takes hours, and the cohosted embedder is text-only, so UniDoc's image-only pages aren't embedded as page images when indexed from scratch (search finds them only through other pages until OCR). For an exact copy of this machine's indexes, save them here and restore them there:
+Embedding BrowseComp-Plus's 100k pages takes hours (the cohost bundle's `ornith35b-vision` profile, its default since 2026-11-06, embeds image-only pages as page images like the separate embedder did; its text-only `ornith35b` profile can't). For an exact copy of this machine's indexes, save them here and restore them there:
 
 ```bash
 uv run ttdr corpus snapshot --out ~/snapshots          # on the old machine: every Qdrant collection

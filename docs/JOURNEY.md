@@ -278,3 +278,9 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - **BrowseComp-Plus 72.9% (96 questions)**, on the same corpus and embedder as the leaderboard's GPT-5 row (71.7). The retrieval work (BM25 beside dense, a reranker) paid off: the gold page was found for 89% of questions.
 - **HLE 26% (50 questions):** where 2025's deep-research products were; the 2026 frontier is about double. HLE tests the model's own reasoning more than search.
 - **Friction (ours):** these two suites take 12–18 minutes per question with multi-hour tails, so 100 questions didn't fit the time we had. Both were stopped early and graded on what finished.
+
+## 2026-11-06 · Vision on the fast bundle
+
+- **The cohost bundle now takes images** (published, default profile). Scanned uploads are searchable by their page image in seconds instead of waiting minutes for OCR, at no cost to the LLM's speed.
+- **Friction (ours):** the bundle's vision profile had never booted. It combined code from two tt-metal versions, and a wrapper written for one chip ran on four. Its build only import-checked the text path, so none of this showed until hardware. Each fix took a 6–10 minute boot to test.
+- **Friction (stack):** on shared chips, any program compiled after the LLM's traces are captured stops the LLM. Every input shape the side models can see must be compiled at boot, which is why the bundle takes one image per input.

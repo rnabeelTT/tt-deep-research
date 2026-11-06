@@ -7,7 +7,7 @@ import base64
 import json
 import re
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -270,8 +270,9 @@ class Corpus:
         return len(chunks) + (len(scanned) if self.images else 0), scanned
 
     async def index_ocr_page(self, doc: str, page: int, text: str, corpus: str) -> int:
-        """A scanned page's OCR text, embedded and in BM25 like a text page."""
-        chunks = chunk.chunks(pdf.Page(doc, page, text, ["ocr"]))
+        """A scanned page's OCR text, embedded and in BM25 like a text page. Its chunks are numbered from 1: the page
+        image keeps .0."""
+        chunks = [replace(c, n=c.n + 1) for c in chunk.chunks(pdf.Page(doc, page, text, ["ocr"]))]
         await self._index_chunks(chunks, corpus)
         return len(chunks)
 

@@ -817,3 +817,24 @@ Unaffected: the final benchmark runs (queries and passages are text, the page ve
 Checked live: a one-page scanned invoice uploaded to a scratch collection was OCR'd and indexed (one chunk in both the vector and BM25 collections); deleting it removed its OCR text from Redis. Tests: 122 pass (four new cover the wait, the background follow-up, restart resume and OCR off).
 
 **Rebuilding the cohost image for vision (same day, not finished).** The image adds the Qwen3-VL code (written on tt-metal v0.82) to the Ornith image's v0.79 tree, and its build-time import check covered only the text path. Fixed in `~/fork-tt-metal` (branch `raahem/cohost-ornith-qwen3vl`, commits e0fd17b4a89 and e946bd591ae, not pushed): a v0.82 `tensor_utils` helper (a no-op unless `TT_DRAM_SHARDED_MULTICORE=1`), the vision code's CCL link count routed to the v0.79 helper, and the vision towers added to the import check. The third boot loads both towers and then fails in the first vision pass: v0.79's `layer_norm` rejects the gathered activation against the replicated gamma (`a.padded_shape()[-1] == gamma.padded_shape()[-1]`, after the four-chip all-gather). That's op-level porting of an untested four-chip path, so the published bundle stays as it is and nothing was pushed to HF. For vision now, serve the separate bundles: `ttdr up --recipe recipes/rerank.toml` (README, "Two ways to serve").
+
+## Cohost bundle with vision, published (2026-11-06)
+
+Finished the rebuild started above. Four problems, all in how the Qwen3-VL vision code was dropped into the Ornith image (fixes in `~/fork-tt-metal`, `models/autoports/cohost_ornith_qwen3vl`, commits e0fd17b4a89 to 7d15880bf2b, not pushed):
+
+1. **Two v0.82 helpers missing from the v0.79 tree** (`with_dram_sharded_cores_per_bank`, `ttnn.get_num_links`): a no-op shim and the v0.79 link-count helper. The build's import check now covers the vision towers.
+2. **The tower wrapper was written for one chip.** `vision_tower.py` fed the tensor-parallel blocks a full copy of the activation on every chip while they expect a quarter each, so the first norm gathered 4 × 1152 wide (the layer-norm shape failure). The patch embedding and position embedding are now sharded the same way as the blocks' input, and the merger and DeepStack outputs are gathered back to whole tables on every chip.
+3. **Image requests compiled programs after the trace captures**, which tripped Ornith's program guard and killed its engine on the next chat request. The warm-up only ran the tower; the text tower's visual gathers (keyed on the table's rows and the text bucket) compiled on the first real image. The warm-up now runs every patch bucket's tables through the text tower at every text bucket (35 passes, seconds at boot).
+4. **Image sets and videos** would make table sizes the warm-up can't enumerate, so inputs are one image each; others get HTTP 400 (an engine check in the stock service). The app only sends one image per input.
+
+Checks on hardware (profile `ornith35b-vision`):
+- **Embedder, images:** cosine mean 0.9948 (min 0.9879) against the page-image vectors the separate vision embedder stored in `pages_qwen3vl` (12 FinanceBench and UniDoc pages), each page nearest its own (next best 0.28).
+- **Embedder, text:** cosine 0.9995 against stored chunk vectors.
+- **Reranker, images:** a passage as the query against 8 page images, its own page scored highest 8/8 (0.32–0.61 against at most 0.012).
+- **Ornith:** greedy output identical 8/8 with the 8B models idle and with images flowing through both; 212 tok/s for 1 user, 839 tok/s total for 8 (the earlier cohost measurement was 197 and 1,039 at 32).
+- Images from 40×40 to 4000×5000 px (resized to the 1,800-token cap): 0.1–0.8 s to embed, 0.2–1.4 s to rerank against three documents; 0 programs compiled after capture.
+- DRAM 24.87 GiB per chip; ready in about 6 minutes from warm caches.
+
+**Published** `raahemnabeel/cohost-ornith-35b-qwen3vl` with `ornith35b-vision` as its default profile (the text-only `ornith35b` stays) and a card with these numbers. Served back from the Hub by name with its default profile, the checks repeat exactly. The 122B bundle isn't rebuilt or validated with vision.
+
+**The app on it:** `recipes/ornith-35b-cohost.toml` serves the vision profile with `vision` on, and the deployment runs it. A scanned upload is indexed in 2 s by its page image, then its OCR text 140 s later. **Bug found and fixed:** the OCR text's first chunk had the page image's ID (`doc#p0.0`) and overwrote its vector once OCR landed. OCR chunks are now numbered from `.1`. Search for the scanned invoice now returns both the OCR chunk and the page image.

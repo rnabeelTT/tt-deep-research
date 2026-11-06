@@ -285,6 +285,12 @@ def test_an_uploaded_text_document_embeds_every_chunk(tmp_path):
     assert n == len(upserts) > 3 and upserts == keywords and scanned == []
     assert upserts[:2] == ["memo-abc123#p0.0", "memo-abc123#p0.1"]
 
+    upserts.clear()
+    asyncio.run(corpus.index_ocr_page("scan-abc123", 4, "Invoice 8812 " * 200, "library"))
+    assert (
+        upserts[0] == "scan-abc123#p4.1"
+    )  # .0 is the page image's point, which OCR must not overwrite
+
 
 class Ocr:
     def __init__(self, done=()):
