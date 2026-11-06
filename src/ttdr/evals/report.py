@@ -41,6 +41,8 @@ def summarize(run_dir: Path) -> dict:
     items, answers, grades = _load(run_dir)
     groups: dict[str, list[str]] = defaultdict(list)
     for i in items.values():
+        if i.id not in answers:
+            continue
         groups[i.suite].append(i.id)
         for k in ("type", "answer_type"):
             if k in i.tags:

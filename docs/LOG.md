@@ -777,3 +777,11 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 ## Named collections in the web UI (2026-11-05)
 
 AI-Q's upload flow is tied to chat sessions throughout (file tracking, polling, persistence), so rather than rewiring it, patch `0011-ui-document-collections` adds a self-contained Collections section to the Files tab over the backend's existing collections API: create a collection (name and the description agents read), add files to it, watch them index, delete them. A collection's first upload switches its data source on, keeping the user's other choices. The chat's own uploads stay as "My uploads". Checks: `tsc` and `eslint` clean on the changed files, the frontend suite passes (1,143 tests, 5 new), all 11 patches apply to a fresh v2.2.1, and in a browser against a test backend a new collection with one file appeared under Connections, switched on.
+
+## Final BrowseComp-Plus and HLE, stopped early (2026-11-06)
+
+Both ran far slower than the other suites (median 12 and 18 minutes per question; long tails up to hours) and were stopped at 16:27 UTC to free the box. Every answered question was graded by two blinded Claude subagents per checkpoint (queues `data/judge/ckpt-0238`, then `data/judge/final-bcp-hle`, which reused the 66 checkpoint verdicts and graded the 80 new answers).
+
+- **BrowseComp-Plus** (`runs/20261105-141507-deepagents`, cohost recipe pointed at the BrowseComp-Plus corpus, offline): **70/96 = 72.9%**, 15 wrong, 11 abstained. Gold page retrieved for 89%, cited in 71% of citing answers. Answered 96 of the first 100 (positions 92, 95, 98, 99 were in flight, so the slowest questions are slightly under-represented). Leaderboard rows with the same embedder: GPT-5 71.7, o3 65.9, Tongyi DeepResearch 30B 44.5; ±9 points at n=96, so level with GPT-5.
+- **HLE text-only** (`runs/20261105-151007-deepagents`, scope "all"): **13/50 = 26%**, 31 wrong, 6 abstained; multiple choice 6/14, exact answer 7/36. Answered 50 of the first 51. Level with 2025 deep-research agents (OpenAI DR 26.6), about half the 2026 frontier with tools (~54).
+- `report.summarize` now counts only answered items, so a stopped run summarizes instead of failing on a missing answer.
