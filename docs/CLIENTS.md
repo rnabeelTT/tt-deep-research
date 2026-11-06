@@ -61,6 +61,16 @@ mcp_servers:
 
 Checked on 2026-10-28 with Hermes on Ornith: asked for 3M's FY2018 capital expenditure from the FinanceBench corpus, it called `search` and answered "$1,577 million [3M_2018_10K#p48.2]" in 65 s.
 
+Checked again on 2026-11-06 for the demo recording, without touching `~/.hermes/config.yaml` (the model comes from the environment, as `tt launch hermes` does it):
+
+```bash
+OPENAI_BASE_URL=http://127.0.0.1:8000/v1 OPENAI_API_KEY=local \
+  hermes chat --tui --provider openai --model ornith-ai/Ornith-1.5-35B-A3B -s qb2-deep-research -t ttdr \
+  -q "Write a short cited report on Tenstorrent's Blackhole chip: its key specs and how it differs from Wormhole."
+```
+
+`-t ttdr` limits Hermes to the engine's tools. It searched, verified two claims and wrote a cited report with a specs table in about 40 s.
+
 ## Any other MCP client
 
 Point it at the same URL with the streamable-HTTP transport (Claude Code: `claude mcp add --transport http ttdr http://localhost:9901/mcp`; opencode, Cursor and others have equivalents). From Python:
