@@ -17,6 +17,7 @@ import pypdfium2 as pdfium
 import redis
 
 QUEUE, PENDING, TEXT = "ocr:queue", "ocr:pending", "ocr:text:{page}"
+PROCESSING = "ocr:processing"  # jobs taken but not finished; requeued if the worker restarts
 MAX_ATTEMPTS = 3
 PROMPT = (
     "Transcribe all text on this page as Markdown. Keep tables as Markdown tables. "
@@ -86,28 +87,37 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     r = redis.Redis.from_url(args.redis, decode_responses=True, socket_timeout=60)
     ocr = Paddle() if args.backend == "paddle" else LLM(args.llm_url, args.llm_model)
-    log.info("ready (%s)", args.backend)
+    requeued = 0
+    while r.lmove(PROCESSING, QUEUE, "LEFT", "RIGHT"):
+        requeued += 1
+    log.info("ready (%s), %d unfinished jobs requeued", args.backend, requeued)
     while True:
-        item = r.brpop(QUEUE, timeout=5)
-        if item is None:
+        raw = r.blmove(QUEUE, PROCESSING, 5, "RIGHT", "LEFT")
+        if raw is None:
             if args.once:
                 return
             continue
-        job = json.loads(item[1])
-        key = f"{job['doc']}#p{job['page']}"
-        pdf = os.path.join(args.corpus_dir, job["corpus"], f"{job['doc']}.pdf")
-        start = time.perf_counter()
-        try:
-            text = ocr(render(pdf, job["page"]))
-            r.set(TEXT.format(page=key), text)
+        work(r, ocr, args.corpus_dir, raw)
+        r.lrem(PROCESSING, 1, raw)
+
+
+def work(r, ocr, corpus_dir: str, raw: str) -> None:
+    """OCR one job; on failure requeue it, up to MAX_ATTEMPTS."""
+    job = json.loads(raw)
+    key = f"{job['doc']}#p{job['page']}"
+    pdf = os.path.join(corpus_dir, job["corpus"], f"{job['doc']}.pdf")
+    start = time.perf_counter()
+    try:
+        text = ocr(render(pdf, job["page"]))
+        r.set(TEXT.format(page=key), text)
+        r.srem(PENDING, key)
+        log.info("%s: %d chars in %.0fs", key, len(text), time.perf_counter() - start)
+    except Exception:
+        log.exception("%s failed (attempt %d)", key, job.get("attempt", 0) + 1)
+        if job.get("attempt", 0) + 1 < MAX_ATTEMPTS:
+            r.rpush(QUEUE, json.dumps({**job, "attempt": job.get("attempt", 0) + 1}))
+        else:
             r.srem(PENDING, key)
-            log.info("%s: %d chars in %.0fs", key, len(text), time.perf_counter() - start)
-        except Exception:
-            log.exception("%s failed (attempt %d)", key, job.get("attempt", 0) + 1)
-            if job.get("attempt", 0) + 1 < MAX_ATTEMPTS:
-                r.rpush(QUEUE, json.dumps({**job, "attempt": job.get("attempt", 0) + 1}))
-            else:
-                r.srem(PENDING, key)
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ from starlette.testclient import TestClient
 
 from ttdr import ui_server
 from ttdr.corpus.library import Collection, Library, doc_name, docx_text
+from ttdr.engine.ocr import OcrQueue
 
 
 class FakeCorpus:
@@ -102,6 +103,69 @@ def test_deleting_a_file_removes_it_from_the_index_and_disk(tmp_path):
     assert n == 1 and corpus.deleted == [a.doc] and list(lib.files) == [b.file_id]
     assert not (tmp_path / "library" / f"{a.doc}.txt").exists()
     assert (tmp_path / "library" / f"{b.doc}.txt").exists()
+
+
+class FakeRedis:
+    """The Redis calls OcrQueue.forget makes; MATCH patterns here are an escaped prefix + '*'."""
+
+    def __init__(self, strings, zset, members):
+        self.strings, self.zset, self.members = strings, zset, members
+
+    @staticmethod
+    def _hits(keys, match):
+        prefix = match[:-1].replace("\\", "")
+        return [k for k in keys if k.startswith(prefix)]
+
+    async def scan_iter(self, match):
+        for k in self._hits(list(self.strings), match):
+            yield k
+
+    async def zscan_iter(self, name, match):
+        for k in self._hits(list(self.zset), match):
+            yield k, self.zset[k]
+
+    async def sscan_iter(self, name, match):
+        for k in self._hits(list(self.members), match):
+            yield k
+
+    async def delete(self, *keys):
+        for k in keys:
+            self.strings.pop(k)
+
+    async def zrem(self, name, *keys):
+        for k in keys:
+            self.zset.pop(k)
+
+    async def srem(self, name, *keys):
+        self.members.difference_update(keys)
+
+
+def test_deleting_a_document_forgets_its_ocr_text():
+    r = FakeRedis(
+        {"ocr:text:scan-1a2b3c#p0": "Invoice 8812", "ocr:text:scan-1a2b3c2#p0": "other"},
+        {"scan-1a2b3c#p0": 2.0, "scan-1a2b3c#p4": 1.0, "scan-1a2b3c2#p0": 1.0},
+        {"scan-1a2b3c#p4", "scan-1a2b3c2#p0"},
+    )
+    asyncio.run(OcrQueue(r).forget("scan-1a2b3c"))
+    assert r.strings == {"ocr:text:scan-1a2b3c2#p0": "other"}
+    assert r.zset == {"scan-1a2b3c2#p0": 1.0} and r.members == {"scan-1a2b3c2#p0"}
+
+
+def test_deleting_a_file_asks_ocr_to_forget_it(tmp_path):
+    class Ocr:
+        forgotten = []
+
+        async def forget(self, doc):
+            self.forgotten.append(doc)
+
+    async def go():
+        lib = Collection(FakeCorpus(), "library", tmp_path, Ocr())
+        job = lib.add([("a.txt", b"alpha")])
+        await job.task
+        await lib.delete([job.files[0].file_id])
+        return job.files[0].doc
+
+    assert Ocr.forgotten == [asyncio.run(go())]
 
 
 class FakeHarness:
