@@ -22,6 +22,20 @@ Recommended serving (docs/LOG.md, 2026-11-05) is the same three models as one co
 | 2 | Qwen3-VL-Embedding-8B | Embeds chunks (and page images) |
 | 3 | Qwen3-VL-Reranker-8B | Reorders the top 30 search candidates |
 
+Two ways to serve them with the same app; pick one recipe and pass it to `ttdr up`:
+
+```bash
+# Separate bundles, one per chip group: the embedder and reranker take images (scans are searchable at once)
+uv run ttdr up --recipe recipes/rerank.toml
+
+# One cohost bundle on all four chips: fastest, but its embedder and reranker are text-only for now
+# (needs tt-model with mixed cohost groups:
+#  uv tool install --force git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups)
+uv run ttdr up --recipe recipes/ornith-35b-cohost.toml
+```
+
+To switch, stop the running models first (`uv run ttdr down --models --recipe <the recipe now serving>`), then `ttdr up` with the other. Uploaded scans are OCR'd either way; with the text-only embedder they become searchable once OCR has read them.
+
 | Layer | What |
 |---|---|
 | Engine (MCP, :9901) | `search` (web + corpus, reranked), `fetch_page`, `read_page` (the LLM reads a page image), `find_in_document`, `open_pages`, `get_evidence`, `verify` |
