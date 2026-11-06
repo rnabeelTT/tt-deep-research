@@ -785,3 +785,10 @@ Both ran far slower than the other suites (median 12 and 18 minutes per question
 - **BrowseComp-Plus** (`runs/20261105-141507-deepagents`, cohost recipe pointed at the BrowseComp-Plus corpus, offline): **70/96 = 72.9%**, 15 wrong, 11 abstained. Gold page retrieved for 89%, cited in 71% of citing answers. Answered 96 of the first 100 (positions 92, 95, 98, 99 were in flight, so the slowest questions are slightly under-represented). Leaderboard rows with the same embedder: GPT-5 71.7, o3 65.9, Tongyi DeepResearch 30B 44.5; ±9 points at n=96, so level with GPT-5.
 - **HLE text-only** (`runs/20261105-151007-deepagents`, scope "all"): **13/50 = 26%**, 31 wrong, 6 abstained; multiple choice 6/14, exact answer 7/36. Answered 50 of the first 51. Level with 2025 deep-research agents (OpenAI DR 26.6), about half the 2026 frontier with tools (~54).
 - `report.summarize` now counts only answered items, so a stopped run summarizes instead of failing on a missing answer.
+
+## Demo recordings surfaced three UI bugs (2026-11-06)
+
+- **New collections failed in the deployed app:** the app container mounted only `data/corpus/library` writable, so "+ New collection" couldn't create `data/corpus/<name>` (the earlier browser check ran a server on the host). It now mounts `data/corpus`.
+- **The planner's first hand-off often failed:** it passed `sources=` to the task tool, which takes only a description, and the error showed in the research panel before it retried. The planner prompt now says to put the sources in the description.
+- **Tasks tab showed identical rows:** titles were each brief's first sentence, often the same generic line ("Research the Kestrel Ridge … project."). Titles are now the brief's first 200 characters.
+- Recordings (1080p, research panel open throughout): documents (3M capex), chart reading (Activision capex, two `read_page` calls), web + documents report (AMD), a collection of four uploaded files including a scan, and `tt launch deep-research`.

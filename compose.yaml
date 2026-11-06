@@ -80,7 +80,7 @@ services:
     network_mode: host
     working_dir: ${PWD}
     user: "${TTDR_UID:-1000}:${TTDR_GID:-1000}"   # uploads are the host user's files
-    volumes: ["${PWD}:${PWD}:ro", "${PWD}/data/corpus/library:${PWD}/data/corpus/library"]   # the UI's uploads
+    volumes: ["${PWD}:${PWD}:ro", "${PWD}/data/corpus:${PWD}/data/corpus"]   # uploads and collections
     command: ["ttdr", "ui-server"]
     environment: { TTDR_RECIPE: "${TTDR_RECIPE:-recipe.toml}", HOME: /tmp }
     depends_on: [engine]

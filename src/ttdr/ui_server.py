@@ -33,8 +33,8 @@ DATA_SOURCES = [
 ]
 KNOWLEDGE_LAYER = {"id": "knowledge_layer", "name": "Uploaded files", "description": ""}
 """Its presence turns on the UI's file uploads; chats with files send it as a data source."""
-TASK_CHARS = 160
-"""A researcher's task in the Tasks tab: the first sentence of its brief."""
+TASK_CHARS = 200
+"""A researcher's task in the Tasks tab: the start of its brief (first sentences are often generic)."""
 COLLECTION = "docs:"
 """Data-source ID prefix of one collection."""
 PASSAGE = re.compile(
@@ -132,7 +132,9 @@ class Translate:
     def _task(self, id: str, content: str | None, status: str) -> None:
         if self.planned:
             return
-        title = re.split(r"(?<=[.?!])\s", (content or "").strip(), maxsplit=1)[0][:TASK_CHARS]
+        title = " ".join((content or "").split())
+        if len(title) > TASK_CHARS:
+            title = title[:TASK_CHARS].rsplit(" ", 1)[0] + "…"
         task = self.tasks.setdefault(id, {"id": str(len(self.tasks)), "content": title})
         task["status"] = status
         self._artifact({"type": "todo", "content": [dict(t) for t in self.tasks.values()]})

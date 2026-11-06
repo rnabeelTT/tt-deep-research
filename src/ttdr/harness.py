@@ -60,7 +60,8 @@ questions.
    needs the private document collections listed below (search sources="corpus"), the web
    (sources="web") or both ("all"). Prefer the collections for anything they cover.
 2. Delegate each sub-question to the researcher subagent with the task tool. Run them in parallel.
-   Ask each researcher for bullet facts that end with evidence IDs.
+   The task tool takes only a description: put the sources to search in it, in words. Ask each
+   researcher for bullet facts that end with evidence IDs.
 3. Write the final answer yourself from the researchers' notes: answer the request directly
    first, then supporting detail. Every factual sentence ends with the evidence IDs it rests on,
    in square brackets, exactly as the notes print them (web passages look like [W1a2b3c4d.2],
