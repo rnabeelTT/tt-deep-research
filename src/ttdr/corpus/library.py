@@ -34,6 +34,7 @@ SUFFIXES = (".pdf", ".txt", ".md", ".docx")
 MAX_DOCX_XML = 200 * 1024 * 1024
 OCR_WAIT_S = 900
 OCR_POLL_S = 3
+OCR_FOLLOW_S = 15
 WORD = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -69,7 +70,7 @@ class File:
     """ingesting, success or failed: the UI's file states."""
     chunks: int = 0
     unread_pages: list[int] = field(default_factory=list)
-    """Scanned pages search can't find yet: OCR didn't read them in time, or is off."""
+    """Scanned pages whose text isn't indexed yet: OCR is still reading them, or is off."""
     ingested_at: str | None = None
     error: str | None = None
 
@@ -144,8 +145,8 @@ class Collection:
         self.corpus = corpus
         self.name = name
         self.ocr = ocr
-        """With a text-only embedder, scanned pages are OCR'd while indexing and their text
-        embedded; otherwise their page images are, and OCR runs when search first finds them."""
+        """Scanned pages are queued for OCR and their text indexed as it lands. With a text-only
+        embedder the upload waits for it; otherwise their page images are embedded at once."""
         self.root = root / name
         self.manifest = self.root / "files.jsonl"
         self.about = self.root / "collection.json"
@@ -153,6 +154,7 @@ class Collection:
         self.jobs: dict[str, Job] = {}
         self._turn = turn or asyncio.Lock()
         """One batch indexes at a time; the embedder is shared with research."""
+        self._follower: asyncio.Task | None = None
         if self.manifest.exists():
             for line in self.manifest.read_text().splitlines():
                 f = File(**json.loads(line))
@@ -235,29 +237,46 @@ class Collection:
                         f.chunks, scanned = await self.corpus.index_document(
                             self._path(f), self.name, pool
                         )
-                        if scanned and not self.corpus.images:
-                            await self._read_scans(f, scanned)
+                        f.unread_pages = scanned
+                        if scanned and self.ocr:
+                            await self.ocr.backfill([(self.name, f.doc, p) for p in scanned])
+                            if not self.corpus.images:
+                                await self._read_scans(f, time.monotonic() + OCR_WAIT_S)
                         f.status, f.ingested_at = "success", _now()
                     except Exception as e:  # noqa: BLE001 - the UI shows it on the file
                         f.status, f.error = "failed", f"{type(e).__name__}: {e}"
                         await self._remove(f)
                     self._save()
             job.completed_at = _now()
+        self.follow()
 
-    async def _read_scans(self, f: File, pages: list[int]) -> None:
-        """Queue the pages for the OCR worker and index each page's text as it lands."""
-        todo = set(pages)
-        if self.ocr:
-            await self.ocr.backfill([(self.name, f.doc, p) for p in pages])
-            deadline = time.monotonic() + OCR_WAIT_S
-            while todo and time.monotonic() < deadline:
-                for p in sorted(todo):
-                    if (text := await self.ocr.text(f.doc, p)) is not None:
-                        todo.discard(p)
-                        f.chunks += await self.corpus.index_ocr_page(f.doc, p, text, self.name)
-                if todo:
-                    await asyncio.sleep(OCR_POLL_S)
-        f.unread_pages = sorted(todo)
+    async def _read_scans(self, f: File, deadline: float = 0) -> None:
+        """Index the text of each unread page OCR has finished, until DEADLINE (once if past)."""
+        while True:
+            for p in list(f.unread_pages):
+                if f.file_id not in self.files:  # deleted meanwhile
+                    return
+                if (text := await self.ocr.text(f.doc, p)) is not None:
+                    f.chunks += await self.corpus.index_ocr_page(f.doc, p, text, self.name)
+                    f.unread_pages.remove(p)
+            if not f.unread_pages or time.monotonic() >= deadline:
+                return
+            await asyncio.sleep(OCR_POLL_S)
+
+    def follow(self) -> None:
+        """Keep indexing scanned pages' OCR text as it lands, after an upload or a restart."""
+        if self.ocr and not (self._follower and not self._follower.done()):
+            self._follower = asyncio.create_task(self._follow())
+
+    async def _follow(self) -> None:
+        while waiting := [
+            f for f in self.files.values() if f.status == "success" and f.unread_pages
+        ]:
+            async with self._turn:
+                for f in waiting:
+                    await self._read_scans(f)
+                self._save()
+            await asyncio.sleep(OCR_FOLLOW_S)
 
     async def _remove(self, f: File) -> None:
         await self.corpus.delete_document(f.doc)
@@ -326,6 +345,10 @@ class Library:
         c.describe(description or "")
         self.collections[name] = c
         return c
+
+    def follow(self) -> None:
+        for c in self.collections.values():
+            c.follow()
 
     def job(self, job_id: str) -> Job | None:
         return next((c.jobs[job_id] for c in self.collections.values() if job_id in c.jobs), None)

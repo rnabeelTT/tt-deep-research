@@ -271,7 +271,7 @@ class Corpus:
 
     async def index_ocr_page(self, doc: str, page: int, text: str, corpus: str) -> int:
         """A scanned page's OCR text, embedded and in BM25 like a text page."""
-        chunks = chunk.chunks(pdf.Page(doc, page, text, ["image_only", "ocr"]))
+        chunks = chunk.chunks(pdf.Page(doc, page, text, ["ocr"]))
         await self._index_chunks(chunks, corpus)
         return len(chunks)
 

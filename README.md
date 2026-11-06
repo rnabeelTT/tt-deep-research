@@ -69,7 +69,7 @@ Documents live in collections; a fresh install has none, and agents are told onl
 - **Named collections:** in the Files tab, "+ New collection" takes a name and a description (agents read it to decide when to search it); open a collection to add, watch and delete its files. From a folder: `ttdr corpus upload ~/contracts --collection contracts --description "Signed leases and supplier contracts"`.
 - **Choose what to search:** every collection with documents is a switch in the data-sources panel, beside web search. Research searches only the ones switched on.
 
-Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are read by OCR while indexing when the embedder is text-only (the cohosted bundle), or embedded as page images otherwise. Delete a file in the Files tab to drop it from the index. The UI caps uploads at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap. Benchmark document sets (`ttdr corpus fetch`) appear as collections only once indexed.
+Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are queued for OCR and each page's OCR text is embedded and BM25-indexed when it lands. With a multimodal embedder the scan is also embedded as a page image, so search finds it at once; with a text-only one (the cohosted bundle) the upload waits up to 15 minutes for OCR, and pages read later are indexed in the background. Delete a file in the Files tab to drop it from the index. The UI caps uploads at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap. Benchmark document sets (`ttdr corpus fetch`) appear as collections only once indexed.
 
 ## Commands
 
