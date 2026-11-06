@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import zipfile
 
 from starlette.testclient import TestClient
@@ -152,20 +153,23 @@ def test_deleting_a_document_forgets_its_ocr_text():
 
 
 def test_deleting_a_file_asks_ocr_to_forget_it(tmp_path):
-    class Ocr:
-        forgotten = []
+    class Forgetful:
+        def __init__(self):
+            self.forgotten = []
 
         async def forget(self, doc):
             self.forgotten.append(doc)
 
+    ocr = Forgetful()
+
     async def go():
-        lib = Collection(FakeCorpus(), "library", tmp_path, Ocr())
+        lib = Collection(FakeCorpus(), "library", tmp_path, ocr)
         job = lib.add([("a.txt", b"alpha")])
         await job.task
         await lib.delete([job.files[0].file_id])
         return job.files[0].doc
 
-    assert Ocr.forgotten == [asyncio.run(go())]
+    assert ocr.forgotten == [asyncio.run(go())]
 
 
 class FakeHarness:
@@ -282,36 +286,100 @@ def test_an_uploaded_text_document_embeds_every_chunk(tmp_path):
     assert upserts[:2] == ["memo-abc123#p0.0", "memo-abc123#p0.1"]
 
 
-def test_scanned_pages_are_read_by_ocr_when_the_embedder_takes_no_images(tmp_path, monkeypatch):
+class Ocr:
+    def __init__(self, done=()):
+        self.queued, self.done = [], set(done)
+
+    async def backfill(self, pages):
+        self.queued.extend(pages)
+        return len(pages)
+
+    async def text(self, doc, page):
+        return f"OCR of page {page}" if page in self.done else None
+
+
+def fast_ocr(monkeypatch):
     from ttdr.corpus import library
 
     monkeypatch.setattr(library, "OCR_WAIT_S", 0.05)
     monkeypatch.setattr(library, "OCR_POLL_S", 0.01)
+    monkeypatch.setattr(library, "OCR_FOLLOW_S", 0.01)
 
-    class Ocr:
-        def __init__(self):
-            self.queued = []
 
-        async def backfill(self, pages):
-            self.queued.extend(pages)
-            return len(pages)
+def test_text_only_uploads_wait_for_ocr_then_index_late_pages_in_the_background(
+    tmp_path, monkeypatch
+):
+    fast_ocr(monkeypatch)
+    corpus, ocr = FakeCorpus(scanned=[0, 3], images=False), Ocr(done=[0])
 
-        async def text(self, doc, page):
-            return "Invoice 8812, total 18,400 EUR" if page == 0 else None
+    async def go():
+        c = Collection(corpus, "library", tmp_path, ocr)
+        job = c.add([("scan.pdf", b"%PDF-")])
+        await job.task
+        f = job.files[0]
+        assert ocr.queued == [("library", f.doc, 0), ("library", f.doc, 3)]
+        assert corpus.ocr_pages == [(f.doc, 0, "OCR of page 0")]
+        assert f.status == "success" and f.chunks == 9 and f.unread_pages == [3]
+        assert f.info("library")["metadata"]["unread_pages"] == [3]
+        ocr.done.add(3)
+        await c._follower
+        return f
 
-    async def go(corpus, ocr):
-        lib = Collection(corpus, "library", tmp_path, ocr)
-        job = lib.add([("scan.pdf", b"%PDF-")])
+    f = asyncio.run(go())
+    assert f.unread_pages == [] and f.chunks == 11
+    assert corpus.ocr_pages[-1] == (f.doc, 3, "OCR of page 3")
+
+
+def test_scans_embedded_as_page_images_get_their_ocr_text_indexed_without_waiting(
+    tmp_path, monkeypatch
+):
+    fast_ocr(monkeypatch)
+    corpus, ocr = FakeCorpus(scanned=[0], images=True), Ocr()
+
+    async def go():
+        c = Collection(corpus, "library", tmp_path, ocr)
+        job = c.add([("scan.pdf", b"%PDF-")])
+        await job.task
+        f = job.files[0]
+        assert ocr.queued == [("library", f.doc, 0)] and corpus.ocr_pages == []
+        assert f.status == "success" and f.unread_pages == [0]
+        ocr.done.add(0)
+        await c._follower
+        return f
+
+    f = asyncio.run(go())
+    assert corpus.ocr_pages == [(f.doc, 0, "OCR of page 0")] and f.unread_pages == []
+
+
+def test_pages_left_unread_by_a_restart_are_indexed_when_ocr_finishes(tmp_path, monkeypatch):
+    fast_ocr(monkeypatch)
+    corpus = FakeCorpus(scanned=[2], images=True)
+
+    async def upload():
+        job = Collection(corpus, "library", tmp_path, Ocr()).add([("scan.pdf", b"%PDF-")])
         await job.task
         return job.files[0]
 
-    text_only, ocr = FakeCorpus(scanned=[0, 3], images=False), Ocr()
-    f = asyncio.run(go(text_only, ocr))
-    assert ocr.queued == [("library", f.doc, 0), ("library", f.doc, 3)]
-    assert text_only.ocr_pages == [(f.doc, 0, "Invoice 8812, total 18,400 EUR")]
-    assert f.status == "success" and f.chunks == 9 and f.unread_pages == [3]
-    assert f.info("library")["metadata"]["unread_pages"] == [3]
+    f = asyncio.run(upload())
 
-    multimodal, ocr = FakeCorpus(scanned=[0], images=True), Ocr()
-    f = asyncio.run(go(multimodal, ocr))
-    assert ocr.queued == [] and multimodal.ocr_pages == [] and f.unread_pages == []
+    async def restart():
+        lib = Library(corpus, tmp_path, Ocr(done=[2]))
+        lib.follow()
+        await lib.collections["library"]._follower
+        return lib.collections["library"].files[f.file_id]
+
+    assert asyncio.run(restart()).unread_pages == []
+    assert corpus.ocr_pages == [(f.doc, 2, "OCR of page 2")]
+    assert json.loads((tmp_path / "library" / "files.jsonl").read_text())["unread_pages"] == []
+
+
+def test_no_ocr_leaves_scans_unread(tmp_path):
+    corpus = FakeCorpus(scanned=[1], images=False)
+
+    async def go():
+        job = Collection(corpus, "library", tmp_path).add([("scan.pdf", b"%PDF-")])
+        await job.task
+        return job.files[0]
+
+    f = asyncio.run(go())
+    assert f.status == "success" and f.unread_pages == [1] and corpus.ocr_pages == []

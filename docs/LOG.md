@@ -801,3 +801,17 @@ Request-scoped keys expire (passages `ev:*` 7 days, `cache:*` 24 hours). The OCR
 - **A worker restarted mid-page lost the job and left the page in `ocr:pending` forever,** so no later search could queue it again (seven pages were stuck). The worker now takes jobs with `BLMOVE` into `ocr:processing`, removes them when done, and puts unfinished ones back on the queue at start-up. Checked on a scratch Redis database by simulating a crash; the seven stuck marks were cleared and the worker redeployed.
 
 Also: the planner prompt no longer shows `search sources=...` syntax (the planner has no search tool and copied those arguments into `task` calls, which Deep Agents rejects before the planner retries).
+
+## Vision on the cohost bundle, and OCR for uploads (2026-11-06)
+
+**Vision profile tried, doesn't boot.** The cohost bundle serves its embedder and reranker text-only by default; its `ornith35b-vision` profile (marked experimental) adds both 8B vision towers. Served with `--profile ornith35b-vision`, the app exits during load: the reranker's vision tower imports `with_dram_sharded_cores_per_bank` from `models.common.tensor_utils`, which the tt-metal in the published image (the bundle's only revision) doesn't have. Ornith's own vision loads fine. Back on `ornith35b`; the recipe keeps `vision = false`. Getting image embeddings back needs either a rebuilt cohost image or the standalone embedder and reranker bundles (as when the benchmark corpora were indexed, which is why their scans have page-image vectors).
+
+Unaffected: the final benchmark runs (queries and passages are text, the page vectors already existed, no page-image reranking) and `read_page` (Ornith reads page images itself).
+
+**OCR for uploads now finishes in the background.** Before, a scanned upload waited up to 15 minutes for OCR and any page read later was never indexed (no image vector on a text-only embedder, so search could never find it). Now:
+- Every scanned page is queued for OCR at upload, with either embedder.
+- Text-only embedder: the upload still waits up to 15 minutes, then the remaining pages are indexed as their OCR text lands; with a vision embedder the page image is embedded at once and the text follows.
+- The follow-up resumes after a server restart (files with `unread_pages` in the manifest), skips files deleted meanwhile, and shares the one-batch-at-a-time indexing lock.
+- OCR'd chunks are flagged `ocr` (not `image_only`), so search shows the chunk itself instead of swapping in the whole page's text.
+
+Checked live: a one-page scanned invoice uploaded to a scratch collection was OCR'd and indexed (one chunk in both the vector and BM25 collections); deleting it removed its OCR text from Redis. Tests: 122 pass (four new cover the wait, the background follow-up, restart resume and OCR off).

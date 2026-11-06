@@ -9,6 +9,7 @@ on or off, and the UI's file uploads land in the shared library (every chat's co
 """
 
 import asyncio
+import contextlib
 import json
 import re
 import time
@@ -414,6 +415,13 @@ def build(
     async def health(_: Request):
         return JSONResponse({"status": "healthy"})
 
+    @contextlib.asynccontextmanager
+    async def resume(_):
+        """Scanned pages still waiting on OCR when the server last stopped."""
+        if library:
+            library.follow()
+        yield
+
     job_path = "/v1/jobs/async/job/{job_id}"
     return Starlette(
         routes=[
@@ -440,7 +448,8 @@ def build(
                 if library
                 else []
             ),
-        ]
+        ],
+        lifespan=resume,
     )
 
 
