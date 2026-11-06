@@ -34,6 +34,8 @@ uv run ttdr up
 uv run ttdr up --recipe recipes/ornith-35b-cohost.toml
 ```
 
+The cohost bundle is built from `models/autoports/cohost_ornith_qwen3vl` on branch `raahem/cohost-ornith-qwen3vl` of [rnabeelTT/tt-metal](https://github.com/rnabeelTT/tt-metal/tree/raahem/cohost-ornith-qwen3vl/models/autoports/cohost_ornith_qwen3vl) (build, card and vision fixes); its runtime is `tt-model` branch `raahem/cohost-mixed-groups` of [rnabeelTT/tt-kernel-package-manager](https://github.com/rnabeelTT/tt-kernel-package-manager/tree/raahem/cohost-mixed-groups).
+
 To switch, stop the running models first (`uv run ttdr down --models --recipe <the recipe now serving>`), then `ttdr up` with the other. Either way, uploaded scans are searchable by their page image at once and by their OCR text once it lands.
 
 | Layer | What |
