@@ -50,6 +50,22 @@ Not planned: BrowseComp (live web; most questions need many searches, which the 
 
 Record at 1080p with a clean browser profile, after a warm-up query so prefix caches are hot, and keep the terminal font large.
 
+## Recording day
+
+The stack for every recording and live demo is the final-run stack: one cohost bundle (Ornith 1.5 35B-A3B, Qwen3-VL embedder and reranker) on all four chips, `recipes/ornith-35b-cohost.toml`.
+
+**Before recording**
+
+1. No evals running: `ps -eo pid,args | grep 'ttdr eval run'` is empty. Evals share the LLM, and a live question at 7 concurrent conversations runs 2–3× slower.
+2. Models up: `curl -s localhost:8006` shows `ornith`, `embed` and `rerank` all `"ready": true`. If not: `tt-model serve raahemnabeel/cohost-ornith-35b-qwen3vl --local-only --port 8000 --detach` (9–12 min cold).
+3. App on the cohost recipe: re-render and restart if anything else ran,
+   `TTDR_PAGES_URL=http://localhost:3000/pages uv run python -c "from pathlib import Path; from ttdr import recipe, aiq_config, stack; p=Path('recipes/ornith-35b-cohost.toml'); r=recipe.load(p); aiq_config.write(r); stack.write_env(stack.compose_env(r,p))"`
+   then `docker compose --profile app up -d --no-deps engine aiq deepagents`.
+4. Warm-up: one short question through :3000, so the prefix cache and the web cache are hot.
+5. Browser: clean profile, 1080p, zoom 110%; terminal font large.
+
+**Keep concurrency low during live demos.** Ornith is a hybrid (attention + linear-attention) model; the bundle keeps 32 prefix-state slots, and many parallel conversations evict each other's cached prefixes, so every call re-reads its whole context (seen on 2026-11-05: 40 conversations dropped generation from ~1,000 to ~100 tok/s). One or two research jobs at a time is the demo setting.
+
 ## Open items
 
 - Competitor numbers with sources: collected in [COMPETITORS.md](COMPETITORS.md) (2026-11-04). DRB's official judge changed to GPT-5.5 in May 2026, so leaderboard RACE scores (Gemini-2.5-Pro or GPT-5.5 judge) can't sit beside our Claude-judged ones; the re-judging step puts competitors' published reports and ours under one judge. Check Tongyi's numbers against the paper PDF before the slides.

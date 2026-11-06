@@ -272,3 +272,9 @@ Everything here ran on the CPU (embeddinggemma-2 on the CPU matches the chip's v
 - **One library, not per-chat files:** AI-Q ties uploads to a chat and deletes them with it. For a standing private corpus, every chat's collection now maps to one shared library.
 - **Friction (ours):** the cohosted embedder is text-only, which we hadn't hit because the benchmark corpora were indexed with the separate vision embedder. A scanned PDF failed to upload. Scans are now OCR'd while indexing on text-only embedders.
 - **Friction (ours):** a reviewer spotted a 10-K cited in a fashion-design report. Every eval searched web and benchmark documents together, because "search everything" was the harness default. Web suites now search the web only, and the agents hear only of collections that hold documents, so a fresh install describes none.
+
+## 2026-11-06 · Puzzles: level with GPT-5; expert reasoning: a 35B model's ceiling
+
+- **BrowseComp-Plus 72.9% (96 questions)**, on the same corpus and embedder as the leaderboard's GPT-5 row (71.7). The retrieval work (BM25 beside dense, a reranker) paid off: the gold page was found for 89% of questions.
+- **HLE 26% (50 questions):** where 2025's deep-research products were; the 2026 frontier is about double. HLE tests the model's own reasoning more than search.
+- **Friction (ours):** these two suites take 12–18 minutes per question with multi-hour tails, so 100 questions didn't fit the time we had. Both were stopped early and graded on what finished.
