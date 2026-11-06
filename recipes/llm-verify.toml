@@ -6,4 +6,5 @@ extends = "../recipe.toml"
 max_state_tokens = 8192
 
 [roles]
+rerank = ""   # as the A/B ran: no reranker (the default has one on chip 3)
 decide = "ornith"

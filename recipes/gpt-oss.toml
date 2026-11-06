@@ -13,4 +13,6 @@ reasoning = "reasoning_effort"
 serve_order = 0
 
 [roles]
+decide = "laya"   # as the A/B ran: Laya checks claims, no reranker
+rerank = ""
 llm = "gpt-oss"

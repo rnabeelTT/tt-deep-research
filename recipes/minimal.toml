@@ -1,9 +1,10 @@
 extends = "../recipe.toml"
 
-# The smallest stack: LLM + embedder only. No decision model (verify and triage off),
+# The smallest stack: LLM + embedder only. No decision model (verify and triage off), no reranker,
 # no web search (corpus only), no OCR worker, no UI. Frees chip 3.
 [roles]
 decide = ""
+rerank = ""
 
 [services]
 searxng = ""

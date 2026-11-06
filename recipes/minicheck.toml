@@ -9,4 +9,5 @@ url = "http://localhost:8003"
 max_state_tokens = 2048
 
 [roles]
+rerank = ""   # as the A/B ran: no reranker (the default has one on chip 3)
 decide = "minicheck"
