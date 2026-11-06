@@ -15,20 +15,22 @@ uv sync && uv run ttdr up
 
 ## Serve the models
 
-tt assigns chips itself, so start the models one at a time, largest first. All three are unverified community bundles, which is why each command needs `--yes`.
+tt assigns chips itself, so start the models one at a time, largest first. All three are community bundles, which is why each command needs `--yes`.
 
-| Port | Model | Bundle | Chips | Ready in (first pull) |
-|---|---|---|---|---|
-| 8000 | Ornith 1.5 35B-A3B | `raahemnabeel/ornith-1.5-35b-a3b`, profile `p300`, patched chat template | 2 | 9m 41s (4m 30s cached) |
-| 8001 | embeddinggemma-2 | `tt-hous/embeddinggemma-2` | 1 | 5m 56s |
-| 8002 | Laya | `tt-hous/laya` | 1 | 2m 30s |
+| Port | Model | Bundle | Chips |
+|---|---|---|---|
+| 8000 | Ornith 1.5 35B-A3B | `raahemnabeel/ornith-1.5-35b-a3b`, profile `p300`, patched chat template | 2 (0–1) |
+| 8005 | Qwen3-VL-Embedding-8B | `raahemnabeel/qwen3-vl-embedding-8b` | 1 (2) |
+| 8004 | Qwen3-VL-Reranker-8B | `raahemnabeel/qwen3-vl-reranker-8b` | 1 (3) |
 
 ```bash
 mkdir -p /opt/tenstorrent/models/ttdr && cp configs/chat_templates/ornith.jinja /opt/tenstorrent/models/ttdr/
-tt serve raahemnabeel/ornith-1.5-35b-a3b --yes --port 8000 -- --profile p300 --chat-template /hf/ttdr/ornith.jinja
-tt serve tt-hous/embeddinggemma-2 --yes --port 8001
-tt serve tt-hous/laya --yes --port 8002
+tt serve raahemnabeel/ornith-1.5-35b-a3b --yes --port 8000 -- --profile p300 --chat-template /hf/ttdr/ornith.jinja --max-num-batched-tokens 262144
+tt serve raahemnabeel/qwen3-vl-embedding-8b --yes --port 8005
+tt serve raahemnabeel/qwen3-vl-reranker-8b --yes --port 8004
 ```
+
+Ornith takes about 10 minutes from a first pull (4–5 cached). The claim checker (`verify`) is Ornith itself; recipes such as `recipes/kev.toml` put a separate decision model on chip 3 instead of the reranker (Laya, below, is the one the earlier A/Bs used).
 
 **Ornith chat template.** Ornith's stock template raises "No user query found" when a request has no user turn. AI-Q's intent classifier sends system-only prompts. `configs/chat_templates/ornith.jinja` is the stock template with that one `raise` replaced by a fallback (a one-line diff). It's mounted through `/opt/tenstorrent/models`, which the container sees as `/hf`.
 

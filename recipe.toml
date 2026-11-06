@@ -16,6 +16,7 @@ chat_template = "configs/chat_templates/ornith.jinja"
 # the bundle prefix-caches text requests and never caches requests with images.
 serve_args = ["--max-num-batched-tokens", "262144"]
 serve_order = 0
+max_state_tokens = 8192   # Ornith checks claims (decide): it reads the whole passage at once
 
 [models.embeddinggemma]
 kind = "embed"
@@ -47,11 +48,21 @@ max_state_tokens = 512
 prefetch = ["convaiinnovations/laya@7b928d828b7b0e022f929d9bd2e44165aa270148"]
 serve_order = 2
 
+# Qwen3-VL-Reranker-8B on chip 3 reorders the top 30 search candidates (docs/LOG.md).
+[models.reranker]
+kind = "rerank"
+bundle = "raahemnabeel/qwen3-vl-reranker-8b"
+model = "Qwen/Qwen3-VL-Reranker-8B"
+url = "http://localhost:8004/v1"
+serve_order = 3
+instruction = "Given a research question, retrieve passages that contain information needed to answer it"
+
 [roles]
 llm = "ornith"
 embed = "qwen3vl_embed"      # embeddinggemma: the previous default (collection chunks)
 # judge = ...        # optional on-box judge for quick checks (defaults to llm); decisions use the Claude judge
-decide = "laya"      # optional: without it, verify and triage are off
+decide = "ornith"    # optional: without it, verify and triage are off (recipes/kev.toml etc. swap in a decision model)
+rerank = "reranker"  # optional: without it, embedding order
 # ocr = "ornith"     # optional: OCR with a vision model on the chips instead of PaddleOCR on the CPU
 
 [services]

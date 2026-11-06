@@ -90,7 +90,9 @@ def test_rerank_overlay_serves_a_reranker_on_chip_3_with_ornith_verifying():
     assert r.roles["decide"] == "ornith"
     reranker = connect(r, httpx.AsyncClient()).rerank
     assert reranker.instruction and reranker.query_template == "{query}"
-    assert connect(RECIPE, httpx.AsyncClient()).rerank is None
+    assert (
+        connect(recipe.load(ROOT / "recipes" / "minimal.toml"), httpx.AsyncClient()).rerank is None
+    )
 
 
 def test_corpus_catalog_reaches_mcp_harness_and_aiq():

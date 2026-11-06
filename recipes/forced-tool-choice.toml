@@ -5,3 +5,7 @@ extends = "../recipe.toml"
 # The A/B against the default is in docs/LOG.md (2026-10-29).
 [features]
 auto_tool_choice = false
+
+[roles]
+decide = "laya"   # as the A/B ran: Laya checks claims, no reranker
+rerank = ""

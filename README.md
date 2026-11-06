@@ -14,7 +14,7 @@ More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHI
 
 ## The stack
 
-Recommended serving (docs/LOG.md, 2026-11-05) is the same three models as one cohost bundle on all four chips; the default recipe still serves them separately:
+The default recipe serves three models on separate chips (what the A/Bs ran on); the cohost recipe serves the same three as one bundle on all four chips:
 
 | Chip | Model | Role |
 |---|---|---|
@@ -25,8 +25,8 @@ Recommended serving (docs/LOG.md, 2026-11-05) is the same three models as one co
 Two ways to serve them with the same app; pick one recipe and pass it to `ttdr up`:
 
 ```bash
-# Separate bundles, one per chip group: the embedder and reranker take images (scans are searchable at once)
-uv run ttdr up --recipe recipes/rerank.toml
+# Separate bundles, one per chip group (the default recipe): the embedder and reranker take images
+uv run ttdr up
 
 # One cohost bundle on all four chips: fastest, but its embedder and reranker are text-only for now
 # (needs tt-model with mixed cohost groups:
@@ -102,7 +102,7 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-Recipes worth knowing: `recipe.toml` (default), `recipes/rerank.toml` (with the reranker; what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (recommended: the 35B, embedder and reranker as one bundle on all four chips; serve it with `tt-model serve raahemnabeel/cohost-ornith-35b-qwen3vl --local-only --port 8000 --detach`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
+Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank.toml` is the same setup under its old name, what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (recommended: the 35B, embedder and reranker as one bundle on all four chips; serve it with `tt-model serve raahemnabeel/cohost-ornith-35b-qwen3vl --local-only --port 8000 --detach`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
 
 ## Layout
 

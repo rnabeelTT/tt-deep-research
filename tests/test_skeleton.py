@@ -14,9 +14,10 @@ def _mock(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def test_recipe_loads():
+def test_default_recipe_serves_the_three_models_on_separate_chips():
     assert RECIPE.llm.profile == "p300"
-    assert RECIPE.decide.url.endswith(":8002")
+    assert list(RECIPE.served()) == ["ornith", "qwen3vl_embed", "reranker"]
+    assert RECIPE.decide == RECIPE.llm and RECIPE.embed.vision
 
 
 def test_embedder_calls_endpoint_from_recipe():
@@ -43,7 +44,7 @@ def test_decider_posts_systemone():
 
     async def go():
         async with _mock(handler) as http:
-            return await connect(RECIPE, http).decide.ask("s", {"q": {"type": "noul"}})
+            return await client(http, RECIPE.models["laya"]).ask("s", {"q": {"type": "noul"}})
 
     assert asyncio.run(go())["q"]["noul"] == 0.9
 

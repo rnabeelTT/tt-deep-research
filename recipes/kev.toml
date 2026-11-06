@@ -11,4 +11,5 @@ prefetch = ["jaredpalmer/kev-9b@db029f08b290afd9fee4aa4bbcd9ae48602d1eb0"]
 serve_order = 2
 
 [roles]
+rerank = ""   # as the A/B ran: no reranker (the default has one on chip 3)
 decide = "kev"
