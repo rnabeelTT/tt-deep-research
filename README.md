@@ -12,6 +12,10 @@ The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a rese
 
 More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), other clients of the engine (Hermes, coding agents, scripts) in [docs/CLIENTS.md](docs/CLIENTS.md), evals in [docs/EVALS.md](docs/EVALS.md) and [docs/DATASETS.md](docs/DATASETS.md), every A/B in [docs/LOG.md](docs/LOG.md), what we learned in [docs/JOURNEY.md](docs/JOURNEY.md), published competitor scores in [docs/COMPETITORS.md](docs/COMPETITORS.md), the demo plan in [docs/DEMO.md](docs/DEMO.md).
 
+## On another machine
+
+Clone this repo, `uv sync`, `uv run ttdr up` (bundles download from Hugging Face). Collections and indexes are data, not code: index your own documents there, or copy this box's search indexes and restore them instead of re-embedding (`uv run ttdr corpus snapshot`, then `scripts/setup-evals.sh <dir>`; docs/EVALS.md). API keys go in `.env` by hand; web search works without one (SearXNG).
+
 ## The stack
 
 The default recipe serves three models on separate chips (what the A/Bs ran on); the cohost recipe serves the same three as one bundle on all four chips:
