@@ -838,3 +838,23 @@ Checks on hardware (profile `ornith35b-vision`):
 **Published** `raahemnabeel/cohost-ornith-35b-qwen3vl` with `ornith35b-vision` as its default profile (the text-only `ornith35b` stays) and a card with these numbers. Served back from the Hub by name with its default profile, the checks repeat exactly. The 122B bundle isn't rebuilt or validated with vision.
 
 **The app on it:** `recipes/ornith-35b-cohost.toml` serves the vision profile with `vision` on, and the deployment runs it. A scanned upload is indexed in 2 s by its page image, then its OCR text 140 s later. **Bug found and fixed:** the OCR text's first chunk had the page image's ID (`doc#p0.0`) and overwrote its vector once OCR landed. OCR chunks are now numbered from `.1`. Search for the scanned invoice now returns both the OCR chunk and the page image.
+
+## The other cohost bundles: 122B and Qwen3.8-27B, published with vision (2026-11-06)
+
+Same image fixes as the 35B, plus two the Qwen3.8 image needed (fork branch `raahem/cohost-ornith-qwen3vl`, pushed):
+- **Its transformers (5.17) dropped `fast_pos_embed_interpolate`.** The tower now computes the position embedding itself, copied from 5.12; checked bit-identical on five grids.
+- **The tower's weight cache path had no model in it** (`TT_CACHE_PATH/<device>`), so it loaded Qwen3.8's own vision merger (5,120 wide) from there. Each tower now caches under its checkpoint's own namespace. In the Ornith images the embedder's and reranker's towers shared that path, which was harmless there: all 351 of their vision tensors are bit-identical (both fine-tuned from Qwen3-VL-8B with the tower frozen), so the published 35B and 122B images stand.
+
+| bundle | vision profile | default | LLM, 1 user / 8 users | DRAM per chip | checks |
+|---|---|---|---|---|---|
+| `cohost-ornith-35b-qwen3vl` | `ornith35b-vision` | vision | 212 / 839 tok/s | 24.87 GiB | all pass |
+| `cohost-ornith-122b-qwen3vl` | `ornith122b-vision` | vision | 147.6 / 364 tok/s | 28.73 GiB | all pass |
+| `cohost-qwen38-27b-qwen3vl` | `qwen38-vision` (KV pool 131,072 tokens, to fit) | text (`qwen38`, 262,144) | 76 / 354 tok/s | 27.91 GiB | all pass |
+
+"All pass": page-image embeddings vs the separate embedder's stored vectors (cosine 0.995, 12/12 nearest their own), text embeddings 0.9995, the reranker's source-page test 8/8, the LLM's greedy output unchanged 8/8 with images flowing, images from 40×40 to 4000×5000 px, two-image inputs refused with HTTP 400, and no programs compiled after capture by the 8B models.
+
+Qwen3.8's package had never run on hardware before. Its first vision boot ran out of DRAM, hence the smaller KV pool for that profile. **Open issue:** Qwen3.8 itself compiles programs after its trace captures on both profiles (4 after a dozen chats, 54 after a longer mixed run). Its answers stayed correct and repeatable, and it's on the card; it's in the LLM member's warm-up, not the vision path.
+
+**For another machine:** the code, recipes and bundles are all pushed (this repo; tt-metal fork branch `raahem/cohost-ornith-qwen3vl`; tt-model fork branch `raahem/cohost-mixed-groups`; the three bundles on HF). This box's search indexes are snapshotted in `data/snapshots` (12 GB, ignored by git, internal use only); restore them with `scripts/setup-evals.sh <dir>` (docs/EVALS.md). The board was freed afterwards (no model servers running).
+
+Also found and reverted a garbled edit to `recipes/rerank.toml` (made at 21:55, not by this work; a copy is kept outside the repo). It had broken both that recipe and the cohost recipe that extends it. Every recipe loads again.
