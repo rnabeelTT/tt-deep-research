@@ -28,13 +28,13 @@ Two ways to serve them with the same app; pick one recipe and pass it to `ttdr u
 # Separate bundles, one per chip group (the default recipe): the embedder and reranker take images
 uv run ttdr up
 
-# One cohost bundle on all four chips: fastest, but its embedder and reranker are text-only for now
+# One cohost bundle on all four chips: fastest; the embedder and reranker take images too (one per input)
 # (needs tt-model with mixed cohost groups:
 #  uv tool install --force git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups)
 uv run ttdr up --recipe recipes/ornith-35b-cohost.toml
 ```
 
-To switch, stop the running models first (`uv run ttdr down --models --recipe <the recipe now serving>`), then `ttdr up` with the other. Uploaded scans are OCR'd either way; with the text-only embedder they become searchable once OCR has read them.
+To switch, stop the running models first (`uv run ttdr down --models --recipe <the recipe now serving>`), then `ttdr up` with the other. Either way, uploaded scans are searchable by their page image at once and by their OCR text once it lands.
 
 | Layer | What |
 |---|---|
@@ -83,7 +83,7 @@ Documents live in collections; a fresh install has none, and agents are told onl
 - **Named collections:** in the Files tab, "+ New collection" takes a name and a description (agents read it to decide when to search it); open a collection to add, watch and delete its files. From a folder: `ttdr corpus upload ~/contracts --collection contracts --description "Signed leases and supplier contracts"`.
 - **Choose what to search:** every collection with documents is a switch in the data-sources panel, beside web search. Research searches only the ones switched on.
 
-Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are queued for OCR and each page's OCR text is embedded and BM25-indexed when it lands. With a multimodal embedder the scan is also embedded as a page image, so search finds it at once; with a text-only one (the cohosted bundle) the upload waits up to 15 minutes for OCR, and pages read later are indexed in the background. Delete a file in the Files tab to drop it from the index. The UI caps uploads at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap. Benchmark document sets (`ttdr corpus fetch`) appear as collections only once indexed.
+Each file is indexed in the background: text chunks embedded and BM25-indexed; scanned pages are queued for OCR and each page's OCR text is embedded and BM25-indexed when it lands. The scan is also embedded as a page image, so search finds it at once (with a recipe whose embedder sets `vision = false`, the upload instead waits up to 15 minutes for OCR, and pages read later are indexed in the background). Delete a file in the Files tab to drop it from the index. The UI caps uploads at 1,000 files and 2 GB (`TTDR_UPLOAD_MAX_FILES`, `TTDR_UPLOAD_MAX_MB`); the CLI has no cap. Benchmark document sets (`ttdr corpus fetch`) appear as collections only once indexed.
 
 ## Commands
 
