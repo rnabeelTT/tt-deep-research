@@ -792,3 +792,12 @@ Both ran far slower than the other suites (median 12 and 18 minutes per question
 - **The planner's first hand-off often failed:** it passed `sources=` to the task tool, which takes only a description, and the error showed in the research panel before it retried. The planner prompt now says to put the sources in the description.
 - **Tasks tab showed identical rows:** titles were each brief's first sentence, often the same generic line ("Research the Kestrel Ridge … project."). Titles are now the brief's first 200 characters.
 - Recordings (1080p, research panel open throughout): documents (3M capex), chart reading (Activision capex, two `read_page` calls), web + documents report (AMD), a collection of four uploaded files including a scan, and `tt launch deep-research`.
+
+## Redis keys without an expiry, reviewed (2026-11-06)
+
+Request-scoped keys expire (passages `ev:*` 7 days, `cache:*` 24 hours). The OCR keys don't, on purpose: OCR text is index data tied to a document (like its Qdrant vectors), and a page costs 1–2.5 min of CPU to read again. The review found two real gaps, both fixed:
+
+- **Deleting a document left its OCR text, demand count and pending mark in Redis.** `OcrQueue.forget(doc)` now removes them; deleting a file from a collection calls it. Checked on the live Redis with throwaway keys.
+- **A worker restarted mid-page lost the job and left the page in `ocr:pending` forever,** so no later search could queue it again (seven pages were stuck). The worker now takes jobs with `BLMOVE` into `ocr:processing`, removes them when done, and puts unfinished ones back on the queue at start-up. Checked on a scratch Redis database by simulating a crash; the seven stuck marks were cleared and the worker redeployed.
+
+Also: the planner prompt no longer shows `search sources=...` syntax (the planner has no search tool and copied those arguments into `task` calls, which Deep Agents rejects before the planner retries).

@@ -26,6 +26,11 @@ def page_key(doc: str, page: int) -> str:
     return f"{doc}#p{page}"
 
 
+def glob_escape(s: str) -> str:
+    """Redis MATCH patterns treat these as wildcards."""
+    return "".join("\\" + c if c in "*?[]\\" else c for c in s)
+
+
 class OcrQueue:
     def __init__(self, redis: Redis):
         self.redis = redis
@@ -39,6 +44,16 @@ class OcrQueue:
         await self.redis.zincrby(HITS, 1, key)
         if await self.redis.sadd(PENDING, key):
             await self.redis.lpush(QUEUE, _job(corpus, doc, page))
+
+    async def forget(self, doc: str) -> None:
+        """Drop a deleted document's OCR text, demand count and queue mark."""
+        prefix = glob_escape(page_key(doc, 0)[:-1])
+        if keys := [k async for k in self.redis.scan_iter(match=TEXT.format(page=prefix + "*"))]:
+            await self.redis.delete(*keys)
+        if hits := [k async for k, _ in self.redis.zscan_iter(HITS, match=prefix + "*")]:
+            await self.redis.zrem(HITS, *hits)
+        if pending := [k async for k in self.redis.sscan_iter(PENDING, match=prefix + "*")]:
+            await self.redis.srem(PENDING, *pending)
 
     async def backfill(self, pages: list[tuple[str, str, int]]) -> int:
         """Queue every flagged page not yet done, most-retrieved first."""

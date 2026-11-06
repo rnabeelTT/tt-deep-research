@@ -261,6 +261,8 @@ class Collection:
 
     async def _remove(self, f: File) -> None:
         await self.corpus.delete_document(f.doc)
+        if self.ocr:
+            await self.ocr.forget(f.doc)
         for s in (".pdf", ".txt"):
             (self.root / f"{f.doc}{s}").unlink(missing_ok=True)
 
