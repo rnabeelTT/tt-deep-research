@@ -173,8 +173,8 @@ async def _release(event):
         ([], "all", ()),
         (["docs:contracts"], "corpus", ("contracts",)),
         (["web", "docs:contracts", "docs:library"], "all", ("contracts", "library")),
-        (["web", "knowledge_layer"], "all", ("library",)),
-        (["docs:contracts", "knowledge_layer"], "corpus", ("contracts", "library")),
+        (["web", "knowledge_layer"], "web", ()),
+        (["docs:contracts", "knowledge_layer"], "corpus", ("contracts",)),
     ],
 )
 def test_data_sources_choose_the_search_scope(client, made, selected, scope, corpora):

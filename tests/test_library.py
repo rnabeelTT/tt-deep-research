@@ -227,14 +227,15 @@ def test_chats_upload_to_the_library_and_named_collections_are_data_sources(tmp_
         sources = {s["id"]: s for s in client.get("/v1/data_sources").json()}
         assert list(sources) == [
             "web",
+            "docs:library",
             "docs:contracts",
             "docs:financebench",
-            "docs:library",
             "knowledge_layer",
         ]
         assert sources["docs:contracts"]["description"] == "Leases"
         assert sources["docs:financebench"]["description"] == "10-K filings"
-        assert sources["docs:library"]["name"] == "My uploads"
+        assert sources["docs:library"]["name"] == "Default collection"
+        assert "shared by all chats" in sources["docs:library"]["description"]
 
         r = client.request(
             "DELETE", f"/v1/collections/{CHAT_2}/documents", json={"file_ids": [file_id]}
