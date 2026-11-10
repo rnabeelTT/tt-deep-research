@@ -52,15 +52,13 @@ Record at 1080p with a clean browser profile, after a warm-up query so prefix ca
 
 ## Recording day
 
-The stack for every recording and live demo is the final-run stack: one cohost bundle (Ornith 1.5 35B-A3B, Qwen3-VL embedder and reranker) on all four chips, `recipes/ornith-35b-cohost.toml`.
+The stack for recordings and live demos is the default recipe, `recipe.toml`: the three models on separate chips (Ornith 1.5 35B-A3B on chips 0–1, Qwen3-VL embedder on 2, reranker on 3), all three taking images. The final benchmark runs used the cohost bundle on all four chips (`recipes/ornith-35b-cohost.toml`), which still works with the same app: pass it to `ttdr up --recipe`.
 
 **Before recording**
 
 1. No evals running: `ps -eo pid,args | grep 'ttdr eval run'` is empty. Evals share the LLM, and a live question at 7 concurrent conversations runs 2–3× slower.
-2. Models up: `curl -s localhost:8006` shows `ornith`, `embed` and `rerank` all `"ready": true`. If not: `tt-model serve raahemnabeel/cohost-ornith-35b-qwen3vl --local-only --port 8000 --detach` (9–12 min cold).
-3. App on the cohost recipe: re-render and restart if anything else ran,
-   `TTDR_PAGES_URL=http://localhost:3000/pages uv run python -c "from pathlib import Path; from ttdr import recipe, aiq_config, stack; p=Path('recipes/ornith-35b-cohost.toml'); r=recipe.load(p); aiq_config.write(r); stack.write_env(stack.compose_env(r,p))"`
-   then `docker compose --profile app up -d --no-deps engine aiq deepagents`.
+2. Models and app up on the default recipe: `uv run ttdr up` serves whichever of the three models isn't answering (largest first, so Ornith gets chips 0–1), renders the app's config and starts it. `uv run ttdr health` shows every model and service ready. If the cohost bundle is still running from another session, stop it first (`tt-model stop raahemnabeel/cohost-ornith-35b-qwen3vl`), or its models answer on the same ports and `ttdr up` keeps it.
+3. The app is on the default recipe: `.env` has `TTDR_RECIPE=recipe.toml` (plain `ttdr up` writes it; `ttdr up --recipe <file>` points it elsewhere).
 4. Warm-up: one short question through :3000, so the prefix cache and the web cache are hot.
 5. Browser: clean profile, 1080p, zoom 110%; terminal font large.
 
