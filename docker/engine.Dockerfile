@@ -6,6 +6,9 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/ttdr/.venv UV_COMPILE_BYTECODE=1 UV_LINK_MODE=co
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev \
+    # the app runs as the host user (compose `user:`); files keep the checkout's mode, which a
+    # umask like 007 leaves unreadable to others, so make the install readable to everyone
+    && chmod -R a+rX /opt/ttdr
 ENV PATH=/opt/ttdr/.venv/bin:$PATH
 CMD ["ttdr", "mcp"]

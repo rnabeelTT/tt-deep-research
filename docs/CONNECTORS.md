@@ -38,7 +38,7 @@ The upload caps apply to every import, on the server: `TTDR_UPLOAD_MAX_FILES` fi
 | What people see | Cause and fix |
 |---|---|
 | No import buttons | Not set up: the recipe's values are empty (`curl -s localhost:8200/v1/connectors` shows `"configured": false`). |
-| A button disabled, "sign-in needs this app opened at http://localhost:3000" | Open the UI at localhost, or through the SSH port forward shown. |
+| A button disabled, "sign-in needs this app opened at http://localhost:3000" | Open the UI at localhost, or through the SSH port forward shown. Microsoft works from any localhost port; Google only from the ports in `[connectors] origins` (and its OAuth client). |
 | A button disabled, "Not set up on this installation yet" | The development preview is on (`TTDR_CONNECTORS_PREVIEW=1`) and the store has no values. |
 | "Allow pop-ups for this site" | The browser blocked the sign-in window. |
 | Google: `redirect_uri_mismatch` / `origin_mismatch`; Microsoft: "The provided value for the input parameter 'redirect_uri' is not valid" | The origin isn't registered with the OAuth client, or `<origin>/auth/msal-redirect` with the app registration (SETUP.md). |

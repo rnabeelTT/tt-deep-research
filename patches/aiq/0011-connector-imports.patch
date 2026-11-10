@@ -3275,10 +3275,10 @@ index 0000000..002f1b5
 +})
 diff --git a/frontends/ui/src/features/documents/connectors/onedrive.ts b/frontends/ui/src/features/documents/connectors/onedrive.ts
 new file mode 100644
-index 0000000..5fe96d4
+index 0000000..31ceecb
 --- /dev/null
 +++ b/frontends/ui/src/features/documents/connectors/onedrive.ts
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,211 @@
 +// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -3361,8 +3361,9 @@ index 0000000..5fe96d4
 +  }
 +}
 +
++/** Microsoft matches a loopback redirect URI on any port, so any localhost port works */
 +const blockedAt = (config: Record<string, unknown>, origin: string): SignInBlock | null =>
-+  originBlock('Microsoft', config.origins, origin)
++  originBlock('Microsoft', config.origins, origin, true)
 +
 +/** MSAL clients by client ID and authority: one per kind of account */
 +const apps = new Map<string, Promise<IPublicClientApplication>>()
@@ -3489,12 +3490,64 @@ index 0000000..5fe96d4
 +  cached.clear()
 +  apps.clear()
 +}
+diff --git a/frontends/ui/src/features/documents/connectors/origins.spec.ts b/frontends/ui/src/features/documents/connectors/origins.spec.ts
+new file mode 100644
+index 0000000..df2481e
+--- /dev/null
++++ b/frontends/ui/src/features/documents/connectors/origins.spec.ts
+@@ -0,0 +1,46 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++import { describe, test, expect } from 'vitest'
++import { originBlock } from './origins'
++import { oneDrivePicker } from './onedrive'
++import { googleDrivePicker } from './google-drive'
++
++const REGISTERED = ['http://localhost:3000']
++
++describe('originBlock', () => {
++  test('a registered origin signs in', () => {
++    expect(originBlock('Google', REGISTERED, 'http://localhost:3000')).toBeNull()
++  })
++
++  test('another port is refused unless any loopback port is allowed', () => {
++    expect(originBlock('Google', REGISTERED, 'http://localhost:4123')).toMatchObject({
++      reason: expect.stringContaining('http://localhost:3000'),
++      command: 'ssh -L 3000:localhost:3000 <user>@<host>',
++    })
++    expect(originBlock('Microsoft', REGISTERED, 'http://localhost:4123', true)).toBeNull()
++    expect(originBlock('Microsoft', REGISTERED, 'http://localhost', true)).toBeNull()
++  })
++
++  test('any port still needs the same loopback host and scheme', () => {
++    expect(originBlock('Microsoft', REGISTERED, 'http://127.0.0.1:3000', true)).not.toBeNull()
++    expect(originBlock('Microsoft', REGISTERED, 'https://localhost:3000', true)).not.toBeNull()
++    expect(originBlock('Microsoft', REGISTERED, 'http://quietbox:3000', true)).not.toBeNull()
++    expect(
++      originBlock('Microsoft', ['http://127.0.0.1:3000'], 'http://127.0.0.1:8080', true)
++    ).toBeNull()
++  })
++
++  test('nothing registered: no block', () => {
++    expect(originBlock('Google', [], 'http://anything:1')).toBeNull()
++  })
++})
++
++describe('per store', () => {
++  const config = { origins: REGISTERED }
++
++  test('Microsoft signs in from any localhost port; Google only from the registered one', () => {
++    expect(oneDrivePicker.blockedAt(config, 'http://localhost:4123')).toBeNull()
++    expect(googleDrivePicker.blockedAt(config, 'http://localhost:4123')).not.toBeNull()
++  })
++})
 diff --git a/frontends/ui/src/features/documents/connectors/origins.ts b/frontends/ui/src/features/documents/connectors/origins.ts
 new file mode 100644
-index 0000000..2b2fee2
+index 0000000..7376297
 --- /dev/null
 +++ b/frontends/ui/src/features/documents/connectors/origins.ts
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,64 @@
 +// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -3502,7 +3555,30 @@ index 0000000..2b2fee2
 + * Where sign-in works. Google's OAuth client and Microsoft's app registration accept sign-in
 + * only from the origins registered with them, and allow plain http only on localhost; the
 + * backend sends that list (the recipe's [connectors] origins) in each connector's config.
++ * Microsoft ignores the port of a loopback redirect URI (localhost, 127.0.0.1), so for it any
++ * port on a registered loopback host works; Google matches the port exactly.
 + */
++
++const LOOPBACK = new Set(['localhost', '127.0.0.1'])
++
++/** ORIGIN is on the same loopback host and scheme as one of REGISTERED, on any port */
++const sameLoopbackHost = (registered: string[], origin: string): boolean => {
++  let here: URL
++  try {
++    here = new URL(origin)
++  } catch {
++    return false
++  }
++  if (!LOOPBACK.has(here.hostname)) return false
++  return registered.some((r) => {
++    try {
++      const url = new URL(r)
++      return url.hostname === here.hostname && url.protocol === here.protocol
++    } catch {
++      return false
++    }
++  })
++}
 +
 +import type { SignInBlock } from './types'
 +
@@ -3511,14 +3587,19 @@ index 0000000..2b2fee2
 +    ? origins.filter((o): o is string => typeof o === 'string' && Boolean(o))
 +    : []
 +
-+/** Null when ORIGIN is registered; otherwise how to open the app so PROVIDER's sign-in works */
++/**
++ * Null when ORIGIN is registered (or, with ANY_LOOPBACK_PORT, on a registered loopback host at
++ * another port); otherwise how to open the app so PROVIDER's sign-in works.
++ */
 +export const originBlock = (
 +  provider: string,
 +  origins: unknown,
-+  origin: string
++  origin: string,
++  anyLoopbackPort = false
 +): SignInBlock | null => {
 +  const registered = originsOf(origins)
 +  if (registered.length === 0 || registered.includes(origin)) return null
++  if (anyLoopbackPort && sameLoopbackHost(registered, origin)) return null
 +  let port = '3000'
 +  try {
 +    const url = new URL(registered[0])
