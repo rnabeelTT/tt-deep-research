@@ -11,6 +11,7 @@ import re
 import time
 import uuid
 import zipfile
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +29,8 @@ if TYPE_CHECKING:
 LIBRARY = "library"
 UNNAMED = "Documents the user uploaded"
 NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,47}")
+MAX_DESCRIPTION = 500
+"""Characters of a collection's description: agents read it to decide when to search it."""
 SESSION = re.compile(r"s_[0-9a-f_]{32,}")
 """The UI names each chat's collection after the chat; those all mean the library."""
 SUFFIXES = (".pdf", ".txt", ".md", ".docx")
@@ -35,6 +38,8 @@ MAX_DOCX_XML = 200 * 1024 * 1024
 OCR_WAIT_S = 900
 OCR_POLL_S = 3
 OCR_FOLLOW_S = 15
+FETCHES = 4
+"""Remote files downloaded at once, per import."""
 WORD = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
@@ -73,6 +78,9 @@ class File:
     """Scanned pages whose text isn't indexed yet: OCR is still reading them, or is off."""
     ingested_at: str | None = None
     error: str | None = None
+    source: dict | None = None
+    """Where an imported file came from: connector, store, item_id, web_url, version and
+    imported_by; None for an upload."""
 
     def info(self, collection: str) -> dict:
         return {
@@ -85,8 +93,25 @@ class File:
             "uploaded_at": self.uploaded_at,
             "ingested_at": self.ingested_at,
             "error_message": self.error,
-            "metadata": {"doc": self.doc, "unread_pages": self.unread_pages},
+            "metadata": {
+                "doc": self.doc,
+                "unread_pages": self.unread_pages,
+                "source": self.source,
+            },
         }
+
+
+@dataclass
+class Remote:
+    """A file to fetch from a document store, or one that can't be, with the reason."""
+
+    name: str
+    size: int = 0
+    fetch: Callable[[], Awaitable[tuple[str, bytes]]] | None = None
+    """Returns the name to save it under (its suffix decides how it's read) and its bytes."""
+    error: str | None = None
+    source: dict | None = None
+    """Where it comes from (File.source); its connector and item_id say when it is already here."""
 
 
 @dataclass
@@ -209,6 +234,51 @@ class Collection:
         job.task = asyncio.create_task(self._index(job))
         return job
 
+    def add_remote(self, remotes: list[Remote]) -> Job:
+        """Like add, but each file is downloaded in the background first, FETCHES at a time; the
+        files show as ingesting at once. A remote with an error is marked failed. A file
+        imported before from the same item is replaced once its new copy is indexed."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        here = {
+            _origin_key(f.source): f.file_id
+            for f in self.files.values()
+            if f.source and f.status != "ingesting"
+        }
+        files, fetches, replaces = [], {}, {}
+        for r in remotes:
+            fid = uuid.uuid4().hex
+            f = File(fid, Path(r.name).name, doc_name(r.name, fid), r.size, source=r.source)
+            if r.error or not r.fetch:
+                f.status, f.error = "failed", r.error or "nothing to fetch"
+            else:
+                fetches[fid] = r.fetch
+                if r.source and (old := here.get(_origin_key(r.source))):
+                    replaces[fid] = old
+            files.append(f)
+            self.files[fid] = f
+        self._save()
+        job = Job(uuid.uuid4().hex, self.name, files)
+        self.jobs[job.id] = job
+        job.task = asyncio.create_task(self._fetch_and_index(job, fetches, replaces))
+        return job
+
+    async def _fetch_and_index(self, job: Job, fetches: dict, replaces: dict | None = None):
+        job.started_at = _now()
+        slots = asyncio.Semaphore(FETCHES)
+
+        async def one(f: File) -> None:
+            async with slots:
+                try:
+                    name, data = await fetches.pop(f.file_id)()
+                    f.file_name, f.size = Path(name).name, len(data)
+                    self._write(f, data)
+                except Exception as e:  # noqa: BLE001 - the UI shows it on the file
+                    f.status, f.error = "failed", str(e) or type(e).__name__
+
+        await asyncio.gather(*(one(f) for f in job.files if f.file_id in fetches))
+        self._save()
+        await self._index(job, (replaces or {}).copy())
+
     def _write(self, f: File, data: bytes) -> None:
         suffix = Path(f.file_name).suffix.lower()
         if suffix not in SUFFIXES:
@@ -226,9 +296,11 @@ class Collection:
     def _path(self, f: File) -> Path:
         return next(p for s in (".pdf", ".txt") if (p := self.root / f"{f.doc}{s}").exists())
 
-    async def _index(self, job: Job) -> None:
+    async def _index(self, job: Job, replaces: dict[str, str] | None = None) -> None:
+        """Index the job's files; REPLACES maps a new file to the older copy it supersedes,
+        removed once the new one is indexed (a failed re-import keeps the old copy)."""
         async with self._turn:
-            job.started_at = _now()
+            job.started_at = job.started_at or _now()
             with ProcessPoolExecutor(1) as pool:
                 for f in job.files:
                     if f.status != "ingesting":
@@ -247,8 +319,14 @@ class Collection:
                         f.status, f.error = "failed", f"{type(e).__name__}: {e}"
                         await self._remove(f)
                     self._save()
+            stale = [old for new, old in (replaces or {}).items() if self._ok(new)]
+            if stale:
+                await self.delete(stale)
             job.completed_at = _now()
         self.follow()
+
+    def _ok(self, file_id: str) -> bool:
+        return (f := self.files.get(file_id)) is not None and f.status == "success"
 
     async def _read_scans(self, f: File, deadline: float = 0) -> None:
         """Index the text of each unread page OCR has finished, until DEADLINE (once if past)."""
@@ -293,6 +371,61 @@ class Collection:
             del self.files[f.file_id]
         self._save()
         return len(gone)
+
+
+def _origin_key(source: dict) -> tuple[str, str]:
+    return str(source.get("connector", "")), str(source.get("item_id", ""))
+
+
+_ORIGINS: dict[Path, tuple[float, dict[str, dict]]] = {}
+
+
+def origins(root: Path = CORPORA_DIR) -> dict[str, dict]:
+    """Each collection document's file name and, for an import, its source, by document name:
+    what citations show. Reread only when a manifest changes."""
+    found: dict[str, dict] = {}
+    for manifest in root.glob("*/files.jsonl"):
+        try:
+            mtime = manifest.stat().st_mtime
+            if (cached := _ORIGINS.get(manifest)) is None or cached[0] != mtime:
+                docs = {}
+                for line in manifest.read_text().splitlines():
+                    d = json.loads(line)
+                    docs[d["doc"]] = {
+                        "file_name": d["file_name"],
+                        "source": d.get("source"),
+                        "uploaded_at": d.get("uploaded_at"),
+                    }
+                cached = _ORIGINS[manifest] = (mtime, docs)
+        except (OSError, ValueError, KeyError):
+            continue
+        found.update(cached[1])
+    return found
+
+
+def _day(iso: str | None) -> str:
+    """10 Nov 2026, from an ISO timestamp; empty if there isn't one."""
+    try:
+        when = datetime.fromisoformat(iso or "")
+    except ValueError:
+        return ""
+    return f"{when.day} {when:%b %Y}"
+
+
+def cited_title(doc: str, root: Path = CORPORA_DIR) -> str:
+    """How citations name a document: its file name and, for an import, where the original lives
+    and when this copy was taken, since the original may have changed since ("Q3 report.pdf
+    (SharePoint, imported 10 Nov 2026: https://...)"); the document name when it isn't a
+    collection's."""
+    if not (origin := origins(root).get(doc)):
+        return doc
+    source = origin["source"] or {}
+    if not (url := source.get("web_url")):
+        return origin["file_name"]
+    store = source.get("store") or "source"
+    day = _day(origin.get("uploaded_at"))
+    where = f"{store}, imported {day}" if day else store
+    return f"{origin['file_name']} ({where}: {url})"
 
 
 def described(root: Path = CORPORA_DIR) -> dict[str, str]:
@@ -342,7 +475,7 @@ class Library:
         if (self.root / name).exists():
             raise ValueError(f"{name!r} is already a document set that isn't a collection")
         c = self._open(name)
-        c.describe(description or "")
+        c.describe(" ".join((description or "").split())[:MAX_DESCRIPTION])
         self.collections[name] = c
         return c
 

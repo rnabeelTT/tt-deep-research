@@ -9,6 +9,7 @@ import httpx
 from redis.asyncio import Redis
 
 from ttdr.clients import Clients, connect, reasoning_params
+from ttdr.corpus.library import cited_title
 from ttdr.corpus.store import Hit
 from ttdr.engine import fetch, web
 from ttdr.engine.evidence import Evidence, EvidenceStore
@@ -110,7 +111,8 @@ class Engine:
                 await self.ocr.request(h.corpus, h.doc, h.page)
                 text, flags = text or PENDING_NOTE, (*flags, "unverified")
         url = f"corpus://{h.doc}#page={h.page + 1}"
-        return Evidence(h.id, h.corpus, h.doc, url, text, round(h.score, 3), flags)
+        title = cited_title(h.doc)  # an imported file's name and its link in the store
+        return Evidence(h.id, h.corpus, title, url, text, round(h.score, 3), flags)
 
     async def search(
         self, query: str, sources: str = "all", k: int = 8, corpus: str | None = None
@@ -175,8 +177,8 @@ class Engine:
         passage from each page."""
         first: dict[tuple[str, str], int] = {}
         for i, e in enumerate(items):
-            if e.source != "web" and PAGE_ID.match(e.id):
-                first.setdefault((e.title, PAGE_ID.match(e.id)[2]), i)
+            if e.source != "web" and (m := PAGE_ID.match(e.id)):
+                first.setdefault((m[1], m[2]), i)
         picked = list(first.values())[: self.recipe.features.read_pages]
         readings = await asyncio.gather(*(self.read_page(items[i].id, query) for i in picked))
         items = list(items)
