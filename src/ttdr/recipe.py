@@ -153,6 +153,21 @@ class OneDrive(BaseModel):
     from only that organization; empty accepts any organization."""
 
 
+class Lawmatics(BaseModel):
+    """A Lawmatics developer app for importing matter files (docs/CONNECTORS.md#lawmatics). Its
+    client secret is never in the recipe: TTDR_LAWMATICS_CLIENT_SECRET in .env. Empty client_id
+    or secret leaves the import off. The URLs default to what Lawmatics' docs suggest; they're
+    settings because the OAuth setup guide wasn't readable when this was written."""
+
+    client_id: str = ""
+    """The developer app's client ID."""
+    authorize_url: str = "https://app.lawmatics.com/oauth/authorize"
+    token_url: str = "https://api.lawmatics.com/oauth/token"
+    api_url: str = "https://api.lawmatics.com/v1"
+    scope: str = ""
+    """OAuth scopes to ask for, space-separated; empty asks for the app's defaults."""
+
+
 class Connectors(BaseModel):
     """Document stores users can import from in the web UI (docs/CONNECTORS.md)."""
 
@@ -161,6 +176,7 @@ class Connectors(BaseModel):
     Microsoft app's redirect URIs are registered for exactly these."""
     google_drive: GoogleDrive = GoogleDrive()
     onedrive: OneDrive = OneDrive()
+    lawmatics: Lawmatics = Lawmatics()
 
     @field_validator("origins")
     @classmethod

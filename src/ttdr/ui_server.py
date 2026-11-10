@@ -452,6 +452,63 @@ def build(
     def refused(detail: str, status: int) -> JSONResponse:
         return JSONResponse({"detail": detail}, status_code=status, headers=NO_STORE)
 
+    async def small_json(request: Request) -> dict | JSONResponse:
+        """The request's JSON object, or the response refusing it (too large, not an object)."""
+        if int(request.headers.get("content-length") or 0) > MAX_IMPORT_BODY:
+            return refused("request too large", 413)
+        body = await request.body()
+        if len(body) > MAX_IMPORT_BODY:
+            return refused("request too large", 413)
+        try:
+            payload = json.loads(body)
+        except ValueError:
+            payload = None
+        return payload if isinstance(payload, dict) else refused("expected a JSON object", 400)
+
+    async def connector_call(request: Request, method: str, call):
+        """Run one of a connector's server-side steps (finishing a sign-in, browsing), mapping
+        its errors to statuses the UI shows; the credential is never echoed or logged."""
+        connector = connectors.get(request.path_params["connector"])
+        if not connector or not hasattr(connector, method):
+            return refused(f"{request.path_params['connector']!r} doesn't {method} here", 404)
+        payload = await small_json(request)
+        if isinstance(payload, JSONResponse):
+            return payload
+        try:
+            return JSONResponse(await call(connector, payload), headers=NO_STORE)
+        except (KeyError, TypeError):
+            return refused("missing or malformed fields", 400)
+        except AuthError as e:
+            return refused(str(e), 401)
+        except Unavailable as e:
+            return refused(str(e), 502)
+        except ConnectorError as e:
+            return refused(str(e), 400)
+
+    async def connector_token(request: Request):
+        """Finish a sign-in for a store whose app has a secret: {code, verifier, redirect_uri}
+        to {access_token, expires_in}."""
+
+        async def call(connector, p):
+            fields = (p["code"], p.get("verifier", ""), p["redirect_uri"])
+            if not all(isinstance(f, str) for f in fields):
+                raise TypeError
+            return await connector.exchange(*fields)
+
+        return await connector_call(request, "exchange", call)
+
+    async def connector_browse(request: Request):
+        """One page of a store's browser: {credential, request} to what the connector lists."""
+
+        async def call(connector, p):
+            credential, what = p["credential"], p["request"]
+            if not isinstance(credential, str) or not isinstance(what, dict):
+                raise TypeError
+            await connector.authorize(credential)
+            return await connector.browse(credential, what)
+
+        return await connector_call(request, "browse", call)
+
     async def import_items(request: Request):
         """Import the items a user picked in a connector's picker into a collection, as one
         ingestion job the UI polls like an upload."""
@@ -537,6 +594,8 @@ def build(
                     ),
                     Route("/v1/documents/{job_id}/status", ingest_status),
                     Route("/v1/connectors", list_connectors),
+                    Route("/v1/connectors/{connector}/token", connector_token, methods=["POST"]),
+                    Route("/v1/connectors/{connector}/browse", connector_browse, methods=["POST"]),
                     Route(
                         "/v1/collections/{name}/import/{connector}",
                         import_items,

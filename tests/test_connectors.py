@@ -406,6 +406,7 @@ def test_the_ui_imports_picked_items_into_a_collection_and_polls_the_job(tmp_pat
                 },
                 {"id": "google-drive", "name": "Google Drive", "configured": False, "config": {}},
                 {"id": "onedrive", "name": "OneDrive", "configured": False, "config": {}},
+                {"id": "lawmatics", "name": "Lawmatics", "configured": False, "config": {}},
             ],
             "preview": False,
         }
@@ -498,6 +499,7 @@ def test_preview_lists_unconfigured_stores_for_the_ui_to_show_disabled(tmp_path,
     assert [(c["id"], c["configured"]) for c in listed["connectors"]] == [
         ("google-drive", False),
         ("onedrive", False),
+        ("lawmatics", False),
     ]
 
 

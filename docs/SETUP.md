@@ -151,6 +151,23 @@ A client ID or tenant that isn't a GUID leaves the import off and logs `OneDrive
 
 **Preview (development only).** `TTDR_CONNECTORS_PREVIEW=1` in `.env` shows stores that have no values yet as disabled buttons ("Not set up on this installation yet"), to see the Files tab before the registrations exist. Off by default; never ship it on.
 
+## Lawmatics import (preview)
+
+Unverified against a real firm (docs/CONNECTORS.md#lawmatics-preview-unverified). With a Lawmatics account:
+
+1. **Register an app** in Lawmatics' developer settings (see Lawmatics' "API Authentication: OAuth2 Setup Guide"). Redirect URIs: each `[connectors] origins` entry plus `/auth/lawmatics-redirect`, e.g. `http://localhost:3000/auth/lawmatics-redirect`.
+2. **Values:** the client ID in `recipe.toml`, the secret in `.env` only:
+
+   ```toml
+   [connectors.lawmatics]
+   client_id = "…"
+   ```
+   ```
+   TTDR_LAWMATICS_CLIENT_SECRET=…
+   ```
+   If the guide gives other OAuth or API URLs, set `authorize_url`, `token_url` or `api_url` in the same table; a scope goes in `scope`.
+3. **Check.** `docker compose --profile app up -d deepagents` (or `ttdr up`), then `curl -s localhost:8200/v1/connectors` shows `lawmatics` with `"configured": true` and no secret in its config. Import a matter's PDF, then correct whatever the table of assumptions in CONNECTORS.md got wrong.
+
 ## Smoke tests (raw curl)
 
 ```bash
@@ -236,7 +253,7 @@ The UI runs as a production build: `npm run dev` (Turbopack) hits the OS file-wa
 - `0004-auto-tool-choice`: on by default (`AIQ_AUTO_TOOL_CHOICE=1`, set from the recipe's `features.auto_tool_choice`; `recipes/forced-tool-choice.toml` turns it off): the model chooses its tools instead of LangChain forcing the structured-output tool every turn. Forced choices are served with guided decoding, which slows every request in the batch about 9× on this bundle; AI-Q's text fallbacks recover the structured result when the model answers in JSON text. With it, a deep report takes 18 min instead of 1 h 55 min and FinanceBench is unchanged (docs/LOG.md).
 - `0005-truncation-guard`: after a reply is cut off at `max_tokens`, that agent run continues with thinking off; after three, it is told to return its result now; every agent run is capped at 40 model calls. Without it, a researcher that thinks to the limit never returns a result, and LangChain's structured-output retry asks again until the job times out.
 - `0006-research-time-budget`: research batches may start only in the first half of the job's time limit; after that `run_research_batch` tells the orchestrator to write the report from the notes it has. Without it, a deep job could research until the time limit and end with no report.
-- `0011-connector-imports`: the Files tab's collection picker (the Default collection, named collections, "+ New collection…"; uploads and imports go to the collection shown), the import buttons, one per document store the backend set up (`GET /v1/connectors`), the Google Drive sign-in and picker, the Microsoft sign-in (MSAL) and browser of SharePoint sites and OneDrive, and the dialog that asks which collection imported files go to (docs/CONNECTORS.md). It replaces the earlier `0011-ui-document-collections` Collections section.
+- `0011-connector-imports`: the Files tab's collection picker (the Default collection, named collections, "+ New collection…"; uploads and imports go to the collection shown), the import buttons, one per document store the backend set up (`GET /v1/connectors`), the Google Drive sign-in and picker, the Microsoft sign-in (MSAL) and browser of SharePoint sites and OneDrive, the Lawmatics sign-in (`/auth/lawmatics-redirect`) and matter browser, and the dialog that asks which collection imported files go to (docs/CONNECTORS.md). It replaces the earlier `0011-ui-document-collections` Collections section.
 - `0003-tenstorrent-branding`: the web UI as "Tenstorrent Deep Research": the Tenstorrent mark (from `tenstorrent/tt-metal` docs, see `configs/branding/SOURCE`) instead of NVIDIA's, page title, and the brand colour moved from NVIDIA green to Tenstorrent purple (#7c68fa).
 
 The MCP server answers a repeated search from cache, with a note telling the model it already ran that search.

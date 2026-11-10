@@ -374,7 +374,7 @@ index 0000000..10753cb
 +  })
 +})
 diff --git a/frontends/ui/src/adapters/api/documents-client.ts b/frontends/ui/src/adapters/api/documents-client.ts
-index b104a0b..1572cb2 100644
+index b104a0b..b726271 100644
 --- a/frontends/ui/src/adapters/api/documents-client.ts
 +++ b/frontends/ui/src/adapters/api/documents-client.ts
 @@ -16,8 +16,12 @@ import {
@@ -426,7 +426,7 @@ index b104a0b..1572cb2 100644
  // ============================================================================
  // Client Factory
  // ============================================================================
-@@ -320,6 +353,54 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
+@@ -320,6 +353,114 @@ export const createDocumentsClient = (options: DocumentsClientOptions = {}) => {
        }
      },
  
@@ -476,6 +476,66 @@ index b104a0b..1572cb2 100644
 +        throw new ImportError(detail, response.status)
 +      }
 +      return ImportResponseSchema.parse(await response.json())
++    },
++
++    /**
++     * Finish a sign-in for a store whose app has a secret (Lawmatics): the backend swaps the
++     * code for an access token and keeps nothing.
++     */
++    async connectorToken(
++      connectorId: string,
++      code: string,
++      verifier: string,
++      redirectUri: string,
++      signal?: AbortSignal
++    ): Promise<{ access_token: string; expires_in: number }> {
++      const response = await fetch(
++        `${getDocumentsBaseUrl()}/connectors/${encodeURIComponent(connectorId)}/token`,
++        {
++          method: 'POST',
++          headers: getHeaders(),
++          body: JSON.stringify({ code, verifier, redirect_uri: redirectUri }),
++          cache: 'no-store',
++          signal,
++        }
++      )
++      if (!response.ok) {
++        const detail = await readBackendDetail(response, `Sign-in failed (${response.status})`)
++        throw new ImportError(detail, response.status)
++      }
++      const body = (await response.json()) as { access_token?: unknown; expires_in?: unknown }
++      if (typeof body.access_token !== 'string' || !body.access_token) {
++        throw new ImportError('Sign-in returned no token', 502)
++      }
++      const expires = typeof body.expires_in === 'number' ? body.expires_in : 3600
++      return { access_token: body.access_token, expires_in: expires }
++    },
++
++    /**
++     * One page of a store's browser, listed by the backend with the user's credential (for
++     * stores whose API a web page can't call). The shape of REQUEST and the answer is the store's.
++     */
++    async browseConnector<T>(
++      connectorId: string,
++      credential: string,
++      request: Record<string, unknown>,
++      signal?: AbortSignal
++    ): Promise<T> {
++      const response = await fetch(
++        `${getDocumentsBaseUrl()}/connectors/${encodeURIComponent(connectorId)}/browse`,
++        {
++          method: 'POST',
++          headers: getHeaders(),
++          body: JSON.stringify({ credential, request }),
++          cache: 'no-store',
++          signal,
++        }
++      )
++      if (!response.ok) {
++        const detail = await readBackendDetail(response, `Listing failed (${response.status})`)
++        throw new ImportError(detail, response.status)
++      }
++      return (await response.json()) as T
 +    },
 +
      // --------------------------------------------------------------------------
@@ -549,6 +609,49 @@ index 855e9f5..cb3beb9 100644
  export type {
    DocumentsClient,
    DocumentsClientOptions,
+diff --git a/frontends/ui/src/app/auth/lawmatics-redirect/page.tsx b/frontends/ui/src/app/auth/lawmatics-redirect/page.tsx
+new file mode 100644
+index 0000000..d2edc27
+--- /dev/null
++++ b/frontends/ui/src/app/auth/lawmatics-redirect/page.tsx
+@@ -0,0 +1,37 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++/**
++ * Where Lawmatics' consent page returns (the Lawmatics connector's redirect URI): hands the code
++ * and state to the app tab that started the sign-in, then closes. It uses a same-origin
++ * BroadcastChannel, not window.opener: a consent page can cut the popup off from its opener.
++ */
++
++'use client'
++
++import { type ReactNode, useEffect, useState } from 'react'
++
++const LawmaticsRedirectPage = (): ReactNode => {
++  const [sent, setSent] = useState(false)
++
++  useEffect(() => {
++    const params = new URLSearchParams(window.location.search)
++    const channel = new BroadcastChannel('lawmatics-oauth') // read by connectors/lawmatics.ts
++    channel.postMessage({
++      code: params.get('code'),
++      state: params.get('state'),
++      error: params.get('error_description') || params.get('error'),
++    })
++    channel.close()
++    setSent(true)
++    window.close()
++  }, [])
++
++  return (
++    <main className="text-subtle flex min-h-screen items-center justify-center p-6 text-sm">
++      {sent ? 'This sign-in window can be closed.' : 'Signing in…'}
++    </main>
++  )
++}
++
++export default LawmaticsRedirectPage
 diff --git a/frontends/ui/src/app/auth/msal-redirect/page.tsx b/frontends/ui/src/app/auth/msal-redirect/page.tsx
 new file mode 100644
 index 0000000..cbec51b
@@ -1985,10 +2088,10 @@ index 0000000..1c9681e
 +  })
 diff --git a/frontends/ui/src/features/documents/connectors/index.ts b/frontends/ui/src/features/documents/connectors/index.ts
 new file mode 100644
-index 0000000..aeb9c76
+index 0000000..9c3ab1f
 --- /dev/null
 +++ b/frontends/ui/src/features/documents/connectors/index.ts
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,32 @@
 +// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -1999,12 +2102,14 @@ index 0000000..aeb9c76
 + */
 +
 +import { googleDrivePicker } from './google-drive'
++import { lawmaticsPicker } from './lawmatics'
 +import { oneDrivePicker } from './onedrive'
 +import type { ConnectorPicker } from './types'
 +
 +const PICKERS: Record<string, ConnectorPicker> = {
 +  'google-drive': googleDrivePicker,
 +  onedrive: oneDrivePicker,
++  lawmatics: lawmaticsPicker,
 +}
 +
 +export const getConnectorPicker = (id: string): ConnectorPicker | undefined => PICKERS[id]
@@ -2019,6 +2124,836 @@ index 0000000..aeb9c76
 +  PickOptions,
 +  SignInBlock,
 +} from './types'
+diff --git a/frontends/ui/src/features/documents/connectors/lawmatics-browser.spec.tsx b/frontends/ui/src/features/documents/connectors/lawmatics-browser.spec.tsx
+new file mode 100644
+index 0000000..4d2fceb
+--- /dev/null
++++ b/frontends/ui/src/features/documents/connectors/lawmatics-browser.spec.tsx
+@@ -0,0 +1,104 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++import { describe, test, expect, vi } from 'vitest'
++import { render, screen } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
++import { ImportError } from '@/adapters/api'
++import { LawmaticsBrowser, suggestFor } from './lawmatics-browser'
++
++const MATTERS = [
++  { id: '11', name: 'Smith v. Acme', status: 'hired' },
++  { id: '12', name: 'Estate of Ortiz', status: '' },
++]
++const FILES = [
++  { id: '101', name: 'Engagement letter.pdf', size: 2048, importable: true },
++  { id: '103', name: 'Photo.jpg', size: 50, importable: false },
++]
++
++const backend = () =>
++  vi.fn(async (request: Record<string, unknown>) => {
++    if (request.kind === 'matters') {
++      const q = String(request.query ?? '').toLowerCase()
++      return { matters: MATTERS.filter((m) => m.name.toLowerCase().includes(q)), more: false }
++    }
++    return { files: FILES, more: false }
++  }) as unknown as <T>(request: Record<string, unknown>) => Promise<T>
++
++const show = (browse = backend(), maxItems = 10) => {
++  const onDone = vi.fn()
++  render(
++    <LawmaticsBrowser
++      token="lm-token"
++      maxItems={maxItems}
++      importable={['.pdf']}
++      onDone={onDone}
++      browse={browse}
++    />
++  )
++  return { onDone, browse }
++}
++
++describe('LawmaticsBrowser', () => {
++  test('lists matters, opens one, and imports picked files with a suggestion after it', async () => {
++    const user = userEvent.setup()
++    const { onDone } = show()
++
++    await user.click(await screen.findByRole('button', { name: 'Smith v. Acme' }))
++    expect(await screen.findByText('Engagement letter.pdf')).toBeInTheDocument()
++    expect(screen.getByLabelText('Select Photo.jpg')).toBeDisabled()
++    await user.click(screen.getByLabelText('Select Engagement letter.pdf'))
++    await user.click(screen.getByRole('button', { name: 'Import' }))
++
++    expect(onDone).toHaveBeenCalledWith(
++      [{ id: 'file:101', name: 'Engagement letter.pdf', sizeBytes: 2048 }],
++      undefined,
++      { name: 'smith-v-acme', description: 'Lawmatics matter Smith v. Acme' }
++    )
++  })
++
++  test('a whole matter can be picked from the list', async () => {
++    const user = userEvent.setup()
++    const { onDone } = show()
++    await user.click(await screen.findByLabelText('Select all files of Estate of Ortiz'))
++    await user.click(screen.getByRole('button', { name: 'Import' }))
++    expect(onDone.mock.calls[0][0]).toEqual([
++      { id: 'matter:12', name: 'Estate of Ortiz', sizeBytes: 0 },
++    ])
++  })
++
++  test('searching asks the backend for matching matters', async () => {
++    const user = userEvent.setup()
++    const { browse } = show()
++    await screen.findByText('Smith v. Acme')
++    await user.type(screen.getByRole('searchbox', { name: 'Search matters' }), 'ortiz{Enter}')
++    expect(await screen.findByText('Matters matching “ortiz”')).toBeInTheDocument()
++    expect(browse).toHaveBeenLastCalledWith({ kind: 'matters', query: 'ortiz', page: 1 })
++    expect(screen.queryByText('Smith v. Acme')).not.toBeInTheDocument()
++  })
++
++  test('picks stop at the import limit', async () => {
++    const user = userEvent.setup()
++    show(backend(), 1)
++    await user.click(await screen.findByLabelText('Select all files of Smith v. Acme'))
++    expect(screen.getByLabelText('Select all files of Estate of Ortiz')).toBeDisabled()
++    expect(screen.getByText(/the most for one import/)).toBeInTheDocument()
++  })
++
++  test('an expired sign-in closes the browser with the reason', async () => {
++    const browse = vi.fn(async () => {
++      throw new ImportError('Lawmatics sign-in expired; sign in again', 401)
++    }) as unknown as <T>(request: Record<string, unknown>) => Promise<T>
++    const { onDone } = show(browse)
++    await vi.waitFor(() => expect(onDone).toHaveBeenCalled())
++    expect(onDone.mock.calls[0][1].message).toMatch(/sign-in expired/)
++  })
++})
++
++describe('suggestFor', () => {
++  test('only picks from one matter suggest a collection', () => {
++    expect(suggestFor(new Set(['Smith v. Acme']))?.name).toBe('smith-v-acme')
++    expect(suggestFor(new Set(['A', 'B']))).toBeUndefined()
++    expect(suggestFor(new Set())).toBeUndefined()
++  })
++})
+diff --git a/frontends/ui/src/features/documents/connectors/lawmatics-browser.tsx b/frontends/ui/src/features/documents/connectors/lawmatics-browser.tsx
+new file mode 100644
+index 0000000..362cc78
+--- /dev/null
++++ b/frontends/ui/src/features/documents/connectors/lawmatics-browser.tsx
+@@ -0,0 +1,354 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++/**
++ * Lawmatics browser: the firm's matters (searchable), each matter's files, and a pick of files
++ * or whole matters. Listing goes through our backend with the user's token. Picks from one matter
++ * suggest a collection named after it.
++ */
++
++'use client'
++
++import { type FC, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
++import { createRoot } from 'react-dom/client'
++import { createDocumentsClient, ImportError } from '@/adapters/api'
++import { collectionName } from './onedrive-browser'
++import { PickerError, type CollectionSuggestion, type PickedItem } from './types'
++
++export interface Matter {
++  id: string
++  name: string
++  status?: string
++}
++
++export interface MatterFile {
++  id: string
++  name: string
++  size: number
++  updated_at?: string
++  importable: boolean
++}
++
++interface MattersPage {
++  matters: Matter[]
++  more: boolean
++  next_page?: number
++}
++
++interface FilesPage {
++  files: MatterFile[]
++  more: boolean
++}
++
++export interface LawmaticsBrowserProps {
++  token: string
++  maxItems: number
++  importable: string[]
++  onDone: (items: PickedItem[] | null, error?: Error, suggestion?: CollectionSuggestion) => void
++  /** Test seam: lists through the backend by default */
++  browse?: <T>(request: Record<string, unknown>) => Promise<T>
++}
++
++export interface Browsed {
++  items: PickedItem[]
++  suggestion?: CollectionSuggestion
++}
++
++type View = { kind: 'matters' } | { kind: 'matter'; matter: Matter }
++
++const formatSize = (bytes: number): string => {
++  if (!bytes) return ''
++  if (bytes < 1024) return `${bytes} B`
++  if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`
++  return `${(bytes / 1024 ** 2).toFixed(1)} MB`
++}
++
++/** A collection named after the one matter every pick came from */
++export const suggestFor = (matters: Set<string>): CollectionSuggestion | undefined => {
++  if (matters.size !== 1) return undefined
++  const [name] = matters
++  const slug = collectionName(name)
++  return slug ? { name: slug, description: `Lawmatics matter ${name}` } : undefined
++}
++
++export const LawmaticsBrowser: FC<LawmaticsBrowserProps> = ({
++  token,
++  maxItems,
++  onDone,
++  browse: browseOverride,
++}) => {
++  const [view, setView] = useState<View>({ kind: 'matters' })
++  const [query, setQuery] = useState('')
++  const [searching, setSearching] = useState('')
++  const [matters, setMatters] = useState<Matter[]>([])
++  const [files, setFiles] = useState<MatterFile[]>([])
++  const [next, setNext] = useState<number | null>(null)
++  const [loading, setLoading] = useState(true)
++  const [error, setError] = useState<string | null>(null)
++  const [picked, setPicked] = useState<Map<string, PickedItem & { matter: string }>>(new Map())
++  const searchRef = useRef<HTMLInputElement>(null)
++  const full = picked.size >= maxItems
++
++  const browse = useCallback(
++    <T,>(request: Record<string, unknown>): Promise<T> =>
++      browseOverride
++        ? browseOverride<T>(request)
++        : createDocumentsClient({}).browseConnector<T>('lawmatics', token, request),
++    [browseOverride, token]
++  )
++
++  const load = useCallback(
++    async (page: number, append: boolean) => {
++      setLoading(true)
++      setError(null)
++      try {
++        if (view.kind === 'matters') {
++          const got = await browse<MattersPage>({ kind: 'matters', query: searching, page })
++          setMatters((m) => (append ? [...m, ...got.matters] : got.matters))
++          setNext(got.more ? (got.next_page ?? page + 1) : null)
++        } else {
++          const got = await browse<FilesPage>({ kind: 'files', matter: view.matter.id, page })
++          setFiles((f) => (append ? [...f, ...got.files] : got.files))
++          setNext(got.more ? page + 1 : null)
++        }
++      } catch (err) {
++        if (err instanceof ImportError && err.status === 401) {
++          onDone(null, new PickerError('Lawmatics sign-in expired; import again to sign in'))
++          return
++        }
++        setError(err instanceof Error ? err.message : 'Lawmatics is unavailable')
++      } finally {
++        setLoading(false)
++      }
++    },
++    [browse, onDone, searching, view]
++  )
++
++  useEffect(() => {
++    void load(1, false)
++  }, [load])
++
++  useEffect(() => {
++    searchRef.current?.focus()
++    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onDone(null)
++    window.addEventListener('keydown', onKey)
++    return () => window.removeEventListener('keydown', onKey)
++  }, [onDone])
++
++  const toggle = (id: string, name: string, size: number, matter: string) =>
++    setPicked((current) => {
++      const nextPicked = new Map(current)
++      if (nextPicked.has(id)) nextPicked.delete(id)
++      else if (nextPicked.size < maxItems) nextPicked.set(id, { id, name, sizeBytes: size, matter })
++      return nextPicked
++    })
++
++  const finish = () => {
++    const items = [...picked.values()].map(({ id, name, sizeBytes }) => ({ id, name, sizeBytes }))
++    onDone(items, undefined, suggestFor(new Set([...picked.values()].map((p) => p.matter))))
++  }
++
++  const row = (key: string, children: ReactNode, dim = false, title?: string) => (
++    <li
++      key={key}
++      title={title}
++      className={`flex items-center gap-3 rounded px-2 py-1.5 text-sm ${dim ? 'opacity-50' : 'hover:bg-surface-sunken'}`}
++    >
++      {children}
++    </li>
++  )
++
++  return (
++    <div
++      className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 p-4"
++      onMouseDown={(e) => e.target === e.currentTarget && onDone(null)}
++    >
++      <div
++        role="dialog"
++        aria-modal="true"
++        aria-labelledby="lawmatics-browser-title"
++        className="border-base bg-surface-raised text-primary flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border shadow-xl"
++      >
++        <div className="border-base flex items-center justify-between gap-3 border-b px-4 py-3">
++          <h2 id="lawmatics-browser-title" className="text-base font-semibold">
++            Choose files from Lawmatics
++          </h2>
++          {view.kind === 'matters' && (
++            <form
++              role="search"
++              className="flex-1"
++              onSubmit={(e) => {
++                e.preventDefault()
++                setSearching(query.trim())
++              }}
++            >
++              <input
++                ref={searchRef}
++                type="search"
++                value={query}
++                onChange={(e) => {
++                  setQuery(e.target.value)
++                  if (!e.target.value.trim()) setSearching('')
++                }}
++                placeholder="Search matters"
++                aria-label="Search matters"
++                className="border-base bg-surface-base w-full rounded border px-2 py-1 text-sm"
++              />
++            </form>
++          )}
++        </div>
++
++        <nav aria-label="Matter" className="text-subtle flex items-center gap-1 px-4 py-2 text-sm">
++          {view.kind === 'matters' ? (
++            <span className="text-primary">
++              {searching ? `Matters matching “${searching}”` : 'Matters'}
++            </span>
++          ) : (
++            <>
++              <button
++                type="button"
++                className="hover:underline"
++                onClick={() => setView({ kind: 'matters' })}
++              >
++                Matters
++              </button>
++              <span aria-hidden="true">›</span>
++              <span className="text-primary">{view.matter.name}</span>
++            </>
++          )}
++        </nav>
++
++        <div className="min-h-[16rem] flex-1 overflow-y-auto px-2" aria-busy={loading}>
++          {error && <p className="text-error px-2 py-3 text-sm">{error}</p>}
++          {!error && !loading && view.kind === 'matters' && matters.length === 0 && (
++            <p className="text-subtle px-2 py-3 text-sm">
++              {searching ? 'No matters match.' : 'No matters.'}
++            </p>
++          )}
++          {!error && !loading && view.kind === 'matter' && files.length === 0 && (
++            <p className="text-subtle px-2 py-3 text-sm">This matter has no files.</p>
++          )}
++
++          {view.kind === 'matters' ? (
++            <ul aria-label="Matters">
++              {matters.map((m) => {
++                const id = `matter:${m.id}`
++                const checked = picked.has(id)
++                return row(
++                  id,
++                  <>
++                    <input
++                      type="checkbox"
++                      aria-label={`Select all files of ${m.name}`}
++                      checked={checked}
++                      disabled={!checked && full}
++                      onChange={() => toggle(id, m.name, 0, m.name)}
++                    />
++                    <span aria-hidden="true">⚖️</span>
++                    <button
++                      type="button"
++                      className="flex-1 truncate text-left hover:underline"
++                      onClick={() => setView({ kind: 'matter', matter: m })}
++                    >
++                      {m.name}
++                    </button>
++                    <span className="text-subtle text-xs">{m.status}</span>
++                  </>
++                )
++              })}
++            </ul>
++          ) : (
++            <ul aria-label="Files">
++              {files.map((f) => {
++                const id = `file:${f.id}`
++                const checked = picked.has(id)
++                const why = f.importable ? undefined : 'This type can’t be imported'
++                return row(
++                  id,
++                  <>
++                    <input
++                      type="checkbox"
++                      aria-label={`Select ${f.name}`}
++                      checked={checked}
++                      disabled={Boolean(why) || (!checked && full)}
++                      onChange={() => toggle(id, f.name, f.size, view.matter.name)}
++                    />
++                    <span aria-hidden="true">📄</span>
++                    <span className="flex-1 truncate">{f.name}</span>
++                    <span className="text-subtle w-20 text-right text-xs">
++                      {formatSize(f.size)}
++                    </span>
++                  </>,
++                  Boolean(why),
++                  why
++                )
++              })}
++            </ul>
++          )}
++          {next !== null && !loading && (
++            <button
++              type="button"
++              className="text-brand m-2 text-sm hover:underline"
++              onClick={() => void load(next, true)}
++            >
++              Show more
++            </button>
++          )}
++          {loading && <p className="text-subtle px-2 py-3 text-sm">Loading…</p>}
++        </div>
++
++        <div className="border-base flex items-center justify-between gap-3 border-t px-4 py-3">
++          <span className="text-subtle text-sm">
++            {picked.size === 0
++              ? 'Tick a matter to import all its files, or open it to choose.'
++              : `${picked.size} selected${full ? ' (the most for one import)' : ''}`}
++          </span>
++          <div className="flex gap-2">
++            <button
++              type="button"
++              className="border-base rounded border px-3 py-1 text-sm"
++              onClick={() => onDone(null)}
++            >
++              Cancel
++            </button>
++            <button
++              type="button"
++              className="rounded bg-[var(--color-brand)] px-3 py-1 text-sm font-medium text-white disabled:opacity-50"
++              disabled={picked.size === 0}
++              onClick={finish}
++            >
++              Import
++            </button>
++          </div>
++        </div>
++      </div>
++    </div>
++  )
++}
++
++/** Show the browser over the page; resolves with the picks, or null when closed */
++export const showLawmaticsBrowser = (
++  props: Omit<LawmaticsBrowserProps, 'onDone'>
++): Promise<Browsed | null> =>
++  new Promise((resolve, reject) => {
++    const host = document.createElement('div')
++    host.dataset.lawmaticsBrowser = ''
++    document.body.appendChild(host)
++    const root = createRoot(host)
++    let done = false
++    const onDone = (
++      items: PickedItem[] | null,
++      error?: Error,
++      suggestion?: CollectionSuggestion
++    ) => {
++      if (done) return
++      done = true
++      queueMicrotask(() => {
++        root.unmount()
++        host.remove()
++      })
++      if (error) reject(error)
++      else resolve(items ? { items, suggestion } : null)
++    }
++    root.render(<LawmaticsBrowser {...props} onDone={onDone} />)
++  })
+diff --git a/frontends/ui/src/features/documents/connectors/lawmatics.spec.ts b/frontends/ui/src/features/documents/connectors/lawmatics.spec.ts
+new file mode 100644
+index 0000000..478ffe4
+--- /dev/null
++++ b/frontends/ui/src/features/documents/connectors/lawmatics.spec.ts
+@@ -0,0 +1,163 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
++import { webcrypto } from 'node:crypto'
++
++const { mockToken, mockBrowser } = vi.hoisted(() => ({
++  mockToken: vi.fn(),
++  mockBrowser: vi.fn(),
++}))
++
++vi.mock('@/adapters/api', () => ({
++  createDocumentsClient: () => ({ connectorToken: mockToken }),
++}))
++vi.mock('./lawmatics-browser', () => ({ showLawmaticsBrowser: mockBrowser }))
++
++import { lawmaticsPicker, parseConfig, resetLawmaticsForTests } from './lawmatics'
++import { PickerError } from './types'
++
++const CONFIG = {
++  client_id: 'lm-client',
++  authorize_url: 'https://app.lawmatics.com/oauth/authorize',
++  scope: '',
++  redirect_path: '/auth/lawmatics-redirect',
++  origins: [window.location.origin],
++  importable: ['.pdf', '.docx'],
++}
++
++/** BroadcastChannel stand-in: what the redirect page posts reaches every open channel */
++class FakeChannel {
++  static open: FakeChannel[] = []
++  onmessage: ((e: MessageEvent) => void) | null = null
++  constructor(readonly name: string) {
++    FakeChannel.open.push(this)
++  }
++  close() {
++    FakeChannel.open = FakeChannel.open.filter((c) => c !== this)
++  }
++  static post(data: unknown) {
++    for (const c of [...FakeChannel.open]) c.onmessage?.({ data } as MessageEvent)
++  }
++}
++
++let popup: { location: { href: string }; close: () => void }
++
++/** Open the picker, then answer as the redirect page would, with the state the app sent */
++const pickAndReturn = async (answer: (state: string) => Record<string, unknown>) => {
++  popup.location.href = 'about:blank'
++  const picking = lawmaticsPicker.pick(CONFIG, { maxItems: 5 })
++  await vi.waitFor(() => expect(popup.location.href).toContain('https://app.lawmatics.com'))
++  const sent = new URL(popup.location.href)
++  FakeChannel.post(answer(sent.searchParams.get('state') ?? ''))
++  return { result: await picking, sent }
++}
++
++describe('lawmaticsPicker', () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    resetLawmaticsForTests()
++    FakeChannel.open = []
++    popup = { location: { href: 'about:blank' }, close: vi.fn() }
++    vi.stubGlobal('BroadcastChannel', FakeChannel)
++    vi.stubGlobal('crypto', webcrypto)
++    vi.spyOn(window, 'open').mockImplementation(() => popup as unknown as Window)
++    mockToken.mockResolvedValue({ access_token: 'lm-token', expires_in: 3600 })
++    mockBrowser.mockResolvedValue({
++      items: [{ id: 'matter:11', name: 'Smith v. Acme', sizeBytes: 0 }],
++      suggestion: { name: 'smith-v-acme', description: 'Lawmatics matter Smith v. Acme' },
++    })
++  })
++
++  afterEach(() => {
++    vi.unstubAllGlobals()
++    vi.restoreAllMocks()
++  })
++
++  test('signs in with code, PKCE and state, has the backend swap the code, then browses', async () => {
++    const { result, sent } = await pickAndReturn((state) => ({ code: 'the-code', state }))
++
++    expect(window.open).toHaveBeenCalledTimes(1)
++    expect(sent.searchParams.get('response_type')).toBe('code')
++    expect(sent.searchParams.get('client_id')).toBe('lm-client')
++    expect(sent.searchParams.get('redirect_uri')).toBe(
++      `${window.location.origin}/auth/lawmatics-redirect`
++    )
++    expect(sent.searchParams.get('code_challenge_method')).toBe('S256')
++    expect(sent.searchParams.get('code_challenge')).toMatch(/^[A-Za-z0-9_-]{43}$/)
++    const [, code, verifier, redirect] = mockToken.mock.calls[0]
++    expect(code).toBe('the-code')
++    expect(verifier).toMatch(/^[A-Za-z0-9_-]{64}$/)
++    expect(redirect).toBe(`${window.location.origin}/auth/lawmatics-redirect`)
++    expect(mockBrowser).toHaveBeenCalledWith({
++      token: 'lm-token',
++      maxItems: 5,
++      importable: ['.pdf', '.docx'],
++    })
++    expect(result).toEqual({
++      credential: 'lm-token',
++      items: [{ id: 'matter:11', name: 'Smith v. Acme', sizeBytes: 0 }],
++      suggestion: { name: 'smith-v-acme', description: 'Lawmatics matter Smith v. Acme' },
++    })
++  })
++
++  test('an answer for another sign-in is ignored', async () => {
++    const picking = lawmaticsPicker.pick(CONFIG, { maxItems: 5 })
++    await vi.waitFor(() => expect(popup.location.href).toContain('lawmatics.com'))
++    FakeChannel.post({ code: 'stolen', state: 'someone-elses' })
++    FakeChannel.post({
++      code: 'mine',
++      state: new URL(popup.location.href).searchParams.get('state'),
++    })
++    await picking
++    expect(mockToken).toHaveBeenCalledTimes(1)
++    expect(mockToken.mock.calls[0][1]).toBe('mine')
++  })
++
++  test('reuses a live token, and forget signs in again', async () => {
++    await pickAndReturn((state) => ({ code: 'c', state }))
++    await lawmaticsPicker.pick(CONFIG, { maxItems: 5 })
++    expect(window.open).toHaveBeenCalledTimes(1)
++
++    lawmaticsPicker.forget()
++    await pickAndReturn((state) => ({ code: 'c', state }))
++    expect(window.open).toHaveBeenCalledTimes(2)
++  })
++
++  test('declining consent cancels quietly; other errors say why', async () => {
++    const declined = await pickAndReturn((state) => ({ error: 'access_denied', state }))
++    expect(declined.result).toBeNull()
++    expect(mockToken).not.toHaveBeenCalled()
++
++    await expect(pickAndReturn((state) => ({ error: 'invalid_scope', state }))).rejects.toThrow(
++      'Lawmatics sign-in failed: invalid_scope'
++    )
++  })
++
++  test('a blocked popup asks for pop-ups', async () => {
++    vi.mocked(window.open).mockReturnValue(null)
++    await expect(lawmaticsPicker.pick(CONFIG, { maxItems: 5 })).rejects.toThrow(
++      'Allow pop-ups for this site to sign in with Lawmatics'
++    )
++  })
++
++  test('without Web Crypto (an insecure page) it says to open the app at localhost', async () => {
++    vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) })
++    await expect(lawmaticsPicker.pick(CONFIG, { maxItems: 5 })).rejects.toThrow(
++      'needs the app opened at http://localhost:3000'
++    )
++    expect(popup.close).toHaveBeenCalled()
++  })
++
++  test('the backend refusing the code is shown', async () => {
++    mockToken.mockRejectedValue(new Error('Lawmatics refused the sign-in; sign in again'))
++    await expect(pickAndReturn((state) => ({ code: 'c', state }))).rejects.toThrow(
++      'Lawmatics refused the sign-in'
++    )
++  })
++
++  test('a config without an https authorize URL is a server misconfiguration', () => {
++    expect(() => parseConfig({ ...CONFIG, authorize_url: 'http://x' })).toThrow(PickerError)
++    expect(() => parseConfig({ ...CONFIG, client_id: '' })).toThrow(PickerError)
++  })
++})
+diff --git a/frontends/ui/src/features/documents/connectors/lawmatics.ts b/frontends/ui/src/features/documents/connectors/lawmatics.ts
+new file mode 100644
+index 0000000..f48e3bd
+--- /dev/null
++++ b/frontends/ui/src/features/documents/connectors/lawmatics.ts
+@@ -0,0 +1,185 @@
++// SPDX-FileCopyrightText: Copyright (c) 2026, Tenstorrent. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++/**
++ * Lawmatics picker. Lawmatics apps have a client secret, so sign-in is split: a popup opens
++ * Lawmatics' consent page (authorization code with PKCE and a state check), the redirect page
++ * hands the code back over a BroadcastChannel, and the backend swaps it for an access token with
++ * the app's secret. The token lives in memory for this page only, until shortly before it
++ * expires. The matter browser lists through the backend, which calls Lawmatics' API.
++ */
++
++import { createDocumentsClient } from '@/adapters/api'
++import { showLawmaticsBrowser } from './lawmatics-browser'
++import { originBlock, originsOf } from './origins'
++import { PickerError, type ConnectorPicker, type PickResult, type SignInBlock } from './types'
++
++const EXPIRY_MARGIN_MS = 5 * 60 * 1000
++const SIGN_IN_TIMEOUT_MS = 5 * 60 * 1000
++const CHANNEL = 'lawmatics-oauth'
++
++export interface LawmaticsConfig {
++  client_id: string
++  authorize_url: string
++  scope: string
++  redirect_path: string
++  origins: string[]
++  importable: string[]
++}
++
++const strings = (v: unknown): string[] =>
++  Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && Boolean(s)) : []
++
++export const parseConfig = (config: Record<string, unknown>): LawmaticsConfig => {
++  const { client_id, authorize_url, redirect_path, scope } = config
++  if (
++    [client_id, authorize_url, redirect_path].some((v) => typeof v !== 'string' || !v) ||
++    !String(authorize_url).startsWith('https://')
++  ) {
++    throw new PickerError('Lawmatics import is misconfigured on the server')
++  }
++  return {
++    client_id: client_id as string,
++    authorize_url: authorize_url as string,
++    scope: typeof scope === 'string' ? scope : '',
++    redirect_path: redirect_path as string,
++    origins: originsOf(config.origins),
++    importable: strings(config.importable),
++  }
++}
++
++const blockedAt = (config: Record<string, unknown>, origin: string): SignInBlock | null =>
++  originBlock('Lawmatics', config.origins, origin)
++
++const base64url = (bytes: Uint8Array): string =>
++  btoa(String.fromCharCode(...bytes))
++    .replace(/\+/g, '-')
++    .replace(/\//g, '_')
++    .replace(/=+$/, '')
++
++const randomString = (bytes = 32): string =>
++  base64url(crypto.getRandomValues(new Uint8Array(bytes)))
++
++const challengeFor = async (verifier: string): Promise<string> =>
++  base64url(
++    new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)))
++  )
++
++let cached: { clientId: string; token: string; expiresAt: number } | null = null
++
++interface Returned {
++  code: string | null
++  state: string | null
++  error: string | null
++}
++
++/** The redirect page's answer for STATE, or null when it doesn't come (closed, timed out) */
++const awaitCode = (state: string): Promise<Returned | null> =>
++  new Promise((resolve) => {
++    const channel = new BroadcastChannel(CHANNEL)
++    const finish = (value: Returned | null) => {
++      clearTimeout(timer)
++      channel.close()
++      resolve(value)
++    }
++    // Lawmatics' page may cut the popup off from this window, so its closing can't be seen;
++    // a new click starts a new sign-in instead.
++    const timer = setTimeout(() => finish(null), SIGN_IN_TIMEOUT_MS)
++    channel.onmessage = (event: MessageEvent<Returned>) => {
++      if (event.data?.state === state) finish(event.data)
++    }
++  })
++
++/** An access token: the cached one, or a new one from Lawmatics' consent page and our backend */
++const signIn = async (config: LawmaticsConfig): Promise<string | null> => {
++  if (
++    cached &&
++    cached.clientId === config.client_id &&
++    cached.expiresAt - EXPIRY_MARGIN_MS > Date.now()
++  ) {
++    return cached.token
++  }
++  // Opened before any await, inside the click, or the browser blocks it
++  const popup = window.open('about:blank', 'lawmatics-sign-in', 'popup,width=520,height=720')
++  if (!popup) throw new PickerError('Allow pop-ups for this site to sign in with Lawmatics')
++
++  if (!crypto.subtle) {
++    popup.close()
++    throw new PickerError('Lawmatics sign-in needs the app opened at http://localhost:3000')
++  }
++  const verifier = randomString(48)
++  const state = randomString(16)
++  const redirectUri = `${window.location.origin}${config.redirect_path}`
++  const url = new URL(config.authorize_url)
++  url.searchParams.set('response_type', 'code')
++  url.searchParams.set('client_id', config.client_id)
++  url.searchParams.set('redirect_uri', redirectUri)
++  url.searchParams.set('state', state)
++  url.searchParams.set('code_challenge', await challengeFor(verifier))
++  url.searchParams.set('code_challenge_method', 'S256')
++  if (config.scope) url.searchParams.set('scope', config.scope)
++  const answer = awaitCode(state)
++  popup.location.href = url.toString()
++
++  const returned = await answer
++  if (!returned) return null
++  if (returned.error === 'access_denied') return null
++  if (returned.error || !returned.code) {
++    throw new PickerError(`Lawmatics sign-in failed${returned.error ? `: ${returned.error}` : ''}`)
++  }
++  let token
++  try {
++    token = await createDocumentsClient({}).connectorToken(
++      'lawmatics',
++      returned.code,
++      verifier,
++      redirectUri
++    )
++  } catch (error) {
++    throw new PickerError(error instanceof Error ? error.message : 'Lawmatics sign-in failed')
++  }
++  cached = {
++    clientId: config.client_id,
++    token: token.access_token,
++    expiresAt: Date.now() + token.expires_in * 1000,
++  }
++  return token.access_token
++}
++
++export const lawmaticsPicker: ConnectorPicker = {
++  blockedAt,
++
++  async preload() {
++    // Nothing to load: the browser is part of this app
++  },
++
++  async pick(config, { maxItems }): Promise<PickResult | null> {
++    const lm = parseConfig(config)
++    const blocked = blockedAt(config, window.location.origin)
++    if (blocked) throw new PickerError(`${blocked.reason} ${blocked.command}`)
++    const token = await signIn(lm)
++    if (!token) return null
++    let browsed
++    try {
++      browsed = await showLawmaticsBrowser({
++        token,
++        maxItems: Math.max(1, maxItems),
++        importable: lm.importable,
++      })
++    } catch (error) {
++      cached = null
++      throw error
++    }
++    if (!browsed || browsed.items.length === 0) return null
++    return { credential: token, items: browsed.items, suggestion: browsed.suggestion }
++  },
++
++  forget() {
++    cached = null
++  },
++}
++
++/** Test seam */
++export const resetLawmaticsForTests = (): void => {
++  cached = null
++}
 diff --git a/frontends/ui/src/features/documents/connectors/load-script.ts b/frontends/ui/src/features/documents/connectors/load-script.ts
 new file mode 100644
 index 0000000..1d6fa09

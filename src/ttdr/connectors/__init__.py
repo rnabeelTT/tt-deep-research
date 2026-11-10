@@ -1,4 +1,5 @@
-"""Connectors: document stores a user imports from (Google Drive first) into a collection.
+"""Connectors: document stores a user imports from (Google Drive, SharePoint and OneDrive,
+Lawmatics) into a collection.
 
 A connector turns the item IDs a user picked, plus the credential their browser got for them,
 into library uploads. Everything around it is shared: the import route, the size and count
@@ -137,6 +138,23 @@ class Connector(Protocol):
     async def aclose(self) -> None: ...
 
 
+class Browses(Protocol):
+    """A connector whose listing goes through this server (no picker of the store's own, and an
+    API a web page can't call)."""
+
+    async def browse(self, credential: str, request: dict) -> dict:
+        """One page of what the user can pick; raise ConnectorError for a request it can't serve."""
+        ...
+
+
+class Exchanges(Protocol):
+    """A connector whose app has a secret, so this server finishes the browser's sign-in."""
+
+    async def exchange(self, code: str, verifier: str, redirect_uri: str) -> dict:
+        """{"access_token", "expires_in"} for the code; nothing is kept here."""
+        ...
+
+
 async def prepare(
     connector: Connector, credential: str, item_ids: list[str], limits: Limits
 ) -> Prepared:
@@ -202,7 +220,7 @@ async def prepare(
     return out
 
 
-KNOWN = {"google-drive": "Google Drive", "onedrive": "OneDrive"}
+KNOWN = {"google-drive": "Google Drive", "onedrive": "OneDrive", "lawmatics": "Lawmatics"}
 """Every store this build can import from, by ID, configured or not."""
 
 
@@ -217,7 +235,7 @@ def available(settings: Connectors | None = None, env: Mapping[str, str] | None 
     """The connectors this install configured (the recipe's [connectors], or the environment's
     overrides), by ID. One configured wrongly is left off with a warning, not fatal: the rest
     of the app runs."""
-    from ttdr.connectors import gdrive, onedrive
+    from ttdr.connectors import gdrive, lawmatics, onedrive
 
     settings = settings or Connectors()
     origins = tuple(settings.origins)
@@ -232,4 +250,9 @@ def available(settings: Connectors | None = None, env: Mapping[str, str] | None 
             found[onedrive.OneDrive.id] = onedrive.OneDrive(config)
     except ValueError as e:
         log.warning("OneDrive import is off: [connectors.onedrive] %s", e)
+    try:
+        if config := lawmatics.Config.load(settings.lawmatics, env, origins):
+            found[lawmatics.Lawmatics.id] = lawmatics.Lawmatics(config)
+    except ValueError as e:
+        log.warning("Lawmatics import is off: [connectors.lawmatics] %s", e)
     return found

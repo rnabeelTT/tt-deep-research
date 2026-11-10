@@ -54,6 +54,31 @@ If the UI sits behind a proxy that adds a Content-Security-Policy, allow `https:
 
 **Development preview.** `TTDR_CONNECTORS_PREVIEW=1` in `.env` (development only, off by default) shows the stores this install hasn't set up, disabled, with "Not set up on this installation yet", so the Files tab can be seen before the values exist. Never ship it on.
 
+## Lawmatics (preview, unverified)
+
+Matter files from Lawmatics, the legal CRM, on branch `lawmatics-import`. Written from Lawmatics' public API docs without an account, so it is off until an app is registered and **not yet checked against a real firm**.
+
+- **Picking:** **Import from Lawmatics** signs in, then the app's own browser lists the firm's matters (searchable). Tick a matter to import all its files, or open it to pick files. Picks from one matter suggest a collection named after it ("Lawmatics matter Smith v. Acme").
+- **Types:** PDF, Word (.docx), Markdown, text, CSV as text; files import as stored (no conversion), so other types are listed but can't be ticked.
+- **Sign-in:** Lawmatics apps have a client secret, so the sign-in is split. The browser opens Lawmatics' consent page (authorization code, PKCE, a state check). The redirect page `/auth/lawmatics-redirect` hands the code back over a same-origin `BroadcastChannel`. The server swaps it for an access token with the secret (`POST /v1/connectors/lawmatics/token`) and returns only the token and its lifetime, dropping the refresh token. The browser keeps the token for the page's life, as with the other stores.
+- **Browsing** goes through the server (`POST /v1/connectors/lawmatics/browse`) with the person's token, since Lawmatics' API isn't documented as callable from a web page. Lawmatics limits each firm to 500 requests a minute; the shared fetcher backs off on 429.
+- **Provenance:** store "Lawmatics", the file ID, its `updated_at` as the version, and the signed-in user's email. No web link: the download URL Lawmatics hands out is signed and must not land in a report.
+
+**To check against a real firm** (all in one block at the top of `src/ttdr/connectors/lawmatics.py`, or settings in `[connectors.lawmatics]`):
+
+| Assumption | Where |
+|---|---|
+| Consent page `https://app.lawmatics.com/oauth/authorize`, token endpoint `https://api.lawmatics.com/oauth/token`; PKCE accepted (or ignored) | `authorize_url`, `token_url` |
+| Scopes: none asked for (the app's defaults); is there a read-only scope? | `scope` |
+| Matter display name: `name`, `case_title`, `title`, `matter_name`, else first and last name | `NAME_FIELDS` |
+| A file's `name`, `size` and `updated_at` attributes | `FILE_NAME_FIELDS`, `FILE_SIZE_FIELDS` |
+| `GET /v1/files?matter_id=<id>` limits files to one matter | `FILES_OF_MATTER` |
+| Paging: `links.next` or `meta.total_pages` | `NEXT_LINK`, `TOTAL_PAGES` |
+| Matter search: no documented name search, so list pages are filtered on the server | `_matters` |
+| `GET /v1/files/download/<id>` streams the file, or redirects to signed storage on `*.amazonaws.com`, `*.cloudfront.net` or `*.lawmatics.com` | `DOWNLOAD`, `CONTENT_HOSTS` |
+
+`?fields=all` on a matter and a file (`curl -H "Authorization: Bearer $TOKEN" "https://api.lawmatics.com/v1/files/<id>?fields=all"`) answers most of these.
+
 ## Adding a store
 
 A store has two halves: a picker in the browser that signs the person in and returns a credential and the IDs they picked, and a connector on the server that checks the credential and turns each picked ID into files. Everything between (limits across picks and folders, deduplication, placeholders, per-file errors, indexing, progress) is shared.
@@ -68,6 +93,8 @@ A store has two halves: a picker in the browser that signs the person in and ret
 | `resolve(credential, item_id, limits)` | Returns a `Resolved`: the `Item`s a pick stands for (one file, or a folder's files within `limits`) and what was left out, for people. Raises `ConnectorError` for a pick that can't be imported at all |
 | `fetch(credential, item, budget)` | Downloads one item, `(file_name, bytes)` in a type the library reads, taking every chunk from `budget` |
 | `aclose()` | Closes the HTTP client |
+
+Two optional methods, for stores that need the server beyond importing (Lawmatics has both): `exchange(code, verifier, redirect_uri)` finishes a sign-in whose app has a secret (`POST /v1/connectors/{id}/token`), and `browse(credential, request)` serves the UI's own browser when the store has no picker and its API can't be called from a page (`POST /v1/connectors/{id}/browse`).
 
 `connectors/http.py` has the shared `Fetcher` (retries, `Retry-After`, budgeted downloads). Raise `Unavailable` when the store is down or rate-limited, so people see "try again" rather than a fault in their file. `POST /v1/collections/{name}/import/{id}` then works for the new store unchanged; `tests/test_onedrive.py` shows the cases to cover against a fake of the store's API.
 

@@ -97,6 +97,10 @@ accounts = "any"     # "work": Entra ID accounts, SharePoint and OneDrive; "pers
                      # "any": each person picks work or personal when signing in
 tenant = ""          # a tenant ID to accept work accounts from one organization only; empty: any
 
+[connectors.lawmatics]
+client_id = ""       # Lawmatics developer app; its secret goes in .env as TTDR_LAWMATICS_CLIENT_SECRET
+# authorize_url, token_url and api_url default to app.lawmatics.com / api.lawmatics.com (unverified)
+
 [features]
 triage = false       # Laya reranking lowers recall (docs/LOG.md)
 ocr = true
