@@ -202,6 +202,9 @@ def test_chats_upload_to_the_library_and_named_collections_are_data_sources(tmp_
         async def corpora(self):
             return set(present)
 
+        async def delete_corpus(self, name):
+            present.discard(name)
+
     corpus.store = Store()
     (tmp_path / "financebench").mkdir()
     lib = Library(corpus, tmp_path)
@@ -235,6 +238,14 @@ def test_chats_upload_to_the_library_and_named_collections_are_data_sources(tmp_
         assert sources["docs:contracts"]["description"] == "Leases"
         assert sources["docs:financebench"]["description"] == "10-K filings"
         assert sources["docs:library"]["name"] == "Default collection"
+        assert all(s["default_enabled"] for s in sources.values())
+
+        body = {"name": "crm-files", "description": "From the CRM", "default_enabled": False}
+        assert client.post("/v1/collections", json=body).status_code == 201
+        upload(client, "crm-files", "contract.md", b"The deposit is 8,450 USD.")
+        sources = {s["id"]: s for s in client.get("/v1/data_sources").json()}
+        assert sources["docs:crm-files"]["default_enabled"] is False
+        assert sources["docs:contracts"]["default_enabled"] is True
         assert "shared by all chats" in sources["docs:library"]["description"]
 
         r = client.request(
@@ -243,8 +254,21 @@ def test_chats_upload_to_the_library_and_named_collections_are_data_sources(tmp_
         assert r.json() == {"deleted": 1} and not lib.collections["library"].files
         assert client.get("/v1/documents/nope/status").status_code == 404
 
+    with TestClient(ui_server.build(FakeHarness, lib, about)) as client:
+        assert client.delete("/v1/collections/contracts").json() == {"deleted": False}
+        assert "contracts" in lib.collections
+        r = client.delete("/v1/collections/library?purge=true")
+        assert r.status_code == 400
+        assert client.delete(f"/v1/collections/{CHAT_1}?purge=true").status_code == 400
+        r = client.delete("/v1/collections/contracts?purge=true")
+        assert r.json() == {"deleted": True, "documents": 1}
+        assert "contracts" not in lib.collections and not (tmp_path / "contracts").exists()
+        ids = [s["id"] for s in client.get("/v1/data_sources").json()]
+        assert "docs:contracts" not in ids
+
     reopened = Library(FakeCorpus(), tmp_path)
-    assert set(reopened.collections) == {"contracts", "library"}
+    assert set(reopened.collections) == {"crm-files", "library"}
+    assert not reopened.collections["crm-files"].default_enabled
 
 
 def test_no_library_no_uploads():

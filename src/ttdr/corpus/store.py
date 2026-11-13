@@ -161,6 +161,16 @@ class Store:
         r = await self.client.facet(self.collection, "corpus", limit=10_000)
         return {h.value for h in r.hits}
 
+    async def delete_corpus(self, corpus: str) -> None:
+        """Every point of one corpus (a deleted collection)."""
+        if await self.client.collection_exists(self.collection):
+            only = models.Filter(
+                must=[models.FieldCondition(key="corpus", match=models.MatchValue(value=corpus))]
+            )
+            await self.client.delete(
+                self.collection, points_selector=models.FilterSelector(filter=only)
+            )
+
     async def delete(self, doc: str) -> None:
         """Every point of one document."""
         if await self.client.collection_exists(self.collection):

@@ -8,6 +8,7 @@ import asyncio
 import io
 import json
 import re
+import shutil
 import time
 import uuid
 import zipfile
@@ -197,9 +198,19 @@ class Collection:
     def description(self) -> str:
         return json.loads(self.about.read_text())["description"] if self.about.exists() else ""
 
-    def describe(self, description: str) -> None:
+    @property
+    def default_enabled(self) -> bool:
+        """Whether a new chat searches it; collections filled by other tools (a CRM import)
+        start switched off."""
+        about = json.loads(self.about.read_text()) if self.about.exists() else {}
+        return about.get("default_enabled", True)
+
+    def describe(self, description: str, default_enabled: bool = True) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        self.about.write_text(json.dumps({"description": description}))
+        about = {"description": description}
+        if not default_enabled:
+            about["default_enabled"] = False
+        self.about.write_text(json.dumps(about))
 
     def info(self) -> dict:
         ok = [f for f in self.files.values() if f.status == "success"]
@@ -466,8 +477,11 @@ class Library:
         """A chat's own collection is the library; other names must exist."""
         return self.collections[LIBRARY] if SESSION.fullmatch(name) else self.collections.get(name)
 
-    def create(self, name: str, description: str | None) -> Collection:
-        """A chat's collection is the library; a new named collection needs a free name."""
+    def create(
+        self, name: str, description: str | None, default_enabled: bool = True
+    ) -> Collection:
+        """A chat's collection is the library; a new named collection needs a free name.
+        DEFAULT_ENABLED False keeps it out of new chats' search until it is switched on."""
         if found := self.get(name):
             return found
         if not NAME.fullmatch(name):
@@ -475,9 +489,24 @@ class Library:
         if (self.root / name).exists():
             raise ValueError(f"{name!r} is already a document set that isn't a collection")
         c = self._open(name)
-        c.describe(" ".join((description or "").split())[:MAX_DESCRIPTION])
+        c.describe(" ".join((description or "").split())[:MAX_DESCRIPTION], default_enabled)
         self.collections[name] = c
         return c
+
+    async def remove(self, name: str) -> int:
+        """Delete a named collection: its documents, their index entries and OCR text, and its
+        folder. The Default collection and chats' collections aren't removable; a collection
+        still indexing is refused. Returns how many documents went."""
+        if name == LIBRARY or SESSION.fullmatch(name) or not (c := self.collections.get(name)):
+            raise KeyError(name)
+        if any(f.status == "ingesting" for f in c.files.values()):
+            raise ValueError(f"{name} is still indexing; delete it when that finishes")
+        gone = await c.delete(list(c.files))
+        if store := getattr(self.corpus, "store", None):
+            await store.delete_corpus(name)
+        shutil.rmtree(c.root, ignore_errors=True)
+        del self.collections[name]
+        return gone
 
     def follow(self) -> None:
         for c in self.collections.values():

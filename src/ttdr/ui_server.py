@@ -373,7 +373,7 @@ def build(
     async def data_sources(_: Request):
         sources = DATA_SOURCES if not library else [DATA_SOURCES[0], *await _collections()]
         return JSONResponse(
-            [{**s, "default_enabled": True, "requires_auth": False} for s in sources]
+            [{"default_enabled": True, **s, "requires_auth": False} for s in sources]
         )
 
     async def _collections() -> list[dict]:
@@ -388,6 +388,8 @@ def build(
                     "id": COLLECTION + n,
                     "name": DEFAULT_COLLECTION if n == LIBRARY else n,
                     "description": descriptions.get(n, ""),
+                    "default_enabled": (c := library.collections.get(n)) is None
+                    or c.default_enabled,
                 }
                 for n in sorted(names, key=lambda n: (n != LIBRARY, n))
             ),
@@ -401,7 +403,11 @@ def build(
         if request.method == "POST":
             body = await request.json()
             try:
-                c = library.create(body.get("name", ""), body.get("description"))
+                c = library.create(
+                    body.get("name", ""),
+                    body.get("description"),
+                    body.get("default_enabled", True) is not False,
+                )
             except ValueError as e:
                 return JSONResponse({"detail": str(e)}, status_code=400)
             return JSONResponse(c.info(), status_code=201)
@@ -410,8 +416,19 @@ def build(
     async def collection(request: Request):
         if not (c := library.get(request.path_params["name"])):
             return missing_collection(request.path_params["name"])
-        if request.method == "DELETE":  # the UI drops a chat's collection; documents stay
-            return JSONResponse({"deleted": False})
+        if request.method == "DELETE":
+            # Without purge the UI is dropping a chat's collection: documents stay. With purge a
+            # named collection is deleted, documents and all.
+            if request.query_params.get("purge") != "true":
+                return JSONResponse({"deleted": False})
+            try:
+                gone = await library.remove(request.path_params["name"])
+            except KeyError:
+                detail = "the Default collection and chats' collections can't be deleted"
+                return JSONResponse({"detail": detail}, status_code=400)
+            except ValueError as e:
+                return JSONResponse({"detail": str(e)}, status_code=409)
+            return JSONResponse({"deleted": True, "documents": gone})
         return JSONResponse(c.info())
 
     async def documents(request: Request):
