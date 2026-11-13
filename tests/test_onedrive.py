@@ -350,6 +350,63 @@ def test_downloads_follow_the_redirect_without_the_token():
     assert budget.left == 2**20 - len(PDF)
 
 
+def test_a_personalcontent_link_gets_its_own_tempauth_never_the_graph_token():
+    graph = FakeGraph(download="my.microsoftpersonalcontent.com")
+    graph.fail["D!1/content"] = [
+        httpx.Response(
+            302,
+            headers={"location": "https://my.microsoftpersonalcontent.com/y4m/D!1?tempauth=v1.abc"},
+        )
+    ]
+    graph.fail["D!1/download"] = [401]
+    d, graph, _ = connector(graph)
+    item = Item(pick("D!1"), "Q3 report.pdf", len(PDF))
+    assert run(d.fetch(TOKEN, item, Budget(2**20))) == ("Q3 report.pdf", PDF)
+    refused, retried = graph.seen[1], graph.seen[-1]
+    assert "authorization" not in refused.headers
+    assert retried.headers["authorization"] == "Bearer v1.abc"
+    content = [r for r in graph.seen if r.url.host == "my.microsoftpersonalcontent.com"]
+    assert content and all(TOKEN not in r.headers.get("authorization", "") for r in content)
+
+
+def test_a_refused_redirect_falls_back_to_the_items_own_download_link():
+    graph = FakeGraph(download="my.microsoftpersonalcontent.com")
+    graph.fail["D!1/content"] = [
+        httpx.Response(302, headers={"location": "https://my.microsoftpersonalcontent.com/y4m/X!1"})
+    ]
+    graph.fail["X!1/download"] = [401]
+    graph.fail["D!1"] = [
+        httpx.Response(
+            200,
+            json={
+                "@microsoft.graph.downloadUrl": "https://my.microsoftpersonalcontent.com/y4m/D!1"
+            },
+        )
+    ]
+    d, graph, _ = connector(graph)
+    item = Item(pick("D!1"), "Q3 report.pdf", len(PDF))
+    assert run(d.fetch(TOKEN, item, Budget(2**20))) == ("Q3 report.pdf", PDF)
+    assert (
+        graph.seen[-1].url.path.endswith("/D!1") and "authorization" not in graph.seen[-1].headers
+    )
+
+
+def test_a_refused_link_without_tempauth_says_the_link_was_refused():
+    graph = FakeGraph(download="my.microsoftpersonalcontent.com")
+    graph.fail["D!1/download"] = [401]
+    d, _, _ = connector(graph)
+    graph.fail["D!1"] = [httpx.Response(200, json={})]
+    with pytest.raises(AuthError, match="refused the download link"):
+        run(d.fetch(TOKEN, Item(pick("D!1"), "Q3 report.pdf"), Budget(2**20)))
+
+
+def test_an_expired_sign_in_still_says_so():
+    graph = FakeGraph(token="another")
+    d, _, _ = connector(graph)
+    with pytest.raises(AuthError, match="expired"):
+        run(d.fetch(TOKEN, Item(pick("D!1"), "Q3 report.pdf"), Budget(2**20)))
+
+
 def test_office_files_arrive_as_pdf_and_what_graph_cant_convert_says_so():
     d, graph, _ = connector()
     budget = Budget(2**20)

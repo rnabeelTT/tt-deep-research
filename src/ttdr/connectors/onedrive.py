@@ -17,13 +17,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -40,6 +41,8 @@ from ttdr.connectors import (
 from ttdr.connectors.http import RETRY_STATUS, Fetcher, bearer, client
 from ttdr.recipe import Connectors
 from ttdr.recipe import OneDrive as Settings
+
+log = logging.getLogger(__name__)
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 LOGIN = "https://login.microsoftonline.com"
@@ -80,7 +83,8 @@ CONTENT_HOSTS = (
     "sharepoint.com",
     "svc.ms",
 )
-"""Where Graph's download redirects may point (pre-authenticated URLs; no token is sent)."""
+"""Where Graph's download redirects may point (pre-authenticated URLs; the Graph token is never sent
+there, only a link's own tempauth value when it refuses the request without it)."""
 STORED = {".pdf": ".pdf", ".docx": ".docx", ".txt": ".txt", ".md": ".md", ".markdown": ".md"}
 STORED[".csv"] = ".txt"
 """Types the library reads, by suffix, and the suffix each is saved under."""
@@ -156,6 +160,18 @@ def _error(r: httpx.Response) -> tuple[str, str]:
 def _status_errors(store: str) -> Callable[[httpx.Response], Exception]:
     def status_error(r: httpx.Response) -> Exception:
         code, message = _error(r)
+        if r.status_code in (401, 403):
+            # which host refused and why, never the token: tells an expired sign-in from a refused
+            # download link
+            log.warning(
+                "%s %s from %s: %s %s (WWW-Authenticate: %s)",
+                store,
+                r.status_code,
+                r.request.url.host,
+                code or "-",
+                message[:200] or "-",
+                r.headers.get("www-authenticate", "-")[:200],
+            )
         if r.status_code == 401:
             return AuthError(
                 "Microsoft sign-in expired before the import finished; import it again"
@@ -382,7 +398,42 @@ class OneDrive:
             return name, await self.api.body(url, budget, params, bearer(credential))
         if not _content_host(location):
             raise ConnectorError(f"{self.api.store} sent the download somewhere unexpected")
-        return name, await self.api.body(location, budget)
+        try:
+            return name, await self.api.body(location, budget)
+        except AuthError:
+            pass
+        # Personal accounts' links on my.microsoftpersonalcontent.com now refuse the redirect.
+        # Try the link Graph hands out on the item itself (@microsoft.graph.downloadUrl), then the
+        # redirect with its own tempauth as the bearer. The Graph token is never sent to these
+        # hosts; only query parameter names are logged (the values are credentials).
+        query = parse_qs(urlsplit(location).query)
+        log.warning(
+            "%s download link on %s refused; its query has %s",
+            self.api.store,
+            urlsplit(location).hostname,
+            sorted(query) or "nothing",
+        )
+        if not item.exports:
+            meta = await self.api.json(_item_url(drive, item_id), None, bearer(credential))
+            link = meta.get("@microsoft.graph.downloadUrl") or ""
+            if _content_host(link):
+                try:
+                    return name, await self.api.body(link, budget)
+                except AuthError:
+                    log.warning(
+                        "%s item download link on %s refused too",
+                        self.api.store,
+                        urlsplit(link).hostname,
+                    )
+        if not (tempauth := (query.get("tempauth") or [""])[0]):
+            raise AuthError(f"{self.api.store} refused the download link for this file")
+        try:
+            return name, await self.api.body(location, budget, headers=bearer(tempauth))
+        except AuthError:
+            raise AuthError(
+                f"{self.api.store} refused the download link for this file (a change on "
+                "Microsoft's side for personal accounts); upload the file from the Files tab instead"
+            ) from None
 
     async def aclose(self) -> None:
         await self.http.aclose()
