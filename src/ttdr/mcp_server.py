@@ -199,13 +199,63 @@ def build(
         @server.custom_route("/pages/{doc}/{page}", methods=["GET"])
         async def page(request: Request) -> Response:
             """A document page (1-based, as in page links) as a PNG."""
-            n = request.path_params["page"]
-            png = n.isdigit() and await eng().clients.corpus.page_png(
-                request.path_params["doc"], int(n) - 1
-            )
-            return Response(png, media_type="image/png") if png else Response("no such page", 404)
+            n, doc = request.path_params["page"], request.path_params["doc"]
+            corpus = eng().clients.corpus
+            if not n.isdigit():
+                return Response("no such page", 404)
+            if png := await corpus.page_png(doc, int(n) - 1):
+                return Response(png, media_type="image/png")
+            # Word, Markdown and text uploads have no page images: show their text, the cited
+            # page marked
+            pages = corpus.text_pages(doc)
+            if pages and 0 < int(n) <= len(pages):
+                origin = library.origins().get(doc) or {}
+                source = origin.get("source") or {}
+                html = text_page_html(
+                    origin.get("file_name") or doc,
+                    pages,
+                    int(n) - 1,
+                    source.get("web_url"),
+                    source.get("store"),
+                )
+                return Response(html, media_type="text/html")
+            return Response("no such page", 404)
 
     return server
+
+
+def text_page_html(
+    title: str, pages: list[list[str]], cited: int, url: str | None = None, store: str | None = None
+) -> str:
+    """A text document as one readable page, the cited page highlighted and scrolled to; an
+    imported one links to its original."""
+    from html import escape
+
+    origin = (
+        f'<p class="src">Imported from {escape(store or "its source")}: '
+        f'<a href="{escape(url)}" target="_blank" rel="noopener">open the original</a></p>'
+        if url and url.startswith("https://")
+        else ""
+    )
+    sections = "\n".join(
+        f'<section id="p{i + 1}"{' class="cited"' if i == cited else ""}>'
+        f'<div class="n">Page {i + 1}{" · cited" if i == cited else ""}</div>'
+        + "".join(f"<p>{escape(t)}</p>" for t in chunks)
+        + "</section>"
+        for i, chunks in enumerate(pages)
+    )
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)}</title>
+<style>
+body{{font:16px/1.6 system-ui,sans-serif;color:#111827;background:#fff;max-width:46rem;margin:2rem auto;padding:0 1rem}}
+h1{{font-size:1.15rem;margin:0 0 1.5rem}} section{{padding:.5rem 1rem;border-left:3px solid transparent;margin:0 0 1rem}}
+section.cited{{background:#efecff;border-left-color:#7c68fa}} .n{{font-size:.75rem;color:#6b7280;text-transform:uppercase}}
+p{{margin:.5rem 0;white-space:pre-wrap}}
+.src{{font-size:.85rem;color:#6b7280;margin:-1rem 0 1.5rem}} a{{color:#5241c2}}
+</style></head><body><h1>{escape(title)}</h1>{origin}
+{sections}
+<script>document.getElementById("p{cited + 1}").scrollIntoView({{block:"center"}})</script>
+</body></html>"""
 
 
 TOKEN_ENV = "TTDR_MCP_TOKEN"

@@ -216,3 +216,24 @@ def test_keyword_hits_follow_the_embeddings_and_text_documents_index_every_chunk
     (web / "42.txt").write_text("\n".join(f"line {i} " * 20 for i in range(60)))
     asyncio.run(corpus.index_keywords("web"))
     assert len(upserts) > 3 and upserts[:2] == ["42#p0.0", "42#p0.1"]
+
+
+def test_a_text_documents_pages_read_like_the_document(tmp_path):
+    from ttdr import corpus as corpus_mod
+    from ttdr.corpus import chunk
+
+    text = "\n".join(
+        f"Line {i}: the store manager took photos of aisle seven after the fall."
+        for i in range(120)
+    )
+    path = tmp_path / "c" / "intake.txt"
+    path.parent.mkdir()
+    path.write_text(text)
+    assert len(chunk.split(text)) > 3  # overlapping chunks
+    pages = []
+    previous = ""
+    for c in corpus_mod._text_chunks(path):
+        pages.append(corpus_mod._after_overlap(previous, c.text))
+        previous = c.text
+    rebuilt = "\n".join(pages)
+    assert rebuilt.count("Line 60:") == 1 and rebuilt.count("Line 119:") == 1

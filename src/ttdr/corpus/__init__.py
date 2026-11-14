@@ -84,6 +84,20 @@ class Corpus:
                 return None
         return png
 
+    def text_pages(self, doc: str) -> list[list[str]] | None:
+        """A text document's pages (Word, Markdown and text uploads have no PDF to render), each
+        its chunks' text; None when it isn't a text document."""
+        if not (path := self._text_doc(doc)):
+            return None
+        pages: list[list[str]] = []
+        previous = ""
+        for c in _text_chunks(path):
+            while len(pages) <= c.page:
+                pages.append([])
+            pages[c.page].append(_after_overlap(previous, c.text))
+            previous = c.text
+        return pages
+
     def _text_doc(self, doc: str) -> Path | None:
         if not DOC_NAME.fullmatch(doc):
             return None
@@ -316,6 +330,15 @@ class Corpus:
         todo = sorted(await self.store.docs(corpus) - done)
         await asyncio.gather(*(one(d) for d in todo))
         return {"indexed": len(todo), "skipped": len(done)}
+
+
+def _after_overlap(previous: str, text: str) -> str:
+    """TEXT without the lead-in it repeats from the end of PREVIOUS (chunks overlap, so a page
+    made of them would say it twice)."""
+    for k in range(min(len(previous), len(text), chunk.OVERLAP_CHARS + 64), 0, -1):
+        if previous.endswith(text[:k]):
+            return text[k:].lstrip()
+    return text
 
 
 def _text_chunks(path: Path) -> list[chunk.Chunk]:

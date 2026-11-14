@@ -177,3 +177,37 @@ def test_searxng_falls_back_to_brave_when_the_defaults_return_nothing(monkeypatc
     monkeypatch.setattr(web, "searxng", searxng)
     assert asyncio.run(web.results(None, "searxng", "http://s", "q")) == [{"url": "https://a"}]
     assert asked == [{}, {"engines": web.SEARXNG_FALLBACK}]
+
+
+def test_text_documents_get_a_readable_page_instead_of_a_404(monkeypatch):
+    from starlette.testclient import TestClient
+
+    class Corpus:
+        async def page_png(self, doc, page):
+            return b"PNG" if doc == "report" else None
+
+        def text_pages(self, doc):
+            return (
+                [["Rosa slipped in aisle 7.", "No cone."], ["Okoro saw the spill <early>."]]
+                if doc == "intake"
+                else None
+            )
+
+    class Clients:
+        corpus = Corpus()
+
+    engine = FakeEngine()
+    engine.clients = Clients()
+    source = {"store": "OneDrive", "web_url": "https://onedrive.live.com/x"}
+    origin = {"file_name": "Client intake interview.docx", "source": source}
+    monkeypatch.setattr(mcp_server.library, "origins", lambda: {"intake": origin})
+    app = mcp_server.build(RECIPE, engine).streamable_http_app()
+    with TestClient(app) as c:
+        assert c.get("/pages/report/1").headers["content-type"] == "image/png"
+        r = c.get("/pages/intake/2")
+        assert r.status_code == 200 and r.headers["content-type"].startswith("text/html")
+        assert "<title>Client intake interview.docx</title>" in r.text
+        assert '<section id="p2" class="cited">' in r.text and "&lt;early&gt;" in r.text
+        assert 'href="https://onedrive.live.com/x"' in r.text and "Imported from OneDrive" in r.text
+        assert c.get("/pages/intake/3").status_code == 404
+        assert c.get("/pages/nothing/1").status_code == 404
