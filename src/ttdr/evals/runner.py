@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import json
 import subprocess
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -36,6 +37,8 @@ async def _answer_all(system, items: list[Item], recipe: Recipe, concurrency: in
                     a = await system.answer(item, clients)
                 except Exception as e:  # noqa: BLE001 - recorded per item, graded as an error
                     a = Answer(id=item.id, text="", latency_s=0, error=f"{type(e).__name__}: {e}")
+                    with (out.parent / "errors.log").open("a") as f:  # the full chain, sub-exceptions too
+                        f.write(f"== {item.id}\n{''.join(traceback.format_exception(e))}\n")
             with out.open("a") as f:
                 f.write(a.model_dump_json() + "\n")
 

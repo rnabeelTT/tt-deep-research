@@ -858,3 +858,12 @@ Qwen3.8's package had never run on hardware before. Its first vision boot ran ou
 **For another machine:** the code, recipes and bundles are all pushed (this repo; tt-metal fork branch `raahem/cohost-ornith-qwen3vl`; tt-model fork branch `raahem/cohost-mixed-groups`; the three bundles on HF). This box's search indexes are snapshotted in `data/snapshots` (12 GB, ignored by git, internal use only); restore them with `scripts/setup-evals.sh <dir>` (docs/EVALS.md). The board was freed afterwards (no model servers running).
 
 Also found and reverted a garbled edit to `recipes/rerank.toml` (made at 21:55, not by this work; a copy is kept outside the repo). It had broken both that recipe and the cohost recipe that extends it. Every recipe loads again.
+
+## FRAMES with sandboxed Python: 73% (2026-11-18)
+
+**Run:** `runs/20261118-150338-deepagents`, `recipes/ornith-35b-cohost-code.toml` (cohost stack plus `run_python_code`), the same first 100 questions as the final run, 3 sub-questions × 8 calls, 8 in flight. Graded by four blinded Claude subagents on the usual rubric (`data/judge/frames-code`).
+
+- **73/100 = 73%** (25 wrong, 2 abstained), up from 66% without the tool. Numerical reasoning **26/42 = 62%** (was 21/42); multiple constraints 29/34.
+- The model called Python on only 15 of 100 questions (11 correct there), so the tool explains part of the gain at most. The final run also searched with scope "all"; this one is web only (`SUITE_SOURCES`). Unpaired (the old answers aren't on this box), and ±9 points at n=100, so read it as an improvement of uncertain size, not a measured tool effect.
+- Two questions failed once with an ExceptionGroup and answered on retry; nothing in the sandbox logs. The runner now writes each failure's full traceback to `<run>/errors.log`.
+- Deck updated: FRAMES 66% → 73%.

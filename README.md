@@ -59,7 +59,7 @@ One locked recipe (`recipes/ornith-35b-cohost.toml`) on one QB2, free web search
 | FinanceBench (10-Ks, shared index) | 150 | **82.7%** | GPT-4-Turbo, shared vector store 19%; whole filing in context 79% |
 | UniDoc-Bench (figures and tables in PDFs) | 100 | **76%** | |
 | SimpleQA | 100 | **89%** | Perplexity Deep Research 93.9 |
-| FRAMES (multi-hop) | 100 | **66%** | Kimi K2-Thinking 87.0 (self-reported), Gemini 1.5 multi-step 66 |
+| FRAMES (multi-hop) | 100 | **73%** (66% before sandboxed Python) | Kimi K2-Thinking 87.0 (self-reported), Gemini 1.5 multi-step 66 |
 | BrowseComp-Plus (fixed 100k pages, offline) | 96 of first 100 | **72.9%** | Qwen3-Embed-8B rows: GPT-5 71.7, o3 65.9, Tongyi 30B 44.5 |
 | HLE, text-only | 50 of first 51 | **26%** | 2025 OpenAI DR 26.6; 2026 agents with tools ~54 |
 
