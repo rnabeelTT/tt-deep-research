@@ -2,19 +2,38 @@
 
 Deep research on a Tenstorrent QB2: an agent breaks a question into sub-questions, searches the web and private documents, and writes a cited report whose citations open the exact page. All models run on the box; web search is optional and pluggable.
 
+## Quickstart
+
+On a QB2 (4× p300c), from a fresh machine to a running stack:
+
 ```bash
+# 1. Once per machine: uv, the tt CLI, Docker usable without sudo
+curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env
+uv tool install tenstorrent                  # tt; `tt update` installs drivers and firmware if the box has none
+# Docker Engine with the Compose plugin: https://docs.docker.com/engine/install/ubuntu/
+sudo usermod -aG docker $USER                # then log out and back in
+
+# 2. The code (a private repo: `gh auth login` first, with access to rnabeelTT)
+gh repo clone rnabeelTT/tt-deep-research && cd tt-deep-research
 uv sync
-uv run ttdr up                         # serve the models (tt), start services + app (Compose), check all
-uv run ttdr research "your question"   # live progress, then a cited report
+
+# 3. Everything, one command (first run ~30 min: model downloads and image builds; ~10 min later)
+uv run ttdr up
+
+# 4. Use it
+#    browser: http://<host>:3000   (from another machine: ssh -L 3000:localhost:3000 <user>@<host>)
+uv run ttdr research "your question"
 ```
 
-The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. It checks for the tools it needs first (Docker with Compose, tt, git) and says what to install; the first run builds the app images, and models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
+`ttdr up` checks first that everything it needs is in place (Docker with Compose and its daemon, tt, git, a writable `/opt/tenstorrent/models`) and prints the fix for anything missing. It then serves the three models (each `tt serve` returns once its endpoint answers), builds and starts the app, and exits 0 only when every endpoint is up; rerunning it is safe. The chips must be free: `tt model ps` lists what's serving, and if another workload held them, `tt model stop <bundle>` then `tt device reset --yes` before `ttdr up`. A fresh install has no documents; upload some in the UI (below) or research the web only. Web search needs no API key.
+
+The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
 
 More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), other clients of the engine (Hermes, coding agents, scripts) in [docs/CLIENTS.md](docs/CLIENTS.md), importing from Google Drive, SharePoint and OneDrive, and adding other document stores, in [docs/CONNECTORS.md](docs/CONNECTORS.md), evals in [docs/EVALS.md](docs/EVALS.md) and [docs/DATASETS.md](docs/DATASETS.md), every A/B in [docs/LOG.md](docs/LOG.md), what we learned in [docs/JOURNEY.md](docs/JOURNEY.md), published competitor scores in [docs/COMPETITORS.md](docs/COMPETITORS.md), the demo plan in [docs/DEMO.md](docs/DEMO.md).
 
 ## On another machine
 
-Clone this repo, `uv sync`, `uv run ttdr up` (bundles download from Hugging Face). Collections and indexes are data, not code: index your own documents there, or copy this box's search indexes and restore them instead of re-embedding (`uv run ttdr corpus snapshot`, then `scripts/setup-evals.sh <dir>`; docs/EVALS.md). API keys go in `.env` by hand; web search works without one (SearXNG).
+The quickstart above (bundles download from Hugging Face). Collections and indexes are data, not code: index your own documents there, or copy this box's search indexes and restore them instead of re-embedding (`uv run ttdr corpus snapshot`, then `scripts/setup-evals.sh <dir>`; docs/EVALS.md). API keys go in `.env` by hand; web search works without one (SearXNG).
 
 ## The stack
 
