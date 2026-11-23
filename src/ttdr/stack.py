@@ -30,6 +30,44 @@ APP = {
     "ocr": None,
 }
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
+COHOST_TT_MODEL = (
+    "git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups"
+)
+INSTALL = {
+    "docker": "install Docker Engine with the Compose plugin (https://docs.docker.com/engine/install/)",
+    "git": "install git (needed once to clone AI-Q into external/aiq)",
+    "tt": "install the Tenstorrent CLI, tt >= 1.2.1 (`tt self update --yes` if already installed)",
+    "tt-model": f"cohost bundles need tt-model with mixed cohost groups: "
+    f"`uv tool install --force {COHOST_TT_MODEL}`",
+    "hf": "`uv tool install huggingface_hub` (for the recipe's prefetch snapshots)",
+}
+
+
+def missing_tools(recipe: Recipe, up: dict[str, bool] | None = None) -> list[str]:
+    """Commands `ttdr up` will call that aren't on PATH: models already serving need none."""
+    up = up or {}
+    served = recipe.served()
+    cohosted = {c for m in served.values() for c in m.cohosts}
+    need = {"docker"} | (set() if Path("external/aiq").exists() else {"git"})
+    for name, m in served.items():
+        if up.get(name) or name in cohosted or not m.bundle:
+            continue
+        need.add("tt-model" if m.cohosts else "tt")
+        if m.prefetch:
+            need.add("hf")
+    missing = {t for t in need if not shutil.which(t)}
+    compose = ["docker", "compose", "version"]  # the Compose plugin too
+    if (
+        "docker" not in missing
+        and subprocess.run(compose, check=False, capture_output=True).returncode
+    ):
+        missing.add("docker")
+    return sorted(missing)
+
+
+def preflight(recipe: Recipe, up: dict[str, bool]) -> None:
+    if missing := missing_tools(recipe, up):
+        raise SystemExit("ttdr up needs:\n" + "\n".join(f"  {t}: {INSTALL[t]}" for t in missing))
 
 
 def _run(cmd: list[str], log) -> None:
@@ -56,6 +94,7 @@ def app_services(recipe: Recipe) -> list[str]:
 
 def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
     up = {c.name.split(" ")[0]: c.ok for c in asyncio.run(health.run(recipe))}
+    preflight(recipe, up)
     served = recipe.served()
     cohosted = {c for m in served.values() for c in m.cohosts}
     detached = False
@@ -174,5 +213,13 @@ def down(stop_models: bool, recipe: Recipe, log) -> None:
     """Stop the app containers (data services and Redis' caches keep running)."""
     _run(["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP], log)
     if stop_models:
-        for m in recipe.served().values():
-            _run(["tt", "model", "stop", m.bundle], log)
+        served = recipe.served()
+        cohosted = {c for m in served.values() for c in m.cohosts}  # stopped with their host
+        for name, m in served.items():
+            if m.bundle and name not in cohosted:
+                cmd = ["tt", "model", "stop", m.bundle]
+                log(" ".join(cmd))
+                if subprocess.run(
+                    cmd, check=False
+                ).returncode:  # not running: keep stopping the others
+                    log(f"{name}: not stopped (was it running?)")

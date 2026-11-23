@@ -128,3 +128,18 @@ def test_env_update_keeps_keys_added_by_hand(tmp_path):
     env.write_text("TAVILY_API_KEY=k\nTTDR_RECIPE=old.toml\n")
     write_env({"TTDR_RECIPE": "recipe.toml"}, env)
     assert env.read_text() == "TAVILY_API_KEY=k\nTTDR_RECIPE=recipe.toml\n"
+
+
+def test_default_recipe_serves_three_bundles_with_tt_and_cohost_needs_tt_model(monkeypatch):
+    from ttdr import stack
+
+    default = recipe.load(Path("recipe.toml"))
+    assert not any(m.cohosts for m in default.served().values())  # chips 0-1, 2, 3
+    assert all(stack.serve_command(m)[0] == "tt" for m in default.served().values())
+    have = {"docker", "git", "tt"}
+    monkeypatch.setattr(stack.shutil, "which", lambda t: t if t in have else None)
+    monkeypatch.setattr(stack.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0}))
+    assert stack.missing_tools(default) == []
+    cohost = recipe.load(Path("recipes/ornith-35b-cohost.toml"))
+    assert stack.missing_tools(cohost) == ["tt-model"]
+    assert stack.missing_tools(cohost, {"ornith": True}) == []  # already serving: nothing to run

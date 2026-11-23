@@ -8,7 +8,7 @@ uv run ttdr up                         # serve the models (tt), start services +
 uv run ttdr research "your question"   # live progress, then a cited report
 ```
 
-The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness is behind the same UI on :3001. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. `ttdr down` stops the app (`--models` stops the models too).
+The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness is behind the same UI on :3001. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. It checks for the tools it needs first (Docker with Compose, tt, git) and says what to install; the first run builds the app images, and models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
 
 More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), other clients of the engine (Hermes, coding agents, scripts) in [docs/CLIENTS.md](docs/CLIENTS.md), importing from Google Drive, SharePoint and OneDrive, and adding other document stores, in [docs/CONNECTORS.md](docs/CONNECTORS.md), evals in [docs/EVALS.md](docs/EVALS.md) and [docs/DATASETS.md](docs/DATASETS.md), every A/B in [docs/LOG.md](docs/LOG.md), what we learned in [docs/JOURNEY.md](docs/JOURNEY.md), published competitor scores in [docs/COMPETITORS.md](docs/COMPETITORS.md), the demo plan in [docs/DEMO.md](docs/DEMO.md).
 
@@ -29,12 +29,12 @@ The default recipe serves three models on separate chips (what the A/Bs ran on);
 Two ways to serve them with the same app; pick one recipe and pass it to `ttdr up`:
 
 ```bash
-# Separate bundles, one per chip group (the default recipe): the embedder and reranker take images
+# Separate bundles, one per chip group (the default recipe; needs only Docker, uv and tt)
 uv run ttdr up
 
-# One cohost bundle on all four chips: fastest; the embedder and reranker take images too (one per input)
-# (needs tt-model with mixed cohost groups:
-#  uv tool install --force git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups)
+# Optional: one cohost bundle on all four chips, fastest; the embedder and reranker take images too
+# (one per input). Needs this tt-model build (stock tt-model lacks mixed cohost groups):
+#  uv tool install --force git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups
 uv run ttdr up --recipe recipes/ornith-35b-cohost.toml
 ```
 
@@ -76,7 +76,7 @@ On one QB2, graded by blinded Claude subagents; dev sets are 40 questions (8 tas
 | DeepResearch Bench dev (cited reports, RACE vs the reference; 0.5 = on par) | **0.445** (agents thinking, writer not; 0.381 off) |
 | Deep Agents vs AI-Q deep, same engine, DRB dev | Quality tie (0.429 vs 0.428), Deep Agents 4.5× faster (24 vs 107 min median) |
 | BrowseComp-Plus retrieval (100k pages, one search per question, gold doc in top 10) | 42.7% dense + rerank → **52.7%** with 30 BM25 hits added |
-| LLM size, 12 FinanceBench + 12 BrowseComp-Plus | Ornith 122B and Qwen3.8-27B tie the 35B; the 35B cohosted with the embedder and reranker is the fastest (197 tok/s single, 1,039 at 32) and is the recommended serving |
+| LLM size, 12 FinanceBench + 12 BrowseComp-Plus | Ornith 122B and Qwen3.8-27B tie the 35B; the 35B cohosted with the embedder and reranker is the fastest (197 tok/s single, 1,039 at 32); the default serves the same models on separate chips, which needs only stock `tt` |
 | Models rejected by A/B | gpt-oss-20b (tie, fewer features), QUEST-35B-RL (lost every DRB task, doesn't stop in this harness), Ornith 122B (tie, 2× slower), Qwen3.8-27B (no multi-user vision, lower on 10-Ks) |
 
 Competitor numbers come with different judges and subsets; [docs/COMPETITORS.md](docs/COMPETITORS.md) lists them with sources, and the final DRB comparison re-judges competitors' published reports with the same Claude graders.
@@ -109,7 +109,7 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank.toml` is the same setup under its old name, what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (recommended: the 35B, embedder and reranker as one bundle on all four chips; serve it with `tt-model serve raahemnabeel/cohost-ornith-35b-qwen3vl --local-only --port 8000 --detach`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
+Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank.toml` is the same setup under its old name, what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe recipes/ornith-35b-cohost.toml` serves it with the cohost `tt-model`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
 
 ## Layout
 
