@@ -61,9 +61,8 @@ services:
     depends_on: [engine]
     restart: unless-stopped
 
-  ui:
+  ui:   # AI-Q's harness behind the UI (features.aiq); ui-deepagents builds the image
     profiles: [app]
-    build: { context: external/aiq/frontends/ui, dockerfile: deploy/Dockerfile }
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:   # PAGES_URL: citations' page links (/pages/*) are served by the engine
@@ -72,8 +71,8 @@ services:
     depends_on: [aiq]
     restart: unless-stopped
 
-  # The Deep Agents harness (the default, docs/LOG.md) behind the same UI: UI on :3000, API on :8200.
-  # AI-Q's own backend keeps the UI on :3001 as the alternative harness.
+  # The Deep Agents harness (the default, docs/LOG.md) behind the UI: UI on :3000, API on :8200.
+  # AI-Q's own backend (aiq, ui on :3001) is the alternative harness, started with features.aiq.
   deepagents:
     profiles: [app]
     image: ttdr/engine:${TTDR_VERSION:-dev}
@@ -97,6 +96,7 @@ services:
 
   ui-deepagents:
     profiles: [app]
+    build: { context: external/aiq/frontends/ui, dockerfile: deploy/Dockerfile }
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:

@@ -16,7 +16,8 @@ def test_minimal_overlay_removes_roles_services_and_features():
     r = recipe.load(ROOT / "recipes" / "minimal.toml")
     assert r.decide is None and r.services.searxng is None
     assert list(r.served()) == ["ornith", "qwen3vl_embed"]
-    assert app_services(r) == ["engine", "aiq"]
+    assert app_services(r) == ["engine"]
+    assert app_services(RECIPE) == ["engine", "deepagents", "ui-deepagents", "ocr"]  # one UI
     assert connect(r, httpx.AsyncClient()).decide is None
 
 

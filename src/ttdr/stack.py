@@ -30,6 +30,7 @@ APP = {
     "ocr": None,
 }
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
+AIQ_SERVICES = {"aiq", "ui"}  # AI-Q's harness: opt in with features.aiq
 COHOST_TT_MODEL = (
     "git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups"
 )
@@ -89,7 +90,13 @@ def serve_command(m: Model) -> list[str]:
 
 def app_services(recipe: Recipe) -> list[str]:
     f = recipe.features
-    return [s for s in APP if (s not in UI_SERVICES or f.ui) and (s != "ocr" or f.ocr)]
+    return [
+        s
+        for s in APP
+        if (s not in UI_SERVICES or f.ui)
+        and (s != "ocr" or f.ocr)
+        and (s not in AIQ_SERVICES or f.aiq)
+    ]
 
 
 def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:

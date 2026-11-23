@@ -75,8 +75,11 @@ def research(
     question: str,
     shallow: Annotated[bool, typer.Option(help="Quick cited answer instead of a report")] = False,
     harness: Annotated[
-        str, typer.Option(help="aiq (job API) or lite (built-in, over MCP)")
-    ] = "aiq",
+        str,
+        typer.Option(
+            help="deepagents (in-process, over MCP) or aiq (AI-Q's job API: features.aiq)"
+        ),
+    ] = "deepagents",
     api: Annotated[str, typer.Option(help="AI-Q job API")] = "http://127.0.0.1:8100",
     out: Annotated[Path | None, typer.Option(help="Write the report (Markdown) here")] = None,
     quiet: Annotated[bool, typer.Option(help="Hide live progress")] = False,
@@ -126,7 +129,7 @@ def jobs(
     limit: int = 15,
     db: Annotated[Path | None, typer.Option(help="AI-Q job store")] = None,
 ) -> None:
-    """Recent AI-Q jobs with live progress: agents done, searches, fetches, last activity."""
+    """Recent AI-Q jobs (features.aiq) with live progress: agents done, searches, fetches, last activity."""
     import sqlite3
     from datetime import UTC, datetime
 

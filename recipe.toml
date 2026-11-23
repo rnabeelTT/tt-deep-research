@@ -100,5 +100,6 @@ tenant = ""          # a tenant ID to accept work accounts from one organization
 [features]
 triage = false       # Laya reranking lowers recall (docs/LOG.md)
 ocr = true
-ui = true
+ui = true            # web UI on :3000 (Deep Agents)
+aiq = false          # true: also AI-Q's harness, job API :8100 and UI :3001 (`ttdr research --harness aiq`)
 auto_tool_choice = true    # AI-Q agents choose their tools instead of a forced call each turn (docs/LOG.md)

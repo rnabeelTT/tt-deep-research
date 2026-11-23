@@ -111,7 +111,9 @@ class Features(BaseModel):
     read_pages: int = 0
     """Search attaches the LLM's reading of this many top corpus pages (figures, tables)."""
     ui: bool = True
-    """Run the web UI container."""
+    """Run the web UI (Deep Agents harness, :3000)."""
+    aiq: bool = False
+    """Also run AI-Q's own harness: its job API (:8100, `ttdr research --harness aiq`) and UI (:3001)."""
     auto_tool_choice: bool = False
     """AI-Q: let the model choose tools instead of forcing structured output (patch 0004)."""
     offline: bool = False

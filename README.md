@@ -8,7 +8,7 @@ uv run ttdr up                         # serve the models (tt), start services +
 uv run ttdr research "your question"   # live progress, then a cited report
 ```
 
-The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness is behind the same UI on :3001. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. It checks for the tools it needs first (Docker with Compose, tt, git) and says what to install; the first run builds the app images, and models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
+The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. It checks for the tools it needs first (Docker with Compose, tt, git) and says what to install; the first run builds the app images, and models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
 
 More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), other clients of the engine (Hermes, coding agents, scripts) in [docs/CLIENTS.md](docs/CLIENTS.md), importing from Google Drive, SharePoint and OneDrive, and adding other document stores, in [docs/CONNECTORS.md](docs/CONNECTORS.md), evals in [docs/EVALS.md](docs/EVALS.md) and [docs/DATASETS.md](docs/DATASETS.md), every A/B in [docs/LOG.md](docs/LOG.md), what we learned in [docs/JOURNEY.md](docs/JOURNEY.md), published competitor scores in [docs/COMPETITORS.md](docs/COMPETITORS.md), the demo plan in [docs/DEMO.md](docs/DEMO.md).
 
@@ -97,9 +97,9 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | Command | What |
 |---|---|
 | `ttdr up` / `ttdr down` | Whole stack from the recipe |
-| `ttdr research "…"` [`--shallow`] [`--harness deepagents`] | Research with live progress |
+| `ttdr research "…"` [`--shallow`] [`--harness aiq`] | Research with live progress (Deep Agents; `aiq` needs `features.aiq`) |
 | `ttdr verify report.md` [`--revise`] | Check each cited claim against its source |
-| `ttdr jobs` | Recent research jobs, with progress |
+| `ttdr jobs` | Recent AI-Q research jobs, with progress (`features.aiq`) |
 | `ttdr corpus upload FOLDER` [`--collection NAME --description "…"`] | Add a folder of your own documents to a collection (default: the UI's uploads), through the running app (`--url`, default :8200) |
 | `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
 | `scripts/setup-evals.sh` [`SNAPSHOT_DIR`] | Everything the evals need on a new machine (docs/EVALS.md) |

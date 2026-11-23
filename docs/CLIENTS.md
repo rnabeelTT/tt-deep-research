@@ -14,15 +14,15 @@ The engine is an MCP server (`services.mcp` in the recipe, `http://localhost:990
 
 ## AI-Q
 
-The alternative harness: `ttdr up` starts it with the engine's web and document endpoints as its data sources, its UI on :3001 and job API on :8100; `ttdr research "…"` from the terminal.
+The alternative harness, off by default: with `aiq = true` under `[features]` in the recipe, `ttdr up` also starts it with the engine's web and document endpoints as its data sources, its UI on :3001 and job API on :8100; `ttdr research --harness aiq "…"` from the terminal.
 
 ## LangChain Deep Agents (default)
 
-The default harness since the 2026-11-03 A/Bs (docs/LOG.md: ties AI-Q on reports at a quarter of the time, +10 on UniDoc): `ttdr research --harness deepagents "…"` (and the `deepagents` eval system). Deep Agents plans with `write_todos`, sends each sub-question to a researcher subagent, and writes the cited report; `src/ttdr/harness.py` only connects the recipe's LLM, the engine's MCP tools and call limits. It asks for no structured output, so no request forces a tool call.
+The default harness since the 2026-11-03 A/Bs (docs/LOG.md: ties AI-Q on reports at a quarter of the time, +10 on UniDoc): `ttdr research "…"` (and the `deepagents` eval system). Deep Agents plans with `write_todos`, sends each sub-question to a researcher subagent, and writes the cited report; `src/ttdr/harness.py` only connects the recipe's LLM, the engine's MCP tools and call limits. It asks for no structured output, so no request forces a tool call.
 
 ### In the web UI (:3000)
 
-`ttdr ui-server` (`src/ttdr/ui_server.py`, default `127.0.0.1:8200`) speaks AI-Q's UI protocol on top of the Deep Agents harness, so the same UI image runs on either harness: Deep Agents on :3000, AI-Q on :3001. `ttdr up` starts both; by hand:
+`ttdr ui-server` (`src/ttdr/ui_server.py`, default `127.0.0.1:8200`) speaks AI-Q's UI protocol on top of the Deep Agents harness, so the same UI image runs on either harness: Deep Agents on :3000, AI-Q on :3001. `ttdr up` starts the Deep Agents one (and AI-Q's with `features.aiq`); by hand:
 
 ```bash
 docker compose --profile app up -d deepagents ui-deepagents   # API :8200, UI http://<host>:3000

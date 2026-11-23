@@ -41,7 +41,7 @@ uv run ttdr eval claims-build && uv run ttdr eval claims-run   # decision model 
 | `b0` | The LLM alone, closed book |
 | `b1` | Naive RAG: top-k corpus chunks, cite evidence IDs |
 | `b1mcp` | B1 with retrieval through the MCP `search` tool |
-| `aiq` | AI-Q's job API (`-p agent=shallow_researcher` or `deep_researcher`) |
+| `aiq` | AI-Q's job API, with `features.aiq` in the recipe (`-p agent=shallow_researcher` or `deep_researcher`) |
 | `deepagents` | LangChain Deep Agents over the engine's MCP tools |
 
 Every system reads the same recipe, so `--recipe recipes/<overlay>.toml` (or `ttdr eval ab`) compares configurations: another LLM, another decision model, a feature switched on.
