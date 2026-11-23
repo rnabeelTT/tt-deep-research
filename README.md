@@ -146,3 +146,7 @@ Recipes worth knowing: `recipe.toml` (default: the three models on separate chip
 | `docs/reports/` | Sample deep reports from each harness |
 
 FinanceBench (CC BY-NC 4.0) and UniDoc-Bench are used for internal evaluation only; HLE, GAIA and BrowseComp-Plus data stay out of the repo. Third-party credits are in [NOTICE.md](NOTICE.md).
+
+## License
+
+Apache License 2.0: see [LICENSE](LICENSE). Third-party code and its licenses are listed in [NOTICE.md](NOTICE.md).
