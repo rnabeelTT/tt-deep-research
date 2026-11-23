@@ -144,3 +144,16 @@ def test_default_recipe_serves_three_bundles_with_tt_and_cohost_needs_tt_model(m
     cohost = recipe.load(Path("recipes/ornith-35b-cohost.toml"))
     assert stack.missing_tools(cohost) == ["tt-model"]
     assert stack.missing_tools(cohost, {"ornith": True}) == []  # already serving: nothing to run
+
+
+def test_up_says_when_docker_or_the_model_cache_is_out_of_reach(monkeypatch, tmp_path):
+    from ttdr import stack
+
+    monkeypatch.setattr(stack.shutil, "which", lambda t: t)
+    monkeypatch.setattr(stack.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 1}))
+    cache = tmp_path / "models"
+    cache.mkdir(mode=0o555)
+    monkeypatch.setattr(stack, "MODEL_CACHE", cache)
+    problems = stack.access_problems(RECIPE)
+    assert len(problems) == 2 and "docker" in problems[0] and str(cache) in problems[1]
+    assert len(stack.access_problems(RECIPE, {"ornith": True})) == 1  # Ornith up: nothing to stage

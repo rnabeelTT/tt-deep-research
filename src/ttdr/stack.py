@@ -66,9 +66,38 @@ def missing_tools(recipe: Recipe, up: dict[str, bool] | None = None) -> list[str
     return sorted(missing)
 
 
+def access_problems(recipe: Recipe, up: dict[str, bool] | None = None) -> list[str]:
+    """Permissions `ttdr up` needs: the Docker daemon without sudo, and a writable model cache
+    when a model to serve has a chat template or prefetch snapshots to stage there."""
+    up, problems = up or {}, []
+    if (
+        shutil.which("docker")
+        and subprocess.run(["docker", "info"], check=False, capture_output=True).returncode
+    ):
+        problems.append(
+            "the Docker daemon isn't reachable as this user: `sudo usermod -aG docker $USER`, "
+            "then log in again (or start Docker: `sudo systemctl start docker`)"
+        )
+    staged = [
+        m
+        for n, m in recipe.served().items()
+        if not up.get(n) and not m.cohosts and (m.chat_template or m.prefetch)
+    ]
+    cache = MODEL_CACHE if MODEL_CACHE.exists() else MODEL_CACHE.parent
+    if staged and not os.access(cache, os.W_OK):
+        problems.append(
+            f"{MODEL_CACHE} isn't writable (chat templates are staged there): "
+            f"`sudo mkdir -p {MODEL_CACHE} && sudo chgrp docker {MODEL_CACHE} "
+            f"&& sudo chmod 2775 {MODEL_CACHE}`, as a member of the docker group"
+        )
+    return problems
+
+
 def preflight(recipe: Recipe, up: dict[str, bool]) -> None:
-    if missing := missing_tools(recipe, up):
-        raise SystemExit("ttdr up needs:\n" + "\n".join(f"  {t}: {INSTALL[t]}" for t in missing))
+    lines = [f"  {t}: {INSTALL[t]}" for t in missing_tools(recipe, up)]
+    lines += [f"  {p}" for p in access_problems(recipe, up)]
+    if lines:
+        raise SystemExit("ttdr up can't start yet:\n" + "\n".join(lines))
 
 
 def _run(cmd: list[str], log) -> None:
