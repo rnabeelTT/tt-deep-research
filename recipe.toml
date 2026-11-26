@@ -1,5 +1,5 @@
 version = "0.2.0"
-description = "A bundle per chip group, served with tt: the LLM on chips 0-1, the embedder on 2, the reranker on 3"
+description = "Recommended: Ornith 35B (reads page images) on chips 0-1, embedder 2, reranker 3. 262K context, 1.82M-token KV cache (about 7 full-length chats at once); 119 tok/s for one user, 689 across 32"
 
 # Models: a registry. `kind` decides the client (chat, embed, decide); `[roles]` decides the job.
 # Swap a model by pointing a role at another entry (see recipes/*.toml overlays).

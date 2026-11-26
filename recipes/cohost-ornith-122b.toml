@@ -1,5 +1,5 @@
 extends = "../recipe.toml"
-description = "The 122B LLM as one cohost bundle; needs the cohost tt-model build (README)"
+description = "Ornith 122B in one bundle on all four chips, reads page images. 148 tok/s for one user, 364 across 8 (a third of the 35B's throughput)"
 
 # Ornith 1.5 122B cohosted with the embedder and reranker on all four chips, one bundle (docs/LOG.md).
 [models.ornith]

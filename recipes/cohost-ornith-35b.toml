@@ -1,5 +1,5 @@
 extends = "../recipe.toml"
-description = "The default's models as one cohost bundle, the fastest; needs the cohost tt-model build (README)"
+description = "Fastest: the same models in one bundle on all four chips, reads page images. 212 tok/s for one user, 839 across 8 (1.5-1.7x the default); needs the cohost tt-model"
 
 # Ornith 1.5 35B-A3B cohosted with the embedder and reranker on all four chips, one bundle, instead
 # of three bundles on chips 0-1, 2 and 3 (docs/LOG.md).

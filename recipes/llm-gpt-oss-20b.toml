@@ -1,5 +1,5 @@
 extends = "../recipe.toml"
-description = "gpt-oss-20b as the LLM on chips 0-1 in Ornith's place, with the embedder and reranker"
+description = "gpt-oss-20b on chips 0-1: 131K context, 528K-token KV cache (about 4 full-length chats at once); text-only (no read_page); 170 tok/s for one user, 991 across 32"
 
 # gpt-oss-20b as the LLM. Same chips (0-1) as Ornith, so serve one or the other.
 [models.gpt-oss]
@@ -11,6 +11,7 @@ url = "http://localhost:8000/v1"
 # top_k <= 32 keeps the bundle's fused decode path; without it decode is 5-9x slower
 sampling = { temperature = 1.0, top_k = 20, top_p = 1.0 }
 reasoning = "reasoning_effort"
+vision = false   # text-only: agents get no read_page
 serve_order = 0
 
 [roles]

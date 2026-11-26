@@ -1,5 +1,5 @@
 extends = "../recipe.toml"
-description = "The default with Tavily as the web search (TAVILY_API_KEY in .env); opt-in, the free tier is limited"
+description = "The default with Tavily for web search instead of SearXNG: no rate-limit lockouts; needs TAVILY_API_KEY (free tier ~1,000 searches a month)"
 
 # Tavily as the web backend (TAVILY_API_KEY in .env). Opt-in only: the free tier is ~1,000
 # searches a month and one DRB dev run takes several hundred, so A/Bs use it on purpose.

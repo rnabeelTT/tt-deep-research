@@ -1,5 +1,5 @@
 extends = "../recipe.toml"
-description = "Qwen3.8-27B (dense, takes no images) as one cohost bundle; needs the cohost tt-model build (README)"
+description = "Qwen3.8-27B in one bundle: 262K context, short thinking so answers come quickest; text-only (no read_page), 76 tok/s for one user, 354 across 8"
 
 # Qwen3.8-27B (dense) cohosted with the embedder and reranker on all four chips, one bundle; the
 # bundle brings its own chat template and thinking budget, and takes no images (docs/LOG.md).
