@@ -170,49 +170,87 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
         if m.chat_template:
             (model_cache() / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.copy(m.chat_template, model_cache() / TEMPLATE_DIR)
+    starts = {}
     if all(m.chips for _, m in todo):
-        _start_together(todo, log)
+        starts = _start_together(todo)
     else:  # tt picks the chips: one model at a time, largest first, for a stable order
         for _, m in todo:
             _run(serve_command(m), log)
-    if not todo:
-        return
-    log("waiting for the models to load (10-15 minutes from cold)")
-    pending = set(served) - {n for n, ok in up.items() if ok}
-    deadline = time.time() + timeout_s
-    while pending:
-        answering = {c.name.split(" ")[0] for c in asyncio.run(health.run(recipe)) if c.ok}
-        for name in sorted(pending & answering):
-            log(f"{name}: up")
-        pending -= answering
-        if pending and time.time() > deadline:
-            logs = "; ".join(f"`tt model logs {m.bundle} --follow`" for _, m in todo)
-            raise TimeoutError(f"models not ready after {timeout_s:.0f}s; see {logs}")
-        if pending:
-            time.sleep(15)
+    if todo:
+        _watch(recipe, todo, starts, timeout_s)
 
 
-def _start_together(todo: list[tuple[str, Model]], log) -> None:
+def _start_together(todo: list[tuple[str, Model]]) -> dict[str, tuple[subprocess.Popen, Path]]:
     """Start models pinned to their own chips all at once, so their downloads and loads
-    overlap. Each start writes to data/logs/serve-<model>.log, shown when it fails."""
+    overlap: {model: (its tt serve, its log in data/logs/)}."""
     if any(not m.cohosts for _, m in todo):
         # `tt serve` installs tt-model on first use; do that once, not in every serve at once.
         subprocess.run(["tt", "model", "package", "--help"], check=True, capture_output=True)
     logs = Path("data/logs")
     logs.mkdir(parents=True, exist_ok=True)
-    started = []
+    starts = {}
     for name, m in todo:
-        cmd, path = serve_command(m), logs / f"serve-{name}.log"
-        log(f"{' '.join(cmd)}  (log: {path})")
+        path = logs / f"serve-{name}.log"
         with path.open("w") as out:
-            started.append((name, path, subprocess.Popen(cmd, stdout=out, stderr=out)))
-    failed = [(name, path) for name, path, proc in started if proc.wait()]
+            starts[name] = (subprocess.Popen(serve_command(m), stdout=out, stderr=out), path)
+    return starts
+
+
+STAGES = {
+    "starting": "downloading and starting",
+    "loading": "loading (10-15 min from cold)",
+    "up": "up",
+}
+
+
+def _watch(recipe: Recipe, todo, starts, timeout_s: float) -> None:
+    """A live row per model until each answers: starting (downloading, starting its
+    container), loading, up. A start that fails stops the wait and prints its log's end."""
+    from rich.console import Console
+    from rich.live import Live
+    from rich.spinner import Spinner
+    from rich.table import Table
+
+    began, checked = time.time(), 0.0
+    state = {name: "starting" if name in starts else "loading" for name, _ in todo}
+
+    def view() -> Table:
+        minutes, seconds = divmod(int(time.time() - began), 60)
+        rows = Table.grid(padding=(0, 2))
+        for name, m in todo:
+            stage = state[name]
+            mark = {"up": "[green]✓[/]", "failed": "[red]✗[/]"}.get(stage) or Spinner("dots")
+            label = f"[red]failed: {starts[name][1]}[/]" if stage == "failed" else STAGES[stage]
+            clock = "" if stage in ("up", "failed") else f"[dim]{minutes}:{seconds:02d}[/]"
+            chips = f"[dim]chips {m.chips}[/]" if m.chips else ""
+            rows.add_row(mark, m.model.split("/")[-1], chips, label, clock)
+        return rows
+
+    with Live(view(), console=Console(), refresh_per_second=4) as live:
+        while set(state.values()) - {"up", "failed"} and time.time() - began < timeout_s:
+            for name, (proc, _) in starts.items():
+                if state[name] == "starting" and proc.poll() is not None:
+                    state[name] = "loading" if proc.returncode == 0 else "failed"
+            if "failed" in state.values():
+                break
+            if time.time() - checked > 10:
+                checked = time.time()
+                answering = {c.name.split(" ")[0] for c in asyncio.run(health.run(recipe)) if c.ok}
+                state.update({name: "up" for name in state if name in answering})
+            live.update(view())
+            time.sleep(1)
+        live.update(view())
+    failed = [name for name, stage in state.items() if stage == "failed"]
     if failed:
         tails = "\n".join(
-            f"{name} ({path}):\n" + "\n".join(path.read_text().splitlines()[-15:])
-            for name, path in failed
+            f"{name} ({starts[name][1]}):\n" + "\n".join(starts[name][1].read_text().splitlines()[-15:])
+            for name in failed
         )
-        raise SystemExit(f"tt could not start {', '.join(n for n, _ in failed)}:\n{tails}")
+        raise SystemExit(f"tt could not start {', '.join(failed)}:\n{tails}")
+    pending = [m.bundle for name, m in todo if state[name] != "up"]
+    if pending:
+        logs = "; ".join(f"`tt model logs {b} --follow`" for b in pending)
+        raise TimeoutError(f"models not ready after {timeout_s:.0f}s; see {logs}")
 
 
 MCP_INIT = {

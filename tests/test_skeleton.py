@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from ttdr import health, recipe
 from ttdr.clients import client, connect
@@ -116,43 +117,55 @@ def test_recipe_chips_become_tt_model_device_ids():
     assert [device_ids(c) for c in ("0-1", "2", "0-3", "0,2-3")] == ["0,1", "2", "0,1,2,3", "0,2,3"]
 
 
-def test_up_starts_pinned_models_together_and_waits_for_all(monkeypatch, tmp_path):
-    """Every model has its chips, so all three serves run at once (none waits on another),
-    each logging to its own file; then ttdr up waits until each answers."""
+def _serve_fakes(monkeypatch, tmp_path, returncode=0):
+    """Fake tt serve processes and endpoints that answer on the second health check."""
     from ttdr import stack
 
     monkeypatch.chdir(tmp_path)
     events: list[str] = []
 
     class Proc:
-        def __init__(self, cmd, **_):
-            self.bundle = cmd[2]
+        def __init__(self, cmd, stdout, **_):
+            self.bundle, self.returncode = cmd[2], returncode
+            stdout.write("pulling…\ncontainer exited\n")
             events.append(f"start {self.bundle}")
 
-        def wait(self):
-            events.append(f"wait {self.bundle}")
-            return 0
+        def poll(self):
+            events.append(f"poll {self.bundle}")
+            return self.returncode
 
-    rounds = iter([set(), {"ornith"}, {"ornith", "qwen3vl_embed", "reranker"}])
-    up = {"ornith": False, "qwen3vl_embed": False, "reranker": False}
+    names = ["ornith", "qwen3vl_embed", "reranker"]
+    rounds = iter([set(), set()])
 
     async def health_run(_recipe):
-        answering = next(rounds, set(up))
-        return [type("C", (), {"name": n, "ok": n in answering})() for n in up]
+        answering = next(rounds, set(names))
+        return [type("C", (), {"name": n, "ok": n in answering})() for n in names]
 
     monkeypatch.setattr(stack, "preflight", lambda *a: None)
     monkeypatch.setattr(stack.health, "run", health_run)
     monkeypatch.setattr(stack.subprocess, "Popen", Proc)
     monkeypatch.setattr(stack.subprocess, "run", lambda *a, **k: None)
     monkeypatch.setattr(stack.time, "sleep", lambda s: None)
-    logged: list[str] = []
-    stack.serve_models(RECIPE, logged.append)
-    starts = [e for e in events if e.startswith("start")]
-    assert len(starts) == 3 and events[:3] == starts  # all started before any is waited on
-    assert all((tmp_path / "data/logs" / f"serve-{n}.log").exists() for n in up)
-    assert [line for line in logged if line.endswith(": up")] == [
-        "ornith: up", "qwen3vl_embed: up", "reranker: up"
-    ]
+    times = iter(range(0, 10_000, 11))  # each tick is past the 10 s between health checks
+    monkeypatch.setattr(stack.time, "time", lambda: next(times))
+    return stack, events, names
+
+
+def test_up_starts_pinned_models_together_and_waits_for_all(monkeypatch, tmp_path):
+    """Every model has its chips, so all three serves run at once (none waits on another),
+    each logging to its own file; then ttdr up waits until each answers."""
+    stack, events, names = _serve_fakes(monkeypatch, tmp_path)
+    stack.serve_models(RECIPE, lambda m: None)
+    assert [e.split()[0] for e in events[:3]] == ["start"] * 3  # all started before any polled
+    assert all((tmp_path / "data/logs" / f"serve-{n}.log").exists() for n in names)
+
+
+def test_up_stops_at_a_failed_start_and_shows_its_log(monkeypatch, tmp_path):
+    stack, _, _ = _serve_fakes(monkeypatch, tmp_path, returncode=1)
+    with pytest.raises(SystemExit) as err:
+        stack.serve_models(RECIPE, lambda m: None)
+    assert "tt could not start ornith, qwen3vl_embed, reranker" in str(err.value)
+    assert "container exited" in str(err.value)
 
 
 def test_instructed_embedder_sends_the_instruction_with_queries_only():
