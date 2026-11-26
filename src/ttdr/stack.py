@@ -120,7 +120,10 @@ def serve_command(m: Model) -> list[str]:
     if m.chat_template:
         extra += ["--chat-template", f"/hf/{TEMPLATE_DIR}/{Path(m.chat_template).name}"]
     extra += m.serve_args
-    return ["tt", "serve", m.bundle, "--yes", "--port", port, *(["--", *extra] if extra else [])]
+    # --detach: back once the container holds its chips, so the next model starts while this
+    # one loads; serve_models then waits for all of them together.
+    tail = ["--", *extra] if extra else []
+    return ["tt", "serve", m.bundle, "--yes", "--port", port, "--detach", *tail]
 
 
 def app_services(recipe: Recipe) -> list[str]:
@@ -140,7 +143,7 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
     preflight(recipe, up)
     served = recipe.served()
     cohosted = {c for m in served.values() for c in m.cohosts}
-    detached = False
+    started = []
     for name, m in served.items():
         if up.get(name):
             log(f"{name}: already serving ({m.bundle or m.url})")
@@ -158,15 +161,16 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
             (model_cache() / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.copy(m.chat_template, model_cache() / TEMPLATE_DIR)
         _run(serve_command(m), log)
-        detached |= bool(m.cohosts)
-    if detached:  # a detached bundle takes 10-15 minutes from cold
-        log("waiting for the cohost bundle's models")
+        started.append(m.bundle)
+    if started:  # every model loads at once; 10-15 minutes from cold
+        log(f"waiting for {', '.join(started)} to load")
         deadline = time.time() + timeout_s
         while not all(
             c.ok for c in asyncio.run(health.run(recipe)) if c.name.split(" ")[0] in served
         ):
             if time.time() > deadline:
-                raise TimeoutError("models not ready; see `docker logs` of the bundle's container")
+                logs = "; ".join(f"`tt model logs {b} --follow`" for b in started)
+                raise TimeoutError(f"models not ready after {timeout_s:.0f}s; see {logs}")
             time.sleep(15)
 
 

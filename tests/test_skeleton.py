@@ -94,13 +94,14 @@ def test_up_serves_models_from_the_recipe():
         "--yes",
         "--port",
         "8000",
+        "--detach",
         "--",
         "--profile",
         "p300",
         "--max-num-batched-tokens",
         "262144",
     ]
-    assert serve_command(RECIPE.embed)[-2:] == ["--port", "8005"]
+    assert serve_command(RECIPE.embed)[-3:] == ["--port", "8005", "--detach"]
     templated = RECIPE.llm.model_copy(update={"chat_template": "configs/mine.jinja"})
     assert serve_command(templated)[-4:-2] == ["--chat-template", "/hf/ttdr/mine.jinja"]
 
