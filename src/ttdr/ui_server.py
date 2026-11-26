@@ -24,15 +24,6 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from ttdr.connectors import (
-    KNOWN,
-    AuthError,
-    Connector,
-    ConnectorError,
-    Limits,
-    Unavailable,
-    prepare,
-)
 from ttdr.corpus.library import LIBRARY, Library, described
 from ttdr.harness import EVIDENCE_ID
 
@@ -50,9 +41,6 @@ TASK_CHARS = 200
 """A researcher's task in the Tasks tab: the start of its brief (first sentences are often generic)."""
 COLLECTION = "docs:"
 """Data-source ID prefix of one collection."""
-MAX_IMPORT_BODY = 1 << 20
-"""An import request is a credential and a list of IDs; anything bigger is refused unread."""
-NO_STORE = {"Cache-Control": "no-store"}
 PASSAGE = re.compile(
     r"^\[([^\]\s]+)\] (.*)\nURL: (\S+)\n((?:(?!^\[[^\]\s]+\] ).*\n?)*)", re.MULTILINE
 )
@@ -241,19 +229,12 @@ def build(
     make_harness: Callable[[str, tuple[str, ...]], object],
     library: Library | None = None,
     about: dict[str, str] | None = None,
-    connectors: dict[str, Connector] | None = None,
-    limits: Limits | None = None,
-    preview: bool = False,
 ) -> Starlette:
     """MAKE_HARNESS(sources, corpora) gives a harness whose search is limited to SOURCES
     ("web", "corpus" or "all") and CORPORA (empty: all); its run(question, events=...) is
     awaited per job. LIBRARY holds the user's collections and takes the UI's file uploads;
-    ABOUT describes other corpora (the recipe's). CONNECTORS are the stores users import
-    from into a collection, within LIMITS; with PREVIEW (development) the UI also shows the
-    known stores this install hasn't set up, disabled."""
+    ABOUT describes other corpora (the recipe's).."""
     jobs: dict[str, Job] = {}
-    connectors = (connectors or {}) if library else {}
-    limits = limits or Limits()
 
     async def research(job: Job) -> None:
         job.add("job.status", {"data": {"status": "running"}})
@@ -452,75 +433,6 @@ def build(
             return JSONResponse({"detail": "Job not found"}, status_code=404)
         return JSONResponse(job.info())
 
-    async def list_connectors(_: Request):
-        """Every store this build knows, and whether this install configured it; the UI offers
-        the configured ones, and in PREVIEW shows the rest disabled."""
-        found = [
-            {"id": c.id, "name": c.name, "configured": True, "config": c.public()}
-            for c in connectors.values()
-        ]
-        found += [
-            {"id": i, "name": name, "configured": False, "config": {}}
-            for i, name in KNOWN.items()
-            if i not in connectors
-        ]
-        return JSONResponse({"connectors": found, "preview": preview}, headers=NO_STORE)
-
-    def refused(detail: str, status: int) -> JSONResponse:
-        return JSONResponse({"detail": detail}, status_code=status, headers=NO_STORE)
-
-    async def import_items(request: Request):
-        """Import the items a user picked in a connector's picker into a collection, as one
-        ingestion job the UI polls like an upload."""
-        if not (connector := connectors.get(request.path_params["connector"])):
-            return refused(f"No connector {request.path_params['connector']!r}", 404)
-        if not (c := library.get(request.path_params["name"])):
-            return missing_collection(request.path_params["name"])
-        if int(request.headers.get("content-length") or 0) > MAX_IMPORT_BODY:
-            return refused("import request too large", 413)
-        body = await request.body()
-        if len(body) > MAX_IMPORT_BODY:
-            return refused("import request too large", 413)
-        try:
-            payload = json.loads(body)
-            credential, ids = payload["credential"], payload["item_ids"]
-            if not isinstance(credential, str) or not isinstance(ids, list):
-                raise TypeError
-            if not all(isinstance(i, str) for i in ids):
-                raise TypeError
-        except (ValueError, KeyError, TypeError):
-            return refused("expected {credential: string, item_ids: [string]}", 400)
-        try:
-            prepared = await prepare(connector, credential, ids, limits)
-        except AuthError as e:
-            return refused(str(e), 401)
-        except Unavailable as e:
-            return refused(str(e), 502)
-        except ConnectorError as e:
-            return refused(str(e), 400)
-        if not prepared.remotes:
-            return refused("nothing to import: " + "; ".join(prepared.skipped), 400)
-        job = c.add_remote(prepared.remotes)
-        files = [
-            {
-                "file_id": f.file_id,
-                "file_name": f.file_name,
-                "status": f.status,
-                "error_message": f.error,
-            }
-            for f in job.files
-        ]
-        return JSONResponse(
-            {
-                "job_id": job.id,
-                "file_ids": [f.file_id for f in job.files],
-                "files": files,
-                "skipped": prepared.skipped,
-                "message": "importing",
-            },
-            headers=NO_STORE,
-        )
-
     async def health(_: Request):
         return JSONResponse({"status": "healthy"})
 
@@ -553,12 +465,6 @@ def build(
                         methods=["GET", "POST", "DELETE"],
                     ),
                     Route("/v1/documents/{job_id}/status", ingest_status),
-                    Route("/v1/connectors", list_connectors),
-                    Route(
-                        "/v1/collections/{name}/import/{connector}",
-                        import_items,
-                        methods=["POST"],
-                    ),
                 ]
                 if library
                 else []
@@ -574,7 +480,6 @@ def serve(recipe, host: str, port: int) -> None:
     from redis.asyncio import Redis
 
     from ttdr.clients import connect
-    from ttdr.connectors import available, preview
     from ttdr.engine.ocr import OcrQueue
     from ttdr.harness import DeepAgentsHarness
 
@@ -585,8 +490,5 @@ def serve(recipe, host: str, port: int) -> None:
         lambda sources, corpora: DeepAgentsHarness(recipe, sources=sources, corpora=corpora),
         library,
         recipe.corpora,
-        available(recipe.connectors),
-        Limits.from_env(),
-        preview(),
     )
     uvicorn.run(app, host=host, port=port)

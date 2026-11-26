@@ -67,7 +67,6 @@ Overlays (`extends = "../recipe.toml"`) change only what differs; `ttdr up --rec
 | **Add a new kind of model** (reranker, ASR, …) | Client class + entry in `clients.KINDS`; kind in `recipe.Kind`; role in `recipe.ROLES`; probe in `health.PROBES`; use it in the engine | Small. Serving, health and `ttdr up` then work unchanged |
 | Add an MCP tool | Engine method + `@server.tool()` in `mcp_server.py` | Small. AI-Q lists the tool automatically through its MCP client |
 | Add a document collection | Fetcher in `corpus/sources.py`, then `ttdr corpus index <name>` | Small |
-| Import from another document store (Dropbox, Box, an MCP server, …) | A `Connector` in `src/ttdr/connectors/` and a browser picker in the UI patch ([CONNECTORS.md](CONNECTORS.md)) | Small. The import route, limits and indexing are shared |
 | Add an eval system or suite | `evals/systems.py` (`SYSTEMS`) or `evals/datasets.py` (`BUILDERS`) | Small |
 | Replace or add a top layer (Hermes, coding agents, scripts) | Point any MCP client at `services.mcp` ([CLIENTS.md](CLIENTS.md)) | No change to the engine |
 

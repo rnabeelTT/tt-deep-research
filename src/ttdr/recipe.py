@@ -6,12 +6,11 @@ jobs the stack needs. Swapping, adding or removing a model is a recipe change; a
 """
 
 import os
-import re
 import tomllib
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, model_validator
 
 Kind = Literal["chat", "embed", "decide", "check", "rerank"]
 Reasoning = Literal["enable_thinking", "reasoning_effort"]
@@ -124,55 +123,6 @@ class Features(BaseModel):
     """Corpus search adds BM25 hits to the embeddings' (`ttdr corpus index` builds both)."""
 
 
-ORIGIN = re.compile(r"https?://[^/\s?#]+")
-
-
-class GoogleDrive(BaseModel):
-    """Tenstorrent's Google Cloud project for Drive import (docs/SETUP.md#google-drive-import):
-    browser-side values, public by design. Empty leaves the import off."""
-
-    client_id: str = ""
-    """OAuth client ID (Web application), `….apps.googleusercontent.com`."""
-    api_key: str = ""
-    """Browser API key, restricted to the Picker API and the origins' referrers."""
-    app_id: str = ""
-    """The Cloud project number."""
-
-
-class OneDrive(BaseModel):
-    """The Microsoft Entra app for SharePoint and OneDrive import
-    (docs/SETUP.md#sharepoint-and-onedrive-import). Empty leaves the import off."""
-
-    client_id: str = ""
-    """Application (client) ID of the app registration, a GUID."""
-    accounts: Literal["work", "personal", "any"] = "work"
-    """Who signs in: work and school accounts (Entra ID: their OneDrive and the SharePoint sites
-    they can open), personal Microsoft accounts (their own OneDrive), or "any": each person picks
-    one of the two when they sign in. The app registration's supported account types must match
-    ("any" needs "Accounts in any organizational directory and personal Microsoft accounts")."""
-    tenant: str = ""
-    """With work accounts ("work" or "any"): one Entra tenant's ID (a GUID) to accept work accounts
-    from only that organization; empty accepts any organization."""
-
-
-class Connectors(BaseModel):
-    """Document stores users can import from in the web UI (docs/CONNECTORS.md)."""
-
-    origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
-    """Where the UI may be opened for sign-in: the Google client's JavaScript origins and the
-    Microsoft app's redirect URIs are registered for exactly these."""
-    google_drive: GoogleDrive = GoogleDrive()
-    onedrive: OneDrive = OneDrive()
-
-    @field_validator("origins")
-    @classmethod
-    def _origins(cls, origins: list[str]) -> list[str]:
-        origins = [o.strip().rstrip("/") for o in origins]
-        if not origins or any(not ORIGIN.fullmatch(o) for o in origins):
-            raise ValueError("origins are like http://localhost:3000 (scheme, host and port only)")
-        return origins
-
-
 def _drop_empty(data: dict) -> dict:
     """An overlay removes a role, optional service or corpus by setting it to ""."""
     data = dict(data)
@@ -206,7 +156,6 @@ class Recipe(BaseModel):
     features: Features = Features()
     corpora: dict[str, str] = {}
     """Private document collections and what's in them, so agents know when to search them."""
-    connectors: Connectors = Connectors()
 
     @model_validator(mode="before")
     @classmethod

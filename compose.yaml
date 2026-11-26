@@ -81,16 +81,9 @@ services:
     user: "${TTDR_UID:-1000}:${TTDR_GID:-1000}"   # uploads are the host user's files
     volumes: ["${PWD}:${PWD}:ro", "${PWD}/data/corpus:${PWD}/data/corpus"]   # uploads and collections
     command: ["ttdr", "ui-server"]
-    environment:   # imports read the recipe's [connectors]; TTDR_GOOGLE_*, TTDR_MICROSOFT_CLIENT_ID and the preview are for development
+    environment:
       TTDR_RECIPE: ${TTDR_RECIPE:-recipe.toml}
       HOME: /tmp
-      TTDR_UPLOAD_MAX_FILES: ${TTDR_UPLOAD_MAX_FILES:-1000}
-      TTDR_UPLOAD_MAX_MB: ${TTDR_UPLOAD_MAX_MB:-2048}
-      TTDR_GOOGLE_CLIENT_ID: ${TTDR_GOOGLE_CLIENT_ID:-}
-      TTDR_GOOGLE_API_KEY: ${TTDR_GOOGLE_API_KEY:-}
-      TTDR_GOOGLE_APP_ID: ${TTDR_GOOGLE_APP_ID:-}
-      TTDR_MICROSOFT_CLIENT_ID: ${TTDR_MICROSOFT_CLIENT_ID:-}
-      TTDR_CONNECTORS_PREVIEW: ${TTDR_CONNECTORS_PREVIEW:-}
     depends_on: [engine]
     restart: unless-stopped
 
