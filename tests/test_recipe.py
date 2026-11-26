@@ -13,7 +13,7 @@ RECIPE = recipe.load(ROOT / "recipe.toml")
 
 
 def test_minimal_overlay_removes_roles_services_and_features():
-    r = recipe.load(ROOT / "recipes" / "minimal.toml")
+    r = recipe.load(ROOT / "recipes" / "minimal-stack.toml")
     assert r.decide is None and r.services.searxng is None
     assert list(r.served()) == ["ornith", "qwen3vl_embed"]
     assert app_services(r) == ["engine"]
@@ -53,7 +53,7 @@ def test_aiq_config_follows_the_llm_and_its_reasoning_control():
         "top_k": 20,
         "chat_template_kwargs": {"enable_thinking": True},
     }
-    gptoss = aiq_config.render(recipe.load(ROOT / "recipes" / "gpt-oss.toml"))["llms"]
+    gptoss = aiq_config.render(recipe.load(ROOT / "recipes" / "llm-gpt-oss-20b.toml"))["llms"]
     assert gptoss["agent_llm"]["extra_body"] == {"top_k": 20, "reasoning_effort": "high"}
     assert gptoss["planner_llm"]["extra_body"]["reasoning_effort"] == "low"
     assert gptoss["writer_llm"]["temperature"] == 1.0
@@ -63,21 +63,24 @@ def test_features_reach_compose_through_env():
     from ttdr.stack import compose_env
 
     assert compose_env(RECIPE)["AIQ_AUTO_TOOL_CHOICE"] == "1"
-    forced = recipe.load(ROOT / "recipes" / "forced-tool-choice.toml")
+    forced = recipe.load(ROOT / "recipes" / "aiq-forced-tool-choice.toml")
     assert compose_env(forced)["AIQ_AUTO_TOOL_CHOICE"] == "0"
     assert compose_env(RECIPE)["TTDR_OCR_BACKEND"] == "paddle"
     assert compose_env(RECIPE)["TTDR_RECIPE"] == "recipe.toml"
-    assert compose_env(RECIPE, Path("recipes/rerank.toml"))["TTDR_RECIPE"] == "recipes/rerank.toml"
+    assert (
+        compose_env(RECIPE, Path("recipes/rerank-qwen3-vl.toml"))["TTDR_RECIPE"]
+        == "recipes/rerank-qwen3-vl.toml"
+    )
 
 
 def test_decide_can_be_the_llm():
-    r = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-verify.toml")
+    r = recipe.load(Path(__file__).parents[1] / "recipes" / "verify-with-llm.toml")
     assert r.decide.kind == "chat" and r.decide.model == r.llm.model
     assert "laya" not in r.served()
 
 
 def test_claim_checker_verifies_but_cannot_triage():
-    r = recipe.load(ROOT / "recipes" / "minicheck.toml")
+    r = recipe.load(ROOT / "recipes" / "verify-minicheck-cpu.toml")
     assert r.decide.kind == "check" and r.decide.bundle is None
     assert "laya" not in r.served()
     data = r.model_dump()
@@ -86,13 +89,14 @@ def test_claim_checker_verifies_but_cannot_triage():
 
 
 def test_rerank_overlay_serves_a_reranker_on_chip_3_with_ornith_verifying():
-    r = recipe.load(ROOT / "recipes" / "rerank.toml")
+    r = recipe.load(ROOT / "recipes" / "rerank-qwen3-vl.toml")
     assert list(r.served()) == ["ornith", "qwen3vl_embed", "reranker"]
     assert r.roles["decide"] == "ornith"
     reranker = connect(r, httpx.AsyncClient()).rerank
     assert reranker.instruction and reranker.query_template == "{query}"
     assert (
-        connect(recipe.load(ROOT / "recipes" / "minimal.toml"), httpx.AsyncClient()).rerank is None
+        connect(recipe.load(ROOT / "recipes" / "minimal-stack.toml"), httpx.AsyncClient()).rerank
+        is None
     )
 
 
@@ -141,7 +145,7 @@ def test_default_recipe_serves_three_bundles_with_tt_and_cohost_needs_tt_model(m
     monkeypatch.setattr(stack.shutil, "which", lambda t: t if t in have else None)
     monkeypatch.setattr(stack.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 0}))
     assert stack.missing_tools(default) == []
-    cohost = recipe.load(Path("recipes/ornith-35b-cohost.toml"))
+    cohost = recipe.load(Path("recipes/cohost-ornith-35b.toml"))
     assert stack.missing_tools(cohost) == ["tt-model"]
     assert stack.missing_tools(cohost, {"ornith": True}) == []  # already serving: nothing to run
 
@@ -164,20 +168,20 @@ def test_recipes_resolve_by_name_or_path(monkeypatch):
     monkeypatch.delenv("TTDR_RECIPE", raising=False)
     assert recipe.resolve(None) == Path("recipe.toml")
     assert recipe.resolve("default") == Path("recipe.toml")
-    assert recipe.resolve("ornith-122b") == Path("recipes/ornith-122b.toml")
-    assert recipe.resolve("recipes/rerank.toml") == Path("recipes/rerank.toml")
-    assert recipe.load("ornith-122b").llm.model == "ornith-ai/Ornith-1.5-122B"
+    assert recipe.resolve("cohost-ornith-122b") == Path("recipes/cohost-ornith-122b.toml")
+    assert recipe.resolve("recipes/rerank-qwen3-vl.toml") == Path("recipes/rerank-qwen3-vl.toml")
+    assert recipe.load("cohost-ornith-122b").llm.model == "ornith-ai/Ornith-1.5-122B"
 
 
 def test_catalog_says_what_each_recipe_serves_and_where(monkeypatch):
     monkeypatch.chdir(ROOT)
     recipes = {r["name"]: r for r in recipe.catalog()}
-    default, cohost = recipes["default"], recipes["ornith-35b-cohost"]
+    default, cohost = recipes["default"], recipes["cohost-ornith-35b"]
     assert len(default["bundles"]) == 3
     assert [m["chips"] for m in default["models"]] == ["0-1", "2", "3"]
     assert cohost["bundles"] == ["raahemnabeel/cohost-ornith-35b-qwen3vl"]
     assert {m["cohosted_with"] for m in cohost["models"]} == {None, "ornith"}
     # Overlays don't inherit a description: only described recipes are listed by default.
-    assert recipes["rerank"]["description"] is None and default["description"]
-    for name in ("ornith-122b", "qwen38-27b"):
+    assert recipes["rerank-qwen3-vl"]["description"] is None and default["description"]
+    for name in ("cohost-ornith-122b", "cohost-qwen38-27b"):
         assert len(recipes[name]["bundles"]) == 1

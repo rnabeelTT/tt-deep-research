@@ -65,7 +65,7 @@ instruction = "Given a research question, retrieve passages that contain informa
 llm = "ornith"
 embed = "qwen3vl_embed"      # embeddinggemma: the previous default (collection chunks)
 # judge = ...        # optional on-box judge for quick checks (defaults to llm); decisions use the Claude judge
-decide = "ornith"    # optional: without it, verify and triage are off (recipes/kev.toml etc. swap in a decision model)
+decide = "ornith"    # optional: without it, verify and triage are off (recipes/decide-kev-9b.toml etc. swap in a decision model)
 rerank = "reranker"  # optional: without it, embedding order
 # ocr = "ornith"     # optional: OCR with a vision model on the chips instead of PaddleOCR on the CPU
 

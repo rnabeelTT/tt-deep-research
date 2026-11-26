@@ -1,4 +1,4 @@
-extends = "rerank.toml"
+extends = "rerank-qwen3-vl.toml"
 description = "QUEST-35B-RL in Ornith's place, as an A/B of the LLM"
 
 # QUEST-35B-RL (OSU NLP: Qwen3.5-35B-A3B after mid-training, SFT and RL on synthetic deep-research
@@ -19,4 +19,4 @@ chips = "0-1"
 
 [roles]
 llm = "quest"
-decide = "quest"   # it checks claims too, as Ornith does in llm-verify.toml
+decide = "quest"   # it checks claims too, as Ornith does in verify-with-llm.toml

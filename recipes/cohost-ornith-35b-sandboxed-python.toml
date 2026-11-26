@@ -1,7 +1,7 @@
-extends = "ornith-35b-cohost.toml"
+extends = "cohost-ornith-35b.toml"
 
 # The cohost recipe with sandboxed Python (run_python_code) for agents: the FRAMES numerical-reasoning
-# A/B against ornith-35b-cohost.toml (docs/LOG.md). Start the sandbox with
+# A/B against cohost-ornith-35b.toml (docs/LOG.md). Start the sandbox with
 # `docker compose --profile code up -d pyrun`.
 [services]
 code = "http://localhost:9910/mcp"

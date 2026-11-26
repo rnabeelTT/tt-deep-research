@@ -10,7 +10,7 @@
 # datasets (HLE; `hf auth login`). Benchmark data stays under data/ (gitignored, internal use only).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RECIPE=${TTDR_RECIPE:-recipes/ornith-35b-cohost.toml}
+RECIPE=${TTDR_RECIPE:-recipes/cohost-ornith-35b.toml}
 SNAPSHOTS=${1:-}
 
 step() { printf '\n== %s\n' "$*"; }
@@ -39,7 +39,7 @@ else
     step "Search indexes (embeddings and BM25; resumable)"
     uv run ttdr corpus index financebench --recipe "$RECIPE"
     uv run ttdr corpus index unidoc --recipe "$RECIPE"
-    uv run ttdr corpus index browsecomp-plus --recipe recipes/browsecomp-plus.toml
+    uv run ttdr corpus index browsecomp-plus --recipe recipes/eval-browsecomp-plus-offline.toml
 fi
 
 step "Check"

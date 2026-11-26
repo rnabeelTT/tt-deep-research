@@ -193,7 +193,7 @@ Both graders preferred the Deep Agents report. AI-Q's report misidentified MI350
 
 ## 2026-10-29 · AI-Q with auto tool choice vs forced tool calls (stage 9 lever)
 
-`recipes/forced-tool-choice.toml` (AI-Q as shipped) vs the default with `features.auto_tool_choice = true` (`patches/aiq/0004`). Same stack and patches (0001–0006), 8 jobs at a time, run back to back; one blinded Claude queue for both runs (6 chunks).
+`recipes/aiq-forced-tool-choice.toml` (AI-Q as shipped) vs the default with `features.auto_tool_choice = true` (`patches/aiq/0004`). Same stack and patches (0001–0006), 8 jobs at a time, run back to back; one blinded Claude queue for both runs (6 chunks).
 
 | | Forced tool calls | Auto tool choice |
 |---|---|---|
@@ -219,7 +219,7 @@ The forced baseline here (76.0%) is 1.3 points above the earlier AI-Q run (74.7%
 | Laya (`tt-hous/laya`, current default) | 42% / 49% | 40% | 12% | 88% | 0.3 s | 3 |
 | CLM-v0.1-8B (`tt-hous/clm-v0.1-8b`) | 35% / 35% | 100% | 0% | 0% | 1.4 s | 3 |
 | Kev-9B (`tt-hous/kev-9b`) | 64% / 69% | 75% | 36% | 90% | 4.4 s | 3 |
-| Ornith, thinking off (`recipes/llm-verify.toml`) | 69% / 69% | 70% | 36% | 95% | 3.8 s | none extra |
+| Ornith, thinking off (`recipes/verify-with-llm.toml`) | 69% / 69% | 70% | 36% | 95% | 3.8 s | none extra |
 
 CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and Ornith tie; Ornith needs no chip of its own (the `decide` role can now point at the LLM).
 
@@ -238,7 +238,7 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 
 ## 2026-10-30 · MiniCheck-Flan-T5-Large on the CPU as the claim checker
 
-**Question:** can a dedicated claim checker on the CPU (no chip) beat Ornith's 69% on the pair set? MiniCheck-Flan-T5-Large (770M, MIT, `lytang/MiniCheck-Flan-T5-Large@96eafd0`) scores 74.7% on LLM-AggreFact, level with GPT-4. It's wired in as a new model kind, `check` (`src/ttdr/checker.py`, `recipes/minicheck.toml`); it only verifies (no triage) and never says "contradicted".
+**Question:** can a dedicated claim checker on the CPU (no chip) beat Ornith's 69% on the pair set? MiniCheck-Flan-T5-Large (770M, MIT, `lytang/MiniCheck-Flan-T5-Large@96eafd0`) scores 74.7% on LLM-AggreFact, level with GPT-4. It's wired in as a new model kind, `check` (`src/ttdr/checker.py`, `recipes/verify-minicheck-cpu.toml`); it only verifies (no triage) and never says "contradicted".
 
 | Verifier | Accuracy | Supported | Contradicted | Not enough info | p50 per pair |
 |---|---|---|---|---|---|
@@ -269,7 +269,7 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 - Expected answer gain for naive RAG from B1's split (84% correct when the gold page is retrieved, 41% when not): ~+5 correct answers, ~+3 points. Measured end to end once a reranker is on a chip.
 - The CPU is far too slow for agents (13–19 s per search); a reranker needs a chip.
 
-- The instruction needn't be domain-specific. With the general one the engine sends (`recipes/rerank.toml`: "Given a research question, retrieve passages that contain information needed to answer it"), Qwen3-0.6B scores 43.3% / 74.7% / 83.3% at 1 / 5 / 10, against 38.0% / 72.7% / 84.0% with the finance-specific one.
+- The instruction needn't be domain-specific. With the general one the engine sends (`recipes/rerank-qwen3-vl.toml`: "Given a research question, retrieve passages that contain information needed to answer it"), Qwen3-0.6B scores 43.3% / 74.7% / 83.3% at 1 / 5 / 10, against 38.0% / 72.7% / 84.0% with the finance-specific one.
 - How deep the pool goes: dense recall is 89% at 30, 94% at 50 and 96% at 100, so a pool of 50 would give the reranker 5 more points to find (`ttdr corpus recall --rerank --pool 50` on the chip).
 
 **Decision:** a reranker is worth a chip. Qwen3-Reranker family; 4B or the multimodal Qwen3-VL-Reranker for the general-purpose tool (text and page images in one model). Not tested at 4B/8B: the CPU would take hours, the chip minutes.
@@ -317,7 +317,7 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 
 ## 2026-10-31 · Qwen3-VL-Reranker-8B on a chip, a multimodal suite, and page images for the LLM
 
-**Setup:** Qwen3-VL-Reranker-8B (`raahemnabeel/qwen3-vl-reranker-8b`, tt-dit-server) on chip 3 in Laya's place; Ornith on chips 0–1 also answers verify (`recipes/rerank.toml`). New suite **UniDoc-Bench** (DATASETS.md): 200 questions from the energy and construction domains, 50 each whose answer is text only, needs a table, is in an image only, or needs image and text, searched against both domains' 1,491 PDFs (16,946 pages; 973 image-only, 529 figure-heavy). B1 runs today on one stack; Claude graders, blinded across runs.
+**Setup:** Qwen3-VL-Reranker-8B (`raahemnabeel/qwen3-vl-reranker-8b`, tt-dit-server) on chip 3 in Laya's place; Ornith on chips 0–1 also answers verify (`recipes/rerank-qwen3-vl.toml`). New suite **UniDoc-Bench** (DATASETS.md): 200 questions from the energy and construction domains, 50 each whose answer is text only, needs a table, is in an image only, or needs image and text, searched against both domains' 1,491 PDFs (16,946 pages; 973 image-only, 529 figure-heavy). B1 runs today on one stack; Claude graders, blinded across runs.
 
 **Retrieval** (gold page in top k, whole corpus, pool of 30 unless noted):
 
@@ -349,7 +349,7 @@ CLM says "supported" to everything: it's a ranker, not a claim checker. Kev and 
 
 ### Deep Agents on the new engine (2026-10-31)
 
-Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and the corpus catalog in prompts. Concurrency 4; 3 sub-questions, 8 tool calls. Graded by blinded Claude graders (`data/judge/queue_da2`). Compared with B1 + rerank + pages.
+Recipe `recipes/rerank-qwen3-vl.toml`: reranker in `search`, the `read_page` tool, and the corpus catalog in prompts. Concurrency 4; 3 sub-questions, 8 tool calls. Graded by blinded Claude graders (`data/judge/queue_da2`). Compared with B1 + rerank + pages.
 
 | | FinanceBench | UniDoc | text | table | image+text | image only | p50 s |
 |---|---|---|---|---|---|---|---|
@@ -359,7 +359,7 @@ Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and th
 - Paired: FinanceBench +2.0 [−4, +8] (+12/−9); UniDoc +3.0 [−3, +9] (+23/−17). Ahead on both, significant on neither.
 - Deep Agents never abstained (0 "I don't know" on FinanceBench). It wins on text questions and on image-only ones. It loses some table questions, where B1's page images show the whole table at once.
 - About 2.5× the latency of B1.
-- The run records don't say how often agents called `read_page`. The auto page-reading run (`recipes/rerank-read.toml`) tests whether pushing page readings into every search is better than leaving it to the agent.
+- The run records don't say how often agents called `read_page`. The auto page-reading run (`recipes/rerank-read-pages.toml`) tests whether pushing page readings into every search is better than leaving it to the agent.
 
 ## Embedder: Qwen3-VL-Embedding-8B replaces embeddinggemma (2026-11-02)
 
@@ -387,7 +387,7 @@ Recipe `recipes/rerank.toml`: reranker in `search`, the `read_page` tool, and th
 
 **Technique:** Microsoft's AgenticRAG (arXiv 2605.05538) gets 92% on FinanceBench with four tools: search, find, open and summarize. We had search and our own read_page. We added `find_in_document` (exact terms inside one document, on Qdrant's full-text index) and `open_pages` (a passage's whole page and its neighbours).
 
-**Setup:** Deep Agents (3 sub-questions, 8 tool calls), recipe `rerank.toml` with the Qwen3-VL embedder. The baseline and the variant (`doc_tools=true`) ran at the same time on one engine, over the dev sets (40 FinanceBench, 40 UniDoc). Graded by blinded Claude graders (`data/judge/ab_doctools`). Runs `20261102-203018` (baseline) and `20261102-203023` (variant).
+**Setup:** Deep Agents (3 sub-questions, 8 tool calls), recipe `rerank-qwen3-vl.toml` with the Qwen3-VL embedder. The baseline and the variant (`doc_tools=true`) ran at the same time on one engine, over the dev sets (40 FinanceBench, 40 UniDoc). Graded by blinded Claude graders (`data/judge/ab_doctools`). Runs `20261102-203018` (baseline) and `20261102-203023` (variant).
 
 | | Baseline | + doc tools | Diff [95% CI] | Fixed / broke | Median s |
 |---|---|---|---|---|---|
@@ -469,7 +469,7 @@ The planner's one-pass report is kept only when no outline comes back.
 
 ### End to end: fused retrieval loses (2026-11-03)
 
-Deep Agents (3/8, doc tools, sections writer) on the dev sets, with chunk retrieval (engine :9901, `rerank.toml`) and fused retrieval (a second engine on :9902, `recipes/pages.toml`) running at the same time. Graded by blinded Claude graders (`data/judge/ab_pages`). Runs `20261103-022029` (chunks) and `20261103-022035` (fused).
+Deep Agents (3/8, doc tools, sections writer) on the dev sets, with chunk retrieval (engine :9901, `rerank-qwen3-vl.toml`) and fused retrieval (a second engine on :9902, `recipes/rerank-page-images.toml`) running at the same time. Graded by blinded Claude graders (`data/judge/ab_pages`). Runs `20261103-022029` (chunks) and `20261103-022035` (fused).
 
 | | Chunks | Fused | Diff [95% CI] | Fixed / broke |
 |---|---|---|---|---|
@@ -479,7 +479,7 @@ Deep Agents (3/8, doc tools, sections writer) on the dev sets, with chunk retrie
 - In 11 of the 12 broken questions the gold page was retrieved in both arms, so retrieval was not the cause.
 - Fused hits carry a whole page cut to 2,000 characters under the page's first ID. On dense filing pages the exact figure falls past the cut, where a chunk hit would have delivered it. Citations also lose precision, since one ID covers a whole page.
 
-**Decision: reject as built.** `recipes/pages.toml` stays opt-in. A second version would rerank on the page (image and text) but hand the agent the page's best-matching chunks, keeping chunk IDs.
+**Decision: reject as built.** `recipes/rerank-page-images.toml` stays opt-in. A second version would rerank on the page (image and text) but hand the agent the page's best-matching chunks, keeping chunk IDs.
 
 ### Sections writer on short-answer questions (2026-11-03)
 
@@ -586,7 +586,7 @@ The writer was adopted on DRB. On the corpus dev sets it was checked by a paired
 
 ## A/B: QUEST-35B-RL as the LLM (2026-11-03)
 
-**Model:** QUEST-35B-RL (OSU NLP), a fine-tune of Qwen3.5-35B-A3B (Ornith's architecture, with vision) after mid-training, SFT and RL on synthetic deep-research tasks. Served as `raahemnabeel/quest-35b-rl` on chips 0–1 (`recipes/quest.toml`), with Ornith's sampling.
+**Model:** QUEST-35B-RL (OSU NLP), a fine-tune of Qwen3.5-35B-A3B (Ornith's architecture, with vision) after mid-training, SFT and RL on synthetic deep-research tasks. Served as `raahemnabeel/quest-35b-rl` on chips 0–1 (`recipes/llm-quest-35b-rl.toml`), with Ornith's sampling.
 
 **First attempt, in Deep Agents (thinking off): stopped.** No question finished in an hour (about 120 model calls per question).
 - Part of the cause was a bug of ours: passages had just gained page-image links, and agents fetched them as web pages and got "No results". Fixed: `fetch_page` on a page link now reads that page from the corpus.
@@ -706,11 +706,11 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - **BM25 and pool A/B, 12 questions, arms side by side:** stopped before grading. The first attempt ran the 100 + 100 pool arm and a 150-question single-search check against one reranker chip alongside two other runs. The reranker fell behind (a 2-document request took over 10 minutes), and about 40% of searches in the new arms timed out, so the reranker was restarted. A clean rerun (`20261104-183749` without BM25, `20261104-183753` with) was stopped early to free the chips. No result.
 - An earlier "stopped" dev run (`20261104-123931`) had kept running for 3 hours, because `kill $!` hit the nohup wrapper, not the eval; it halved the next run's speed.
 
-**Decision:** keep the tested stack (`recipes/rerank.toml`, thinking on with the fallback, task cap, Brave fallback). BM25 stays on by default, but only BrowseComp-Plus has a keyword index. The open retrieval work is listed in PLAN.md under "Future improvements: retrieval".
+**Decision:** keep the tested stack (`recipes/rerank-qwen3-vl.toml`, thinking on with the fallback, task cap, Brave fallback). BM25 stays on by default, but only BrowseComp-Plus has a keyword index. The open retrieval work is listed in PLAN.md under "Future improvements: retrieval".
 
 ## 2026-11-05 · A/B: the LLM — Ornith 1.5 122B, Qwen3.8-27B and Ornith 35B, each cohosted with the embedder and reranker
 
-**Question:** does a bigger or newer LLM answer better, and does serving the LLM, embedder and reranker as one bundle on all four chips ("cohost") cost retrieval or speed? Each arm is one bundle (`recipes/ornith-122b.toml`, `recipes/qwen38-27b.toml`, `recipes/ornith-35b-cohost.toml`) against the 35B on its own chips with separate embed and rerank bundles. Thinking on, 4 questions at a time, blinded Claude grading.
+**Question:** does a bigger or newer LLM answer better, and does serving the LLM, embedder and reranker as one bundle on all four chips ("cohost") cost retrieval or speed? Each arm is one bundle (`recipes/cohost-ornith-122b.toml`, `recipes/cohost-qwen38-27b.toml`, `recipes/cohost-ornith-35b.toml`) against the 35B on its own chips with separate embed and rerank bundles. Thinking on, 4 questions at a time, blinded Claude grading.
 
 **Retrieval is unchanged by cohosting.** Re-embedding 32 stored chunks gives cosine 0.9995 against the stored vectors in every bundle. FinanceBench page recall, 150 questions, dense + rerank:
 
@@ -737,7 +737,7 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 - **Qwen3.8-27B:** fastest end to end because its bundle caps thinking (about 4k output tokens per FinanceBench question vs 12–15k), but lost 2 FinanceBench questions, left one BrowseComp-Plus answer empty, and its bundle has no multi-user vision: one image request kills the server, so `models.X.vision = false` takes `read_page` away.
 - **35B cohost:** the same model as before, decoding 1.5–1.7× faster; one FinanceBench question either way and one more BrowseComp-Plus question are within noise at 12 items.
 
-**Decision: keep Ornith 1.5 35B-A3B, served cohosted** (`recipes/ornith-35b-cohost.toml`). Quality ties across all three LLMs at this size of test, so speed decides: the cohost is the fastest bundle with vision. Reject the 122B (slower, no gain) and Qwen3.8-27B (no vision, lower on documents).
+**Decision: keep Ornith 1.5 35B-A3B, served cohosted** (`recipes/cohost-ornith-35b.toml`). Quality ties across all three LLMs at this size of test, so speed decides: the cohost is the fastest bundle with vision. Reject the 122B (slower, no gain) and Qwen3.8-27B (no vision, lower on documents).
 
 ## Your own documents: uploads in the web UI (2026-11-05)
 
@@ -770,9 +770,9 @@ Page recall over the whole corpus after reranking (BM25 index: `chunks_qwen3vl_k
 
 **Why:** FRAMES final 66%, weakest on numerical reasoning (21/42); grader notes on the misses show off-by-one counts and wrong totals.
 
-**What:** Pydantic's `mcp-run-python` 0.0.22 (Pyodide in Deno) as compose service `pyrun` on 127.0.0.1:9910 (profile `code`), read-only container. Its own `--disable-networking` also denies the server its listening port, so the image runs the package's Deno program with network limited to that port: sandboxed code reaches nothing else and sees only Pyodide's virtual filesystem (checked: date and mean arithmetic correct, an HTTP request fails, `/` lists only Pyodide's dirs). `services.code` in a recipe (`recipes/code.toml`) gives researchers and the planner `run_python_code` and one prompt line asking them to compute rather than do arithmetic in their heads; unset, nothing changes.
+**What:** Pydantic's `mcp-run-python` 0.0.22 (Pyodide in Deno) as compose service `pyrun` on 127.0.0.1:9910 (profile `code`), read-only container. Its own `--disable-networking` also denies the server its listening port, so the image runs the package's Deno program with network limited to that port: sandboxed code reaches nothing else and sees only Pyodide's virtual filesystem (checked: date and mean arithmetic correct, an HTTP request fails, `/` lists only Pyodide's dirs). `services.code` in a recipe (`recipes/sandboxed-python.toml`) gives researchers and the planner `run_python_code` and one prompt line asking them to compute rather than do arithmetic in their heads; unset, nothing changes.
 
-**First look (2 FRAMES misses rerun, not a benchmark):** both used the tool and computed correctly, and both still missed for other reasons: Steve Jobs' share of 1984 US life expectancy (56/75 = 74.67%; the gold 75.68% uses 74 years), and the Galileo library question (Laurentian 1571 vs Picton 1879 = 308; gold 222, a different fact). So some numerical misses are facts, not arithmetic; the gain needs the FRAMES dev A/B (40 questions, with and without `recipes/code.toml`), queued for when benchmarks resume.
+**First look (2 FRAMES misses rerun, not a benchmark):** both used the tool and computed correctly, and both still missed for other reasons: Steve Jobs' share of 1984 US life expectancy (56/75 = 74.67%; the gold 75.68% uses 74 years), and the Galileo library question (Laurentian 1571 vs Picton 1879 = 308; gold 222, a different fact). So some numerical misses are facts, not arithmetic; the gain needs the FRAMES dev A/B (40 questions, with and without `recipes/sandboxed-python.toml`), queued for when benchmarks resume.
 
 ## Named collections in the web UI (2026-11-05)
 
@@ -816,7 +816,7 @@ Unaffected: the final benchmark runs (queries and passages are text, the page ve
 
 Checked live: a one-page scanned invoice uploaded to a scratch collection was OCR'd and indexed (one chunk in both the vector and BM25 collections); deleting it removed its OCR text from Redis. Tests: 122 pass (four new cover the wait, the background follow-up, restart resume and OCR off).
 
-**Rebuilding the cohost image for vision (same day, not finished).** The image adds the Qwen3-VL code (written on tt-metal v0.82) to the Ornith image's v0.79 tree, and its build-time import check covered only the text path. Fixed in `~/fork-tt-metal` (branch `raahem/cohost-ornith-qwen3vl`, commits e0fd17b4a89 and e946bd591ae, not pushed): a v0.82 `tensor_utils` helper (a no-op unless `TT_DRAM_SHARDED_MULTICORE=1`), the vision code's CCL link count routed to the v0.79 helper, and the vision towers added to the import check. The third boot loads both towers and then fails in the first vision pass: v0.79's `layer_norm` rejects the gathered activation against the replicated gamma (`a.padded_shape()[-1] == gamma.padded_shape()[-1]`, after the four-chip all-gather). That's op-level porting of an untested four-chip path, so the published bundle stays as it is and nothing was pushed to HF. For vision now, serve the separate bundles: `ttdr up --recipe recipes/rerank.toml` (README, "Two ways to serve").
+**Rebuilding the cohost image for vision (same day, not finished).** The image adds the Qwen3-VL code (written on tt-metal v0.82) to the Ornith image's v0.79 tree, and its build-time import check covered only the text path. Fixed in `~/fork-tt-metal` (branch `raahem/cohost-ornith-qwen3vl`, commits e0fd17b4a89 and e946bd591ae, not pushed): a v0.82 `tensor_utils` helper (a no-op unless `TT_DRAM_SHARDED_MULTICORE=1`), the vision code's CCL link count routed to the v0.79 helper, and the vision towers added to the import check. The third boot loads both towers and then fails in the first vision pass: v0.79's `layer_norm` rejects the gathered activation against the replicated gamma (`a.padded_shape()[-1] == gamma.padded_shape()[-1]`, after the four-chip all-gather). That's op-level porting of an untested four-chip path, so the published bundle stays as it is and nothing was pushed to HF. For vision now, serve the separate bundles: `ttdr up --recipe recipes/rerank-qwen3-vl.toml` (README, "Two ways to serve").
 
 ## Cohost bundle with vision, published (2026-11-06)
 
@@ -837,7 +837,7 @@ Checks on hardware (profile `ornith35b-vision`):
 
 **Published** `raahemnabeel/cohost-ornith-35b-qwen3vl` with `ornith35b-vision` as its default profile (the text-only `ornith35b` stays) and a card with these numbers. Served back from the Hub by name with its default profile, the checks repeat exactly. The 122B bundle isn't rebuilt or validated with vision.
 
-**The app on it:** `recipes/ornith-35b-cohost.toml` serves the vision profile with `vision` on, and the deployment runs it. A scanned upload is indexed in 2 s by its page image, then its OCR text 140 s later. **Bug found and fixed:** the OCR text's first chunk had the page image's ID (`doc#p0.0`) and overwrote its vector once OCR landed. OCR chunks are now numbered from `.1`. Search for the scanned invoice now returns both the OCR chunk and the page image.
+**The app on it:** `recipes/cohost-ornith-35b.toml` serves the vision profile with `vision` on, and the deployment runs it. A scanned upload is indexed in 2 s by its page image, then its OCR text 140 s later. **Bug found and fixed:** the OCR text's first chunk had the page image's ID (`doc#p0.0`) and overwrote its vector once OCR landed. OCR chunks are now numbered from `.1`. Search for the scanned invoice now returns both the OCR chunk and the page image.
 
 ## The other cohost bundles: 122B and Qwen3.8-27B, published with vision (2026-11-06)
 
@@ -857,11 +857,11 @@ Qwen3.8's package had never run on hardware before. Its first vision boot ran ou
 
 **For another machine:** the code, recipes and bundles are all pushed (this repo; tt-metal fork branch `raahem/cohost-ornith-qwen3vl`; tt-model fork branch `raahem/cohost-mixed-groups`; the three bundles on HF). This box's search indexes are snapshotted in `data/snapshots` (12 GB, ignored by git, internal use only); restore them with `scripts/setup-evals.sh <dir>` (docs/EVALS.md). The board was freed afterwards (no model servers running).
 
-Also found and reverted a garbled edit to `recipes/rerank.toml` (made at 21:55, not by this work; a copy is kept outside the repo). It had broken both that recipe and the cohost recipe that extends it. Every recipe loads again.
+Also found and reverted a garbled edit to `recipes/rerank-qwen3-vl.toml` (made at 21:55, not by this work; a copy is kept outside the repo). It had broken both that recipe and the cohost recipe that extends it. Every recipe loads again.
 
 ## FRAMES with sandboxed Python: 73% (2026-11-18)
 
-**Run:** `runs/20261118-150338-deepagents`, `recipes/ornith-35b-cohost-code.toml` (cohost stack plus `run_python_code`), the same first 100 questions as the final run, 3 sub-questions × 8 calls, 8 in flight. Graded by four blinded Claude subagents on the usual rubric (`data/judge/frames-code`).
+**Run:** `runs/20261118-150338-deepagents`, `recipes/cohost-ornith-35b-sandboxed-python.toml` (cohost stack plus `run_python_code`), the same first 100 questions as the final run, 3 sub-questions × 8 calls, 8 in flight. Graded by four blinded Claude subagents on the usual rubric (`data/judge/frames-code`).
 
 - **73/100 = 73%** (25 wrong, 2 abstained), up from 66% without the tool. Numerical reasoning **26/42 = 62%** (was 21/42); multiple constraints 29/34.
 - The model called Python on only 15 of 100 questions (11 correct there), so the tool explains part of the gain at most. The final run also searched with scope "all"; this one is web only (`SUITE_SOURCES`). Unpaired (the old answers aren't on this box), and ±9 points at n=100, so read it as an improvement of uncertain size, not a measured tool effect.

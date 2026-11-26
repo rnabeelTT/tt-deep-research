@@ -21,7 +21,7 @@ Ours vs published numbers. "Fair?" records what differs between our run and thei
 | DeepResearch Bench (RACE) | Long cited reports | `deepresearch_bench` (50 English tasks) | Gemini, OpenAI, Perplexity, Kimi, Claude Research and others publish their **reports**, which we re-judge with the same Claude graders | Same judge and criteria for everyone: the fairest comparison we have | Web (final run: Tavily) |
 | FRAMES | Multi-hop factual questions (Wikipedia) | `frames` (150) | Google's paper baselines, and open agents (QUEST, MiroThinker, WebThinker…) | Their numbers use their own judges; we grade with Claude | Web (free search works) |
 | HLE, text-only | Expert-level questions | `hle` (150) | OpenAI deep research, Perplexity, Gemini, Kimi, open agents | Subset of the text-only split; published numbers are on the full set | Web |
-| BrowseComp-Plus | Hard browsing over a fixed corpus | `browsecomp-plus` (150), dev 40; `recipes/browsecomp-plus.toml` (offline) | QUEST, Tongyi, OpenResearcher, GPT-5 and others, on the same corpus | Same corpus, so retrieval is comparable. Needs the corpus indexed (several hours of embedder time) | None: fixed corpus |
+| BrowseComp-Plus | Hard browsing over a fixed corpus | `browsecomp-plus` (150), dev 40; `recipes/eval-browsecomp-plus-offline.toml` (offline) | QUEST, Tongyi, OpenResearcher, GPT-5 and others, on the same corpus | Same corpus, so retrieval is comparable. Needs the corpus indexed (several hours of embedder time) | None: fixed corpus |
 | SimpleQA | Short factual questions | `simpleqa` (150) | OpenAI, Perplexity Sonar, others | Sample, not the full 4,326 | Web |
 | FinanceBench | Questions over 10-K filings | `financebench` (150) | Patronus paper baselines (GPT-4 RAG etc.), vendor reports | Same open-book task | None |
 | UniDoc-Bench | Questions over figures and tables in PDFs | `unidoc` (200) | The paper's RAG baselines | Same task; licence allows internal evaluation only | None |
@@ -35,7 +35,7 @@ Not planned: BrowseComp (live web; most questions need many searches, which the 
 1. **Lock the stack** after the current A/Bs (thinking on/off). Every final run uses one recipe and one commit.
 2. **Offline suites first** (no search budget): FinanceBench 150, UniDoc 200, then BrowseComp-Plus once the corpus is indexed.
 3. **Free-search suites:** FRAMES 150, SimpleQA 150 and HLE 150 on the free engines (Yandex + Bing News + OpenAlex).
-4. **Final web runs on Tavily** (free tier, about 1,000 searches a month; see recipes/tavily.toml): DRB, 50 English tasks. Measure searches per task on 2 tasks first; if 50 tasks don't fit, run as many as fit plus the remaining tasks on free search, labelled.
+4. **Final web runs on Tavily** (free tier, about 1,000 searches a month; see recipes/web-search-tavily.toml): DRB, 50 English tasks. Measure searches per task on 2 tasks first; if 50 tasks don't fit, run as many as fit plus the remaining tasks on free search, labelled.
 5. **Competitor re-judging** for DRB: published reports from the DRB repo, graded by the same Claude judges with the same rubric.
 
 ## Recordings
@@ -52,7 +52,7 @@ Record at 1080p with a clean browser profile, after a warm-up query so prefix ca
 
 ## Recording day
 
-The stack for recordings and live demos is the default recipe, `recipe.toml`: the three models on separate chips (Ornith 1.5 35B-A3B on chips 0–1, Qwen3-VL embedder on 2, reranker on 3), all three taking images. The final benchmark runs used the cohost bundle on all four chips (`recipes/ornith-35b-cohost.toml`), which still works with the same app: pass it to `ttdr up --recipe`.
+The stack for recordings and live demos is the default recipe, `recipe.toml`: the three models on separate chips (Ornith 1.5 35B-A3B on chips 0–1, Qwen3-VL embedder on 2, reranker on 3), all three taking images. The final benchmark runs used the cohost bundle on all four chips (`recipes/cohost-ornith-35b.toml`), which still works with the same app: pass it to `ttdr up --recipe`.
 
 **Before recording**
 

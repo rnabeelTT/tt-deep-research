@@ -58,7 +58,7 @@ def test_failed_probe_is_reported_not_raised():
 
 
 def test_recipe_overlay_swaps_llm_and_judge_follows():
-    r = recipe.load(Path(__file__).parents[1] / "recipes" / "gpt-oss.toml")
+    r = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-gpt-oss-20b.toml")
     assert r.llm.model == "openai/gpt-oss-20b"
     assert r.llm.url == RECIPE.llm.url
     assert r.judge == r.llm
@@ -81,7 +81,7 @@ def test_llm_applies_recipe_sampling_and_request_overrides():
     asyncio.run(go())
     assert bodies[0]["top_k"] == 20 and bodies[0]["temperature"] == 0.6
     assert bodies[1]["temperature"] == 0 and bodies[1]["top_k"] == 20
-    gptoss = recipe.load(Path(__file__).parents[1] / "recipes" / "gpt-oss.toml").llm
+    gptoss = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-gpt-oss-20b.toml").llm
     assert gptoss.sampling == {"temperature": 1.0, "top_k": 20, "top_p": 1.0}
 
 

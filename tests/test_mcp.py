@@ -69,7 +69,7 @@ def test_rerank_drops_weak_and_duplicate_results():
 def test_tools_follow_the_recipe():
     names = lambda r: {t.name for t in asyncio.run(mcp_server.build(r, FakeEngine()).list_tools())}
     assert "verify" in names(RECIPE)
-    minimal = recipe.load(Path(__file__).parents[1] / "recipes" / "minimal.toml")
+    minimal = recipe.load(Path(__file__).parents[1] / "recipes" / "minimal-stack.toml")
     assert names(minimal) == {
         "search",
         "fetch_page",

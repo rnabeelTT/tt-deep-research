@@ -56,7 +56,7 @@ uv run ttdr up
 # Optional: one cohost bundle on all four chips, fastest; the embedder and reranker take images too
 # (one per input). Needs this tt-model build (stock tt-model lacks mixed cohost groups):
 #  uv tool install --force git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups
-uv run ttdr up --recipe recipes/ornith-35b-cohost.toml
+uv run ttdr up --recipe recipes/cohost-ornith-35b.toml
 ```
 
 The cohost bundle is built from `models/autoports/cohost_ornith_qwen3vl` on branch `raahem/cohost-ornith-qwen3vl` of [rnabeelTT/tt-metal](https://github.com/rnabeelTT/tt-metal/tree/raahem/cohost-ornith-qwen3vl/models/autoports/cohost_ornith_qwen3vl) (build, card and vision fixes); its runtime is `tt-model` branch `raahem/cohost-mixed-groups` of [rnabeelTT/tt-kernel-package-manager](https://github.com/rnabeelTT/tt-kernel-package-manager/tree/raahem/cohost-mixed-groups).
@@ -72,7 +72,7 @@ To switch, stop the running models first (`uv run ttdr down --models --recipe <t
 
 ## Final runs (2026-11-05/06)
 
-One locked recipe (`recipes/ornith-35b-cohost.toml`) on one QB2, free web search, blinded Claude graders. Per-type breakdowns and run IDs in [docs/LOG.md](docs/LOG.md).
+One locked recipe (`recipes/cohost-ornith-35b.toml`) on one QB2, free web search, blinded Claude graders. Per-type breakdowns and run IDs in [docs/LOG.md](docs/LOG.md).
 
 | Benchmark | Questions | Ours | Published reference points |
 |---|---|---|---|
@@ -124,12 +124,12 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
 | `scripts/setup-evals.sh` [`SNAPSHOT_DIR`] | Everything the evals need on a new machine (docs/EVALS.md) |
 | `ttdr corpus snapshot\|restore` | Save the search indexes to files / load them on another machine, instead of re-embedding |
-| `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank.toml --concurrency 4` |
+| `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank-qwen3-vl.toml --concurrency 4` |
 | `ttdr eval judge-export\|judge-import` | Blinded queues for short answers, graded by Claude subagents |
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-`ttdr recipes` lists the recipes meant for use, what each serves and on which chips (`--all` adds the A/B and eval overlays, `--json` for tools); `ttdr up --recipe <name>` starts one by name. Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank.toml` is the same setup under its old name, what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe recipes/ornith-35b-cohost.toml` serves it with the cohost `tt-model`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
+`ttdr recipes` lists the recipes meant for use, what each serves and on which chips (`--all` adds the A/B and eval overlays, `--json` for tools); `ttdr up --recipe <name>` starts one by name. Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank-qwen3-vl.toml` is the same setup under its old name, what evals use), `recipes/eval-browsecomp-plus-offline.toml` (offline, BrowseComp-Plus corpus only), `recipes/web-search-tavily.toml` (keyed web search, reserved for final runs), `recipes/cohost-ornith-35b.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe recipes/cohost-ornith-35b.toml` serves it with the cohost `tt-model`), `recipes/cohost-ornith-122b.toml` and `recipes/cohost-qwen38-27b.toml` (the A/B alternatives).
 
 ## Layout
 

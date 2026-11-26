@@ -1,4 +1,4 @@
-extends = "rerank.toml"
+extends = "rerank-qwen3-vl.toml"
 description = "The default's models as one cohost bundle, the fastest; needs the cohost tt-model build (README)"
 
 # Ornith 1.5 35B-A3B cohosted with the embedder and reranker on all four chips, one bundle, instead

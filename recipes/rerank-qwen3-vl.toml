@@ -1,4 +1,4 @@
-extends = "llm-verify.toml"
+extends = "verify-with-llm.toml"
 
 # Qwen3-VL-Reranker-8B on chip 3 (in Laya's place; Ornith answers verify) reorders the top 30
 # embedding hits before the agent sees them (docs/LOG.md).
