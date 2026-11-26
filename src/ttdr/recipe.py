@@ -233,12 +233,14 @@ def _read(path: Path) -> dict:
 
 
 DEFAULT = "recipe.toml"
+DEFAULT_NAME = "separate-chips-ornith-35b"
+"""What `ttdr recipes` calls the default recipe; "default" also resolves to it."""
 
 
 def resolve(name: str | Path | None = None) -> Path:
-    """A recipe path from a path, a name in recipes/ ("ornith-122b"), or "default"."""
+    """A recipe path from a path, a name in recipes/ ("ornith-122b"), or "default" (DEFAULT_NAME)."""
     name = str(name or os.environ.get("TTDR_RECIPE") or DEFAULT)
-    if name == "default":
+    if name in ("default", DEFAULT_NAME):
         return Path(DEFAULT)
     named = Path("recipes") / f"{name}.toml"
     return named if not Path(name).is_file() and named.is_file() else Path(name)
@@ -258,23 +260,26 @@ def catalog() -> list[dict]:
         r = load(path)
         served = r.served()
         host = {c: name for name, m in served.items() for c in m.cohosts}
-        out.append({
-            "name": "default" if path == Path(DEFAULT) else path.stem,
-            "path": str(path),
-            "description": tomllib.loads(path.read_text()).get("description"),
-            "bundles": [m.bundle for n, m in served.items() if m.bundle and n not in host],
-            "models": [
-                {
-                    "name": name,
-                    "roles": [role for role, model in r.roles.items() if model == name],
-                    "model": m.model,
-                    "url": m.url,
-                    "bundle": m.bundle,
-                    "chips": served[host[name]].chips if name in host else m.chips,
-                    "cohosted_with": host.get(name),
-                }
-                for name, m in served.items()
-            ],
-            "ui": r.features.ui,
-        })
+        out.append(
+            {
+                "name": DEFAULT_NAME if path == Path(DEFAULT) else path.stem,
+                "default": path == Path(DEFAULT),
+                "path": str(path),
+                "description": tomllib.loads(path.read_text()).get("description"),
+                "bundles": [m.bundle for n, m in served.items() if m.bundle and n not in host],
+                "models": [
+                    {
+                        "name": name,
+                        "roles": [role for role, model in r.roles.items() if model == name],
+                        "model": m.model,
+                        "url": m.url,
+                        "bundle": m.bundle,
+                        "chips": served[host[name]].chips if name in host else m.chips,
+                        "cohosted_with": host.get(name),
+                    }
+                    for name, m in served.items()
+                ],
+                "ui": r.features.ui,
+            }
+        )
     return out

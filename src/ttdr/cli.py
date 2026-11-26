@@ -93,6 +93,7 @@ def recipes_cmd(
         print(json.dumps(recipes, indent=2))
         return
     table = Table("recipe", "serves", "about")
+    table.columns[0].no_wrap = True   # never cut a name short
     for r in recipes:
         if not (show_all or r["description"]):
             continue
@@ -105,7 +106,11 @@ def recipes_cmd(
         if hosted:
             host = next(m for m in r["models"] if m["name"] in hosted)
             serves.insert(0, f"one bundle on {_chips(host['chips'])}:")
-        table.add_row(r["name"], "\n".join(serves), r["description"] or "")
+        table.add_row(
+            r["name"] + (" (default)" if r["default"] else ""),
+            "\n".join(serves),
+            r["description"] or "",
+        )
     Console().print(table)
 
 

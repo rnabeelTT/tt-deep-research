@@ -168,6 +168,7 @@ def test_recipes_resolve_by_name_or_path(monkeypatch):
     monkeypatch.delenv("TTDR_RECIPE", raising=False)
     assert recipe.resolve(None) == Path("recipe.toml")
     assert recipe.resolve("default") == Path("recipe.toml")
+    assert recipe.resolve(recipe.DEFAULT_NAME) == Path("recipe.toml")
     assert recipe.resolve("cohost-ornith-122b") == Path("recipes/cohost-ornith-122b.toml")
     assert recipe.resolve("recipes/rerank-qwen3-vl.toml") == Path("recipes/rerank-qwen3-vl.toml")
     assert recipe.load("cohost-ornith-122b").llm.model == "ornith-ai/Ornith-1.5-122B"
@@ -176,7 +177,7 @@ def test_recipes_resolve_by_name_or_path(monkeypatch):
 def test_catalog_says_what_each_recipe_serves_and_where(monkeypatch):
     monkeypatch.chdir(ROOT)
     recipes = {r["name"]: r for r in recipe.catalog()}
-    default, cohost = recipes["default"], recipes["cohost-ornith-35b"]
+    default, cohost = recipes[recipe.DEFAULT_NAME], recipes["cohost-ornith-35b"]
     assert len(default["bundles"]) == 3
     assert [m["chips"] for m in default["models"]] == ["0-1", "2", "3"]
     assert cohost["bundles"] == ["raahemnabeel/cohost-ornith-35b-qwen3vl"]

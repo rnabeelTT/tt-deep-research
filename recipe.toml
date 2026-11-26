@@ -1,5 +1,5 @@
 version = "0.2.0"
-description = "The default: a bundle per chip group, served with tt"
+description = "A bundle per chip group, served with tt: the LLM on chips 0-1, the embedder on 2, the reranker on 3"
 
 # Models: a registry. `kind` decides the client (chat, embed, decide); `[roles]` decides the job.
 # Swap a model by pointing a role at another entry (see recipes/*.toml overlays).
