@@ -1,4 +1,5 @@
 extends = "rerank.toml"
+description = "The 122B LLM as one cohost bundle; needs the cohost tt-model build (README)"
 
 # Ornith 1.5 122B cohosted with the embedder and reranker on all four chips, one bundle (docs/LOG.md).
 [models.ornith]
@@ -6,3 +7,5 @@ bundle = "raahemnabeel/cohost-ornith-122b-qwen3vl"
 profile = "ornith122b"
 model = "ornith-ai/Ornith-1.5-122B"
 serve_args = []
+chips = "0-3"
+cohosts = ["qwen3vl_embed", "reranker"]

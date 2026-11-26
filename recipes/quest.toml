@@ -1,4 +1,5 @@
 extends = "rerank.toml"
+description = "QUEST-35B-RL in Ornith's place, as an A/B of the LLM"
 
 # QUEST-35B-RL (OSU NLP: Qwen3.5-35B-A3B after mid-training, SFT and RL on synthetic deep-research
 # tasks) as the LLM, in Ornith's place on chips 0-1: same architecture, vision and prefix caching.
@@ -14,6 +15,7 @@ reasoning = "enable_thinking"
 max_state_tokens = 8192
 serve_args = ["--max-num-batched-tokens", "262144"]
 serve_order = 0
+chips = "0-1"
 
 [roles]
 llm = "quest"

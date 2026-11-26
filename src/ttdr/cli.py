@@ -26,7 +26,7 @@ app.command()(verify)
 @app.callback()
 def main(ctx: typer.Context) -> None:
     """Deep research on a Tenstorrent QB2."""
-    home.enter(refresh=ctx.invoked_subcommand == "up")
+    home.enter(refresh=ctx.invoked_subcommand in ("up", "recipes"))
 
 
 @app.command("mcp")
@@ -61,7 +61,9 @@ def ui_server_cmd(
 
 @app.command("up")
 def up_cmd(
-    recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
+    recipe_path: Annotated[
+        Path | None, typer.Option("--recipe", help="Recipe name (`ttdr recipes`) or file")
+    ] = None,
     build: Annotated[bool, typer.Option(help="Rebuild the app images")] = False,
 ) -> None:
     """Serve the recipe's models, start data services and the app, and check every endpoint."""
@@ -69,11 +71,42 @@ def up_cmd(
 
     console = Console()
     log = lambda m: console.print(f"[dim]$ {m}[/]")
-    status = stack.up(recipe.load(recipe_path), build, log, recipe_path)
+    status = stack.up(recipe.load(recipe_path), build, log, recipe.resolve(recipe_path))
     for name, ok in status.items():
         console.print(f"{'[green]up[/]' if ok else '[red]down[/]'} {name}")
     console.print('UI http://<host>:3000 · jobs `ttdr jobs` · CLI `ttdr research "..."`')
     raise typer.Exit(0 if all(status.values()) else 1)
+
+
+def _chips(chips: str) -> str:
+    return f"chips {chips}" if "-" in chips or "," in chips else f"chip {chips}"
+
+
+@app.command("recipes")
+def recipes_cmd(
+    show_all: Annotated[bool, typer.Option("--all", help="Also the A/B and eval overlays")] = False,
+    as_json: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """The recipes `ttdr up --recipe <name>` can start: what each serves, and on which chips."""
+    recipes = recipe.catalog()
+    if as_json:
+        print(json.dumps(recipes, indent=2))
+        return
+    table = Table("recipe", "serves", "about")
+    for r in recipes:
+        if not (show_all or r["description"]):
+            continue
+        hosted = {m["cohosted_with"] for m in r["models"]} - {None}
+        serves = [
+            m["model"].split("/")[-1]
+            + ("" if hosted or not m["chips"] else f" ({_chips(m['chips'])})")
+            for m in r["models"]
+        ]
+        if hosted:
+            host = next(m for m in r["models"] if m["name"] in hosted)
+            serves.insert(0, f"one bundle on {_chips(host['chips'])}:")
+        table.add_row(r["name"], "\n".join(serves), r["description"] or "")
+    Console().print(table)
 
 
 @app.command("aiq-config")

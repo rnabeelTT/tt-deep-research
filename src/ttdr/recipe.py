@@ -69,6 +69,9 @@ class Model(BaseModel):
     cohosts: list[str] = []
     """A cohost bundle (served with tt-model): the other models it serves at their own URLs,
     which `ttdr up` then doesn't serve itself."""
+    chips: str | None = None
+    """The chips `ttdr up` serves it on ("0-1"), as tt assigns them in serve order; `ttdr recipes`
+    shows them."""
 
     def request_settings(self, thinking: bool | None = None) -> dict:
         """OpenAI-client settings: temperature/top_p, plus the rest of the sampling and the
@@ -229,6 +232,49 @@ def _read(path: Path) -> dict:
     return data
 
 
+DEFAULT = "recipe.toml"
+
+
+def resolve(name: str | Path | None = None) -> Path:
+    """A recipe path from a path, a name in recipes/ ("ornith-122b"), or "default"."""
+    name = str(name or os.environ.get("TTDR_RECIPE") or DEFAULT)
+    if name == "default":
+        return Path(DEFAULT)
+    named = Path("recipes") / f"{name}.toml"
+    return named if not Path(name).is_file() and named.is_file() else Path(name)
+
+
 def load(path: str | Path | None = None) -> Recipe:
-    """Load a recipe; `extends = "<path>"` overlays it on another recipe."""
-    return Recipe.model_validate(_read(Path(path or os.environ.get("TTDR_RECIPE", "recipe.toml"))))
+    """Load a recipe by path or name; `extends = "<path>"` overlays it on another recipe."""
+    return Recipe.model_validate(_read(resolve(path)))
+
+
+def catalog() -> list[dict]:
+    """Every recipe here: its name and path, its own description (overlays don't inherit one;
+    recipes without one are listed only on request), what `ttdr up` serves and where."""
+    paths = [Path(DEFAULT), *sorted(Path("recipes").glob("*.toml"))]
+    out = []
+    for path in paths:
+        r = load(path)
+        served = r.served()
+        host = {c: name for name, m in served.items() for c in m.cohosts}
+        out.append({
+            "name": "default" if path == Path(DEFAULT) else path.stem,
+            "path": str(path),
+            "description": tomllib.loads(path.read_text()).get("description"),
+            "bundles": [m.bundle for n, m in served.items() if m.bundle and n not in host],
+            "models": [
+                {
+                    "name": name,
+                    "roles": [role for role, model in r.roles.items() if model == name],
+                    "model": m.model,
+                    "url": m.url,
+                    "bundle": m.bundle,
+                    "chips": served[host[name]].chips if name in host else m.chips,
+                    "cohosted_with": host.get(name),
+                }
+                for name, m in served.items()
+            ],
+            "ui": r.features.ui,
+        })
+    return out

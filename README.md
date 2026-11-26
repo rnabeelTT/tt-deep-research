@@ -129,7 +129,7 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank.toml` is the same setup under its old name, what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe recipes/ornith-35b-cohost.toml` serves it with the cohost `tt-model`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
+`ttdr recipes` lists the recipes meant for use, what each serves and on which chips (`--all` adds the A/B and eval overlays, `--json` for tools); `ttdr up --recipe <name>` starts one by name. Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank.toml` is the same setup under its old name, what evals use), `recipes/browsecomp-plus.toml` (offline, BrowseComp-Plus corpus only), `recipes/tavily.toml` (keyed web search, reserved for final runs), `recipes/ornith-35b-cohost.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe recipes/ornith-35b-cohost.toml` serves it with the cohost `tt-model`), `recipes/ornith-122b.toml` and `recipes/qwen38-27b.toml` (the A/B alternatives).
 
 ## Layout
 

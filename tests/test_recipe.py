@@ -157,3 +157,27 @@ def test_up_says_when_docker_or_the_model_cache_is_out_of_reach(monkeypatch, tmp
     problems = stack.access_problems(RECIPE)
     assert len(problems) == 2 and "docker" in problems[0] and str(cache) in problems[1]
     assert len(stack.access_problems(RECIPE, {"ornith": True})) == 1  # Ornith up: nothing to stage
+
+
+def test_recipes_resolve_by_name_or_path(monkeypatch):
+    monkeypatch.chdir(ROOT)
+    monkeypatch.delenv("TTDR_RECIPE", raising=False)
+    assert recipe.resolve(None) == Path("recipe.toml")
+    assert recipe.resolve("default") == Path("recipe.toml")
+    assert recipe.resolve("ornith-122b") == Path("recipes/ornith-122b.toml")
+    assert recipe.resolve("recipes/rerank.toml") == Path("recipes/rerank.toml")
+    assert recipe.load("ornith-122b").llm.model == "ornith-ai/Ornith-1.5-122B"
+
+
+def test_catalog_says_what_each_recipe_serves_and_where(monkeypatch):
+    monkeypatch.chdir(ROOT)
+    recipes = {r["name"]: r for r in recipe.catalog()}
+    default, cohost = recipes["default"], recipes["ornith-35b-cohost"]
+    assert len(default["bundles"]) == 3
+    assert [m["chips"] for m in default["models"]] == ["0-1", "2", "3"]
+    assert cohost["bundles"] == ["raahemnabeel/cohost-ornith-35b-qwen3vl"]
+    assert {m["cohosted_with"] for m in cohost["models"]} == {None, "ornith"}
+    # Overlays don't inherit a description: only described recipes are listed by default.
+    assert recipes["rerank"]["description"] is None and default["description"]
+    for name in ("ornith-122b", "qwen38-27b"):
+        assert len(recipes[name]["bundles"]) == 1
