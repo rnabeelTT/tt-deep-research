@@ -70,8 +70,8 @@ class Model(BaseModel):
     """A cohost bundle (served with tt-model): the other models it serves at their own URLs,
     which `ttdr up` then doesn't serve itself."""
     chips: str | None = None
-    """The chips `ttdr up` serves it on ("0-1"), as tt assigns them in serve order; `ttdr recipes`
-    shows them."""
+    """The chips `ttdr up` serves it on ("0-1"), passed to tt-model as --device-id. When every
+    model to serve has them, they all start at once; `ttdr recipes` shows them."""
 
     def request_settings(self, thinking: bool | None = None) -> dict:
         """OpenAI-client settings: temperature/top_p, plus the rest of the sampling and the

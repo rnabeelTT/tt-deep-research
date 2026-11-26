@@ -96,14 +96,63 @@ def test_up_serves_models_from_the_recipe():
         "8000",
         "--detach",
         "--",
+        "--device-id",
+        "0,1",
         "--profile",
         "p300",
         "--max-num-batched-tokens",
         "262144",
     ]
-    assert serve_command(RECIPE.embed)[-3:] == ["--port", "8005", "--detach"]
+    assert serve_command(RECIPE.embed)[-2:] == ["--device-id", "2"]
     templated = RECIPE.llm.model_copy(update={"chat_template": "configs/mine.jinja"})
     assert serve_command(templated)[-4:-2] == ["--chat-template", "/hf/ttdr/mine.jinja"]
+    unpinned = RECIPE.embed.model_copy(update={"chips": None})
+    assert serve_command(unpinned)[-3:] == ["--port", "8005", "--detach"]
+
+
+def test_recipe_chips_become_tt_model_device_ids():
+    from ttdr.stack import device_ids
+
+    assert [device_ids(c) for c in ("0-1", "2", "0-3", "0,2-3")] == ["0,1", "2", "0,1,2,3", "0,2,3"]
+
+
+def test_up_starts_pinned_models_together_and_waits_for_all(monkeypatch, tmp_path):
+    """Every model has its chips, so all three serves run at once (none waits on another),
+    each logging to its own file; then ttdr up waits until each answers."""
+    from ttdr import stack
+
+    monkeypatch.chdir(tmp_path)
+    events: list[str] = []
+
+    class Proc:
+        def __init__(self, cmd, **_):
+            self.bundle = cmd[2]
+            events.append(f"start {self.bundle}")
+
+        def wait(self):
+            events.append(f"wait {self.bundle}")
+            return 0
+
+    rounds = iter([set(), {"ornith"}, {"ornith", "qwen3vl_embed", "reranker"}])
+    up = {"ornith": False, "qwen3vl_embed": False, "reranker": False}
+
+    async def health_run(_recipe):
+        answering = next(rounds, set(up))
+        return [type("C", (), {"name": n, "ok": n in answering})() for n in up]
+
+    monkeypatch.setattr(stack, "preflight", lambda *a: None)
+    monkeypatch.setattr(stack.health, "run", health_run)
+    monkeypatch.setattr(stack.subprocess, "Popen", Proc)
+    monkeypatch.setattr(stack.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(stack.time, "sleep", lambda s: None)
+    logged: list[str] = []
+    stack.serve_models(RECIPE, logged.append)
+    starts = [e for e in events if e.startswith("start")]
+    assert len(starts) == 3 and events[:3] == starts  # all started before any is waited on
+    assert all((tmp_path / "data/logs" / f"serve-{n}.log").exists() for n in up)
+    assert [line for line in logged if line.endswith(": up")] == [
+        "ornith: up", "qwen3vl_embed: up", "reranker: up"
+    ]
 
 
 def test_instructed_embedder_sends_the_instruction_with_queries_only():

@@ -111,17 +111,26 @@ def _run(cmd: list[str], log) -> None:
     subprocess.run(cmd, check=True)
 
 
+def device_ids(chips: str) -> str:
+    """tt-model's --device-id from a recipe's chips: "0-1" -> "0,1", "2" -> "2"."""
+    ids: list[int] = []
+    for part in chips.split(","):
+        first, _, last = part.partition("-")
+        ids += range(int(first), int(last or first) + 1)
+    return ",".join(map(str, ids))
+
+
 def serve_command(m: Model) -> list[str]:
     port = str(urlparse(m.url).port)
+    pin = ["--device-id", device_ids(m.chips)] if m.chips else []
+    profile = ["--profile", m.profile] if m.profile else []
     if m.cohosts:  # `tt serve` refuses cohost bundles
-        profile = ["--profile", m.profile] if m.profile else []
-        return ["tt-model", "serve", m.bundle, "--port", port, "--detach", *profile]
-    extra = ["--profile", m.profile] if m.profile else []
+        return ["tt-model", "serve", m.bundle, "--port", port, "--detach", *pin, *profile]
+    extra = [*pin, *profile]
     if m.chat_template:
         extra += ["--chat-template", f"/hf/{TEMPLATE_DIR}/{Path(m.chat_template).name}"]
     extra += m.serve_args
-    # --detach: back once the container holds its chips, so the next model starts while this
-    # one loads; serve_models then waits for all of them together.
+    # --detach: back once the container holds its chips; serve_models waits for the models.
     tail = ["--", *extra] if extra else []
     return ["tt", "serve", m.bundle, "--yes", "--port", port, "--detach", *tail]
 
@@ -143,16 +152,17 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
     preflight(recipe, up)
     served = recipe.served()
     cohosted = {c for m in served.values() for c in m.cohosts}
-    started = []
+    todo = []
     for name, m in served.items():
         if up.get(name):
             log(f"{name}: already serving ({m.bundle or m.url})")
+        elif name in cohosted:
             continue
-        if name in cohosted:
-            continue
-        if not m.bundle:
+        elif not m.bundle:
             log(f"{name}: no bundle, not served by tt; start it at {m.url}")
-            continue
+        else:
+            todo.append((name, m))
+    for _, m in todo:
         for snap in m.prefetch:
             repo, rev = snap.split("@")
             hub = str(model_cache() / "hub")
@@ -160,18 +170,49 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
         if m.chat_template:
             (model_cache() / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.copy(m.chat_template, model_cache() / TEMPLATE_DIR)
-        _run(serve_command(m), log)
-        started.append(m.bundle)
-    if started:  # every model loads at once; 10-15 minutes from cold
-        log(f"waiting for {', '.join(started)} to load")
-        deadline = time.time() + timeout_s
-        while not all(
-            c.ok for c in asyncio.run(health.run(recipe)) if c.name.split(" ")[0] in served
-        ):
-            if time.time() > deadline:
-                logs = "; ".join(f"`tt model logs {b} --follow`" for b in started)
-                raise TimeoutError(f"models not ready after {timeout_s:.0f}s; see {logs}")
+    if all(m.chips for _, m in todo):
+        _start_together(todo, log)
+    else:  # tt picks the chips: one model at a time, largest first, for a stable order
+        for _, m in todo:
+            _run(serve_command(m), log)
+    if not todo:
+        return
+    log("waiting for the models to load (10-15 minutes from cold)")
+    pending = set(served) - {n for n, ok in up.items() if ok}
+    deadline = time.time() + timeout_s
+    while pending:
+        answering = {c.name.split(" ")[0] for c in asyncio.run(health.run(recipe)) if c.ok}
+        for name in sorted(pending & answering):
+            log(f"{name}: up")
+        pending -= answering
+        if pending and time.time() > deadline:
+            logs = "; ".join(f"`tt model logs {m.bundle} --follow`" for _, m in todo)
+            raise TimeoutError(f"models not ready after {timeout_s:.0f}s; see {logs}")
+        if pending:
             time.sleep(15)
+
+
+def _start_together(todo: list[tuple[str, Model]], log) -> None:
+    """Start models pinned to their own chips all at once, so their downloads and loads
+    overlap. Each start writes to data/logs/serve-<model>.log, shown when it fails."""
+    if any(not m.cohosts for _, m in todo):
+        # `tt serve` installs tt-model on first use; do that once, not in every serve at once.
+        subprocess.run(["tt", "model", "package", "--help"], check=True, capture_output=True)
+    logs = Path("data/logs")
+    logs.mkdir(parents=True, exist_ok=True)
+    started = []
+    for name, m in todo:
+        cmd, path = serve_command(m), logs / f"serve-{name}.log"
+        log(f"{' '.join(cmd)}  (log: {path})")
+        with path.open("w") as out:
+            started.append((name, path, subprocess.Popen(cmd, stdout=out, stderr=out)))
+    failed = [(name, path) for name, path, proc in started if proc.wait()]
+    if failed:
+        tails = "\n".join(
+            f"{name} ({path}):\n" + "\n".join(path.read_text().splitlines()[-15:])
+            for name, path in failed
+        )
+        raise SystemExit(f"tt could not start {', '.join(n for n, _ in failed)}:\n{tails}")
 
 
 MCP_INIT = {
