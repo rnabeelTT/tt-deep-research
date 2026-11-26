@@ -180,10 +180,13 @@ def test_up_says_when_docker_or_the_model_cache_is_out_of_reach(monkeypatch, tmp
     monkeypatch.setattr(stack.subprocess, "run", lambda *a, **k: type("R", (), {"returncode": 1}))
     cache = tmp_path / "models"
     cache.mkdir(mode=0o555)
-    monkeypatch.setattr(stack, "MODEL_CACHE", cache)
-    problems = stack.access_problems(RECIPE)
+    monkeypatch.setenv("HF_HOME", str(cache))
+    ornith = RECIPE.models["ornith"].model_copy(update={"chat_template": "configs/mine.jinja"})
+    templated = RECIPE.model_copy(update={"models": {**RECIPE.models, "ornith": ornith}})
+    problems = stack.access_problems(templated)
     assert len(problems) == 2 and "docker" in problems[0] and str(cache) in problems[1]
-    assert len(stack.access_problems(RECIPE, {"ornith": True})) == 1  # Ornith up: nothing to stage
+    assert len(stack.access_problems(templated, {"ornith": True})) == 1  # up: nothing to stage
+    assert len(stack.access_problems(RECIPE)) == 1  # the default stages nothing
 
 
 def test_recipes_resolve_by_name_or_path(monkeypatch):

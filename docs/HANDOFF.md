@@ -41,7 +41,7 @@ Direction (2026-10-29): improve quality on corpus-answerable questions (FinanceB
 | Patched AI-Q clone | `external/aiq` | `scripts/setup-aiq.sh` (applies `patches/aiq/`) |
 | Docling A/B chunks, vectors, loader | `data/ab/docling30` | The scripts there (`convert_chunk.py` in a Docling venv, `ab_recall.py`) |
 | Qdrant index, Redis evidence and OCR text | Docker volumes | `ttdr corpus index financebench`; OCR backfill reruns from the queue |
-| Model weights and bundles | `/opt/tenstorrent/models` | `ttdr up` (serves and pre-fetches from `recipe.toml`) |
+| Model weights and bundles | tt's model cache (`$HF_HOME`, default `~/.cache/huggingface`) | `ttdr up` (serves and pre-fetches from `recipe.toml`) |
 | `.env` | repo root | Rewritten by every `ttdr up` |
 
 ## Working agreements

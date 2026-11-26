@@ -18,7 +18,6 @@ import httpx
 from ttdr import aiq_config, health
 from ttdr.recipe import Model, Recipe
 
-MODEL_CACHE = Path("/opt/tenstorrent/models")
 TEMPLATE_DIR = "ttdr"
 # app service -> health URL (None: checked through the recipe's MCP URL)
 APP = {
@@ -43,6 +42,12 @@ INSTALL = {
     f"`uv tool install --force {COHOST_TT_MODEL}`",
     "hf": "`uv tool install huggingface_hub` (for the recipe's prefetch snapshots)",
 }
+
+
+def model_cache() -> Path:
+    """tt's Hugging Face cache, which `tt serve` mounts into model containers at /hf: chat
+    templates and prefetch snapshots are staged there."""
+    return Path(os.environ.get("HF_HOME") or Path.home() / ".cache" / "huggingface")
 
 
 def missing_tools(recipe: Recipe, up: dict[str, bool] | None = None) -> list[str]:
@@ -84,12 +89,12 @@ def access_problems(recipe: Recipe, up: dict[str, bool] | None = None) -> list[s
         for n, m in recipe.served().items()
         if not up.get(n) and not m.cohosts and (m.chat_template or m.prefetch)
     ]
-    cache = MODEL_CACHE if MODEL_CACHE.exists() else MODEL_CACHE.parent
-    if staged and not os.access(cache, os.W_OK):
+    cache = model_cache()
+    existing = next(d for d in (cache, *cache.parents) if d.exists())
+    if staged and not os.access(existing, os.W_OK):
         problems.append(
-            f"{MODEL_CACHE} isn't writable (chat templates are staged there): "
-            f"`sudo mkdir -p {MODEL_CACHE} && sudo chgrp docker {MODEL_CACHE} "
-            f"&& sudo chmod 2775 {MODEL_CACHE}`, as a member of the docker group"
+            f"{cache} isn't writable (chat templates are staged there, in tt's model cache): "
+            "make it yours, or point HF_HOME at a folder you can write"
         )
     return problems
 
@@ -147,11 +152,11 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
             continue
         for snap in m.prefetch:
             repo, rev = snap.split("@")
-            hub = str(MODEL_CACHE / "hub")
+            hub = str(model_cache() / "hub")
             _run(["hf", "download", repo, "--revision", rev, "--cache-dir", hub], log)
         if m.chat_template:
-            (MODEL_CACHE / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
-            shutil.copy(m.chat_template, MODEL_CACHE / TEMPLATE_DIR)
+            (model_cache() / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
+            shutil.copy(m.chat_template, model_cache() / TEMPLATE_DIR)
         _run(serve_command(m), log)
         detached |= bool(m.cohosts)
     if detached:  # a detached bundle takes 10-15 minutes from cold

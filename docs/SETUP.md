@@ -19,20 +19,19 @@ tt assigns chips itself, so start the models one at a time, largest first. All t
 
 | Port | Model | Bundle | Chips |
 |---|---|---|---|
-| 8000 | Ornith 1.5 35B-A3B | `raahemnabeel/ornith-1.5-35b-a3b`, profile `p300`, patched chat template | 2 (0–1) |
+| 8000 | Ornith 1.5 35B-A3B | `raahemnabeel/ornith-1.5-35b-a3b`, profile `p300` | 2 (0–1) |
 | 8005 | Qwen3-VL-Embedding-8B | `raahemnabeel/qwen3-vl-embedding-8b` | 1 (2) |
 | 8004 | Qwen3-VL-Reranker-8B | `raahemnabeel/qwen3-vl-reranker-8b` | 1 (3) |
 
 ```bash
-mkdir -p /opt/tenstorrent/models/ttdr && cp configs/chat_templates/ornith.jinja /opt/tenstorrent/models/ttdr/
-tt serve raahemnabeel/ornith-1.5-35b-a3b --yes --port 8000 -- --profile p300 --chat-template /hf/ttdr/ornith.jinja --max-num-batched-tokens 262144
+tt serve raahemnabeel/ornith-1.5-35b-a3b --yes --port 8000 -- --profile p300 --max-num-batched-tokens 262144
 tt serve raahemnabeel/qwen3-vl-embedding-8b --yes --port 8005
 tt serve raahemnabeel/qwen3-vl-reranker-8b --yes --port 8004
 ```
 
 Ornith takes about 10 minutes from a first pull (4–5 cached). The claim checker (`verify`) is Ornith itself; a recipe can instead put a separate decision model on chip 3 in the reranker's place (Laya, below, is the one the earlier A/Bs used).
 
-**Ornith chat template.** Ornith's stock template raises "No user query found" when a request has no user turn. AI-Q's intent classifier sends system-only prompts. `configs/chat_templates/ornith.jinja` is the stock template with that one `raise` replaced by a fallback (a one-line diff). It's mounted through `/opt/tenstorrent/models`, which the container sees as `/hf`.
+**System-only prompts.** Qwen3.5-family chat templates (Ornith, QUEST, Qwen3.8) refuse a request with no user message ("No user query found in messages"). Nothing in the stack sends one: AI-Q's intent classifier did, and `patches/aiq/0012-classifier-user-turn.patch` makes it send its prompt as a user turn, so every model runs with its stock template.
 
 The alternative LLM is gpt-oss-20b: `tt serve jashansinghTT/gpt-oss-20b-blackhole-fast --yes --port 8000 -- --profile p150x2`, with `recipes/llm-gpt-oss-20b.toml` from the `experimental-recipes` branch on `ttdr` commands. Its sampling must keep `top_k <= 32` (see the recipe).
 
@@ -40,7 +39,7 @@ The alternative LLM is gpt-oss-20b: `tt serve jashansinghTT/gpt-oss-20b-blackhol
 
 ```bash
 hf download convaiinnovations/laya --revision 7b928d828b7b0e022f929d9bd2e44165aa270148 \
-  --cache-dir /opt/tenstorrent/models/hub
+  --cache-dir ${HF_HOME:-~/.cache/huggingface}/hub
 ```
 
 To stop a model, run `tt model stop <bundle>`. To see its logs, run `tt model logs <bundle> --follow`.

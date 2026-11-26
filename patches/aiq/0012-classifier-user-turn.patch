@@ -1,0 +1,63 @@
+diff --git a/src/aiq_agent/agents/chat_researcher/nodes/intent_classifier.py b/src/aiq_agent/agents/chat_researcher/nodes/intent_classifier.py
+index 3e6ea3a..5a76624 100644
+--- a/src/aiq_agent/agents/chat_researcher/nodes/intent_classifier.py
++++ b/src/aiq_agent/agents/chat_researcher/nodes/intent_classifier.py
+@@ -25,7 +25,7 @@ from langchain_core.callbacks import BaseCallbackHandler
+ from langchain_core.language_models import BaseChatModel
+ from langchain_core.messages import AIMessage
+ from langchain_core.messages import BaseMessage
+-from langchain_core.messages import SystemMessage
++from langchain_core.messages import HumanMessage
+ 
+ from aiq_agent.common import extract_json
+ from aiq_agent.common import load_prompt
+@@ -147,7 +147,9 @@ class IntentClassifier:
+         )
+         # Keep the router isolated from prior assistant report bodies. The prompt already contains
+         # the latest query and report availability, which is the bounded context needed here.
+-        messages: list[BaseMessage] = [SystemMessage(content=system_content)]
++        # A user turn, not a system one: Qwen3.5-family chat templates refuse a request with no
++        # user message ("No user query found in messages").
++        messages: list[BaseMessage] = [HumanMessage(content=system_content)]
+ 
+         try:
+             config = {"callbacks": self.callbacks} if self.callbacks else {}
+@@ -264,7 +266,7 @@ class IntentClassifier:
+         )
+         try:
+             response = await asyncio.wait_for(
+-                self.llm.ainvoke([SystemMessage(content=repair_prompt)], config=config),
++                self.llm.ainvoke([HumanMessage(content=repair_prompt)], config=config),
+                 timeout=min(self.llm_timeout, _REPAIR_TIMEOUT_SECONDS),
+             )
+         except TimeoutError:
+diff --git a/tests/aiq_agent/agents/chat_researcher/nodes/test_intent_classifier.py b/tests/aiq_agent/agents/chat_researcher/nodes/test_intent_classifier.py
+index 772ab1e..465d66d 100644
+--- a/tests/aiq_agent/agents/chat_researcher/nodes/test_intent_classifier.py
++++ b/tests/aiq_agent/agents/chat_researcher/nodes/test_intent_classifier.py
+@@ -22,7 +22,6 @@ from unittest.mock import patch
+ import pytest
+ from langchain_core.messages import AIMessage
+ from langchain_core.messages import HumanMessage
+-from langchain_core.messages import SystemMessage
+ 
+ from aiq_agent.agents.chat_researcher.models import RESEARCH_WORKFLOW_FAILURE_ERROR
+ from aiq_agent.agents.chat_researcher.models import ChatResearcherState
+@@ -427,7 +426,7 @@ class TestIntentClassifier:
+ 
+         classifier_messages = mock_llm.ainvoke.call_args.args[0]
+         assert classifier_messages == [classifier_messages[0]]
+-        assert isinstance(classifier_messages[0], SystemMessage)
++        assert isinstance(classifier_messages[0], HumanMessage)
+         assert "can you rewrite the report to add more information on benchmarks" in classifier_messages[0].content
+         assert "Previous report body with benchmark sections and citations" not in classifier_messages[0].content
+ 
+@@ -507,7 +506,7 @@ class TestIntentClassifier:
+         assert mock_llm.ainvoke.call_count == 2
+         repair_messages = mock_llm.ainvoke.call_args_list[1].args[0]
+         assert len(repair_messages) == 1
+-        assert isinstance(repair_messages[0], SystemMessage)
++        assert isinstance(repair_messages[0], HumanMessage)
+         assert "Return only one valid JSON object" in repair_messages[0].content
+         assert "I should rewrite the report instead of returning JSON." in repair_messages[0].content
+         assert result["user_intent"].target == "new_research"

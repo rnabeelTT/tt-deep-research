@@ -97,12 +97,12 @@ def test_up_serves_models_from_the_recipe():
         "--",
         "--profile",
         "p300",
-        "--chat-template",
-        "/hf/ttdr/ornith.jinja",
         "--max-num-batched-tokens",
         "262144",
     ]
     assert serve_command(RECIPE.embed)[-2:] == ["--port", "8005"]
+    templated = RECIPE.llm.model_copy(update={"chat_template": "configs/mine.jinja"})
+    assert serve_command(templated)[-4:-2] == ["--chat-template", "/hf/ttdr/mine.jinja"]
 
 
 def test_instructed_embedder_sends_the_instruction_with_queries_only():

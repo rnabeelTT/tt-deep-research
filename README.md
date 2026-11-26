@@ -25,7 +25,7 @@ uv run ttdr up
 uv run ttdr research "your question"
 ```
 
-`ttdr up` checks first that everything it needs is in place (Docker with Compose and its daemon, tt, git, a writable `/opt/tenstorrent/models`) and prints the fix for anything missing. It then serves the three models (each `tt serve` returns once its endpoint answers), builds and starts the app, and exits 0 only when every endpoint is up; rerunning it is safe. The chips must be free: `tt model ps` lists what's serving, and if another workload held them, `tt model stop <bundle>` then `tt device reset --yes` before `ttdr up`. A fresh install has no documents; upload some in the UI (below) or research the web only. Web search needs no API key.
+`ttdr up` checks first that everything it needs is in place (Docker with Compose and its daemon, tt, git, a writable model cache: tt's, `$HF_HOME` or `~/.cache/huggingface`) and prints the fix for anything missing. It then serves the three models (each `tt serve` returns once its endpoint answers), builds and starts the app, and exits 0 only when every endpoint is up; rerunning it is safe. The chips must be free: `tt model ps` lists what's serving, and if another workload held them, `tt model stop <bundle>` then `tt device reset --yes` before `ttdr up`. A fresh install has no documents; upload some in the UI (below) or research the web only. Web search needs no API key.
 
 The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
 
@@ -136,7 +136,7 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | Path | What |
 |---|---|
 | `recipe.toml`, `recipes/` | Model registry, roles, services and features: the single source of truth; overlays for alternatives |
-| `compose.yaml`, `configs/`, `docker/` | Data services (Qdrant, SearXNG, Redis), engine and UI images, chat templates |
+| `compose.yaml`, `configs/`, `docker/` | Data services (Qdrant, SearXNG, Redis), engine and UI images |
 | `src/ttdr/engine/` | Research engine: web + corpus search, reranking, page fetch, evidence store |
 | `src/ttdr/corpus/` | Documents: PDF text and page flags, chunks, Qdrant dense and BM25 stores, corpus sources |
 | `src/ttdr/mcp_server.py` | The engine as MCP tools |
