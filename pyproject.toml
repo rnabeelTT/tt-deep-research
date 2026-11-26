@@ -48,6 +48,22 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/ttdr"]
 
+# The app files `ttdr up` needs, staged into $TTDR_HOME by an installed ttdr (ttdr/home.py).
+[tool.hatch.build.targets.wheel.force-include]
+"compose.yaml" = "ttdr/_app/compose.yaml"
+"recipe.toml" = "ttdr/_app/recipe.toml"
+"recipes" = "ttdr/_app/recipes"
+"configs" = "ttdr/_app/configs"
+"docker" = "ttdr/_app/docker"
+"workers" = "ttdr/_app/workers"
+"scripts" = "ttdr/_app/scripts"
+"patches" = "ttdr/_app/patches"
+".dockerignore" = "ttdr/_app/.dockerignore"
+"pyproject.toml" = "ttdr/_app/pyproject.toml"
+"uv.lock" = "ttdr/_app/uv.lock"
+"README.md" = "ttdr/_app/README.md"
+"src/ttdr" = "ttdr/_app/src/ttdr"
+
 [tool.ruff]
 extend-exclude = ["external"]
 line-length = 100

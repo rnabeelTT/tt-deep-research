@@ -11,6 +11,8 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 
+from ttdr.home import here
+
 console = Console()
 DONE = {"success", "failure", "interrupted", "not_found"}
 SOURCE_TOOLS = {"ttdr__search", "ttdr__fetch_page", "ttdr__get_evidence"}
@@ -81,7 +83,9 @@ def research(
         ),
     ] = "deepagents",
     api: Annotated[str, typer.Option(help="AI-Q job API")] = "http://127.0.0.1:8100",
-    out: Annotated[Path | None, typer.Option(help="Write the report (Markdown) here")] = None,
+    out: Annotated[
+        Path | None, typer.Option(help="Write the report (Markdown) here", callback=here)
+    ] = None,
     quiet: Annotated[bool, typer.Option(help="Hide live progress")] = False,
 ) -> None:
     """Research a question on the QB2 and print the cited report."""
@@ -174,9 +178,10 @@ def jobs(
 
 
 def verify(
-    report: Path,
+    report: Annotated[Path, typer.Argument(callback=here)],
     out: Annotated[
-        Path | None, typer.Option(help="Write the badged (or revised) report here")
+        Path | None,
+        typer.Option(help="Write the badged (or revised) report here", callback=here),
     ] = None,
     revise_weak: Annotated[bool, typer.Option("--revise", help="Rewrite weak claims once")] = False,
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,

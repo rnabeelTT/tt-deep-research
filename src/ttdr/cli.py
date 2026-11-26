@@ -8,7 +8,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from ttdr import health, recipe
+from ttdr import health, home, recipe
 from ttdr.bench_cli import app as bench_app
 from ttdr.corpus.cli import app as corpus_app
 from ttdr.evals.cli import app as eval_app
@@ -24,8 +24,9 @@ app.command()(verify)
 
 
 @app.callback()
-def main() -> None:
+def main(ctx: typer.Context) -> None:
     """Deep research on a Tenstorrent QB2."""
+    home.enter(refresh=ctx.invoked_subcommand == "up")
 
 
 @app.command("mcp")

@@ -29,6 +29,8 @@ uv run ttdr research "your question"
 
 The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
 
+Without a checkout, `uv tool install git+https://github.com/rnabeelTT/tt-deep-research` (or `tt launch deep-research`, currently in beta, which installs it) works too. An installed `ttdr` works in `$TTDR_HOME` (default `~/.tt-deep-research`): it copies its compose file, recipes and configs there, refreshed by each `ttdr up`, and keeps `.env` and `data/` there across upgrades. Run from a checkout, `ttdr` works in the checkout as before.
+
 More: setup in [docs/SETUP.md](docs/SETUP.md), how the pieces fit in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), other clients of the engine (Hermes, coding agents, scripts) in [docs/CLIENTS.md](docs/CLIENTS.md), importing from Google Drive, SharePoint and OneDrive, and adding other document stores, in [docs/CONNECTORS.md](docs/CONNECTORS.md), evals in [docs/EVALS.md](docs/EVALS.md) and [docs/DATASETS.md](docs/DATASETS.md), every A/B in [docs/LOG.md](docs/LOG.md), what we learned in [docs/JOURNEY.md](docs/JOURNEY.md), published competitor scores in [docs/COMPETITORS.md](docs/COMPETITORS.md), the demo plan in [docs/DEMO.md](docs/DEMO.md).
 
 ## On another machine

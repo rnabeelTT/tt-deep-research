@@ -12,6 +12,7 @@ from rich.table import Table
 from ttdr import jsonl, recipe
 from ttdr.clients import connect
 from ttdr.corpus import sources
+from ttdr.home import here
 
 app = typer.Typer(no_args_is_help=True, help="Fetch, index and search document corpora.")
 console = Console()
@@ -50,7 +51,7 @@ def index(
 
 @app.command()
 def upload(
-    folder: Path,
+    folder: Annotated[Path, typer.Argument(callback=here)],
     collection: Annotated[
         str, typer.Option(help="A named collection (made if new); default: the UI's uploads")
     ] = "library",
