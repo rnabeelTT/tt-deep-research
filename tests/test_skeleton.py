@@ -57,15 +57,15 @@ def test_failed_probe_is_reported_not_raised():
     assert not check.ok and "refused" in check.detail
 
 
-def test_recipe_overlay_swaps_llm_and_judge_follows():
-    r = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-gpt-oss-20b.toml")
+def test_recipe_overlay_swaps_llm_and_judge_follows(gpt_oss):
+    r = gpt_oss
     assert r.llm.model == "openai/gpt-oss-20b"
     assert r.llm.url == RECIPE.llm.url
     assert r.judge == r.llm
-    assert list(r.served()) == ["gpt-oss", "qwen3vl_embed", "laya"]
+    assert list(r.served()) == ["gpt-oss", "qwen3vl_embed", "reranker"]
 
 
-def test_llm_applies_recipe_sampling_and_request_overrides():
+def test_llm_applies_recipe_sampling_and_request_overrides(gpt_oss):
     bodies = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -81,8 +81,7 @@ def test_llm_applies_recipe_sampling_and_request_overrides():
     asyncio.run(go())
     assert bodies[0]["top_k"] == 20 and bodies[0]["temperature"] == 0.6
     assert bodies[1]["temperature"] == 0 and bodies[1]["top_k"] == 20
-    gptoss = recipe.load(Path(__file__).parents[1] / "recipes" / "llm-gpt-oss-20b.toml").llm
-    assert gptoss.sampling == {"temperature": 1.0, "top_k": 20, "top_p": 1.0}
+    assert gpt_oss.llm.sampling == {"temperature": 1.0, "top_k": 20, "top_p": 1.0}
 
 
 def test_up_serves_models_from_the_recipe():

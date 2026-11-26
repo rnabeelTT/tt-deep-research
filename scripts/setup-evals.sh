@@ -39,7 +39,7 @@ else
     step "Search indexes (embeddings and BM25; resumable)"
     uv run ttdr corpus index financebench --recipe "$RECIPE"
     uv run ttdr corpus index unidoc --recipe "$RECIPE"
-    uv run ttdr corpus index browsecomp-plus --recipe recipes/eval-browsecomp-plus-offline.toml
+    uv run ttdr corpus index browsecomp-plus --recipe recipes/eval-browsecomp-plus-offline.toml   # from the experimental-recipes branch
 fi
 
 step "Check"

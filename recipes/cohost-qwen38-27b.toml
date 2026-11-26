@@ -1,4 +1,4 @@
-extends = "rerank-qwen3-vl.toml"
+extends = "../recipe.toml"
 description = "Qwen3.8-27B (dense, takes no images) as one cohost bundle; needs the cohost tt-model build (README)"
 
 # Qwen3.8-27B (dense) cohosted with the embedder and reranker on all four chips, one bundle; the

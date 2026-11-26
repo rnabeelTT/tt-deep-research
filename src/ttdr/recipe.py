@@ -93,7 +93,8 @@ class Services(BaseModel):
     """Without it (and without a keyed web_search), search covers the private corpus only."""
     code: str | None = None
     """MCP URL of a sandboxed Python (mcp-run-python, compose service `pyrun`): agents get
-    run_python_code for arithmetic. Unset, they have no code tool."""
+    run_python_code for arithmetic. `ttdr up` starts it with the app; "" in an overlay turns it
+    off and agents have no code tool."""
     web_search: Literal["tavily", "brave", "serper"] | None = None
     """A keyed web search API, used when its key (TAVILY_API_KEY, BRAVE_API_KEY or
     SERPER_API_KEY) is set in the environment; otherwise SearXNG."""
@@ -233,7 +234,7 @@ def _read(path: Path) -> dict:
 
 
 DEFAULT = "recipe.toml"
-DEFAULT_NAME = "separate-chips-ornith-35b"
+DEFAULT_NAME = "ornith-35b"
 """What `ttdr recipes` calls the default recipe; "default" also resolves to it."""
 
 

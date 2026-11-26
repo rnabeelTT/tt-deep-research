@@ -124,12 +124,12 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 | `ttdr corpus fetch\|index\|keywords\|search\|recall NAME` | Private documents: download, embed and BM25-index (`--no-keywords` to skip BM25), add BM25 to an indexed corpus, search, measure recall (`--rerank`, `--keywords N`) |
 | `scripts/setup-evals.sh` [`SNAPSHOT_DIR`] | Everything the evals need on a new machine (docs/EVALS.md) |
 | `ttdr corpus snapshot\|restore` | Save the search indexes to files / load them on another machine, instead of re-embedding |
-| `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --recipe recipes/rerank-qwen3-vl.toml --concurrency 4` |
+| `ttdr eval build\|run\|ab\|compare\|retry …` | Evals: `ttdr eval run deepagents -s financebench-dev --concurrency 4` |
 | `ttdr eval judge-export\|judge-import` | Blinded queues for short answers, graded by Claude subagents |
 | `ttdr eval race-export\|race-import` | DeepResearch Bench RACE queues (reports vs the reference) |
 | `ttdr bench decode\|tools\|load` | Component and load benchmarks |
 
-`ttdr recipes` lists the recipes meant for use, what each serves and on which chips (`--all` adds the A/B and eval overlays, `--json` for tools); `ttdr up --recipe <name>` starts one by name. Recipes worth knowing: `recipe.toml` (default: the three models on separate chips; `recipes/rerank-qwen3-vl.toml` is the same setup under its old name, what evals use), `recipes/eval-browsecomp-plus-offline.toml` (offline, BrowseComp-Plus corpus only), `recipes/web-search-tavily.toml` (keyed web search, reserved for final runs), `recipes/cohost-ornith-35b.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe recipes/cohost-ornith-35b.toml` serves it with the cohost `tt-model`), `recipes/cohost-ornith-122b.toml` and `recipes/cohost-qwen38-27b.toml` (the A/B alternatives).
+`ttdr recipes` lists the recipes meant for use, what each serves and on which chips (`--all` adds any recipe without a description, `--json` for tools); `ttdr up --recipe <name>` starts one by name. Recipes: `recipe.toml` (the default, `ornith-35b`: the three models on separate chips, with a reranker and sandboxed Python for agents), `recipes/cohost-ornith-35b.toml` (optional, fastest: the 35B, embedder and reranker as one bundle on all four chips; `ttdr up --recipe cohost-ornith-35b` serves it with the cohost `tt-model`), other LLMs: `recipes/cohost-ornith-122b.toml`, `recipes/cohost-qwen38-27b.toml` and `recipes/llm-gpt-oss-20b.toml`, and `recipes/web-search-tavily.toml` (keyed web search). The A/B and eval recipes (QUEST, BrowseComp-Plus offline, page images, forced tool choice) are on the `experimental-recipes` branch.
 
 ## Layout
 

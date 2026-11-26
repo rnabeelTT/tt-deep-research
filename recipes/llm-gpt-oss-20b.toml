@@ -1,4 +1,5 @@
 extends = "../recipe.toml"
+description = "gpt-oss-20b as the LLM on chips 0-1 in Ornith's place, with the embedder and reranker"
 
 # gpt-oss-20b as the LLM. Same chips (0-1) as Ornith, so serve one or the other.
 [models.gpt-oss]
@@ -13,6 +14,5 @@ reasoning = "reasoning_effort"
 serve_order = 0
 
 [roles]
-decide = "laya"   # as the A/B ran: Laya checks claims, no reranker
-rerank = ""
+decide = "gpt-oss"   # the LLM answers verify; the reranker stays on chip 3
 llm = "gpt-oss"

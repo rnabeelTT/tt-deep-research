@@ -84,7 +84,9 @@ def _chips(chips: str) -> str:
 
 @app.command("recipes")
 def recipes_cmd(
-    show_all: Annotated[bool, typer.Option("--all", help="Also the A/B and eval overlays")] = False,
+    show_all: Annotated[
+        bool, typer.Option("--all", help="Also recipes without a description")
+    ] = False,
     as_json: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """The recipes `ttdr up --recipe <name>` can start: what each serves, and on which chips."""
@@ -93,7 +95,7 @@ def recipes_cmd(
         print(json.dumps(recipes, indent=2))
         return
     table = Table("recipe", "serves", "about")
-    table.columns[0].no_wrap = True   # never cut a name short
+    table.columns[0].no_wrap = True  # never cut a name short
     for r in recipes:
         if not (show_all or r["description"]):
             continue

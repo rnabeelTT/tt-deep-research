@@ -66,10 +66,16 @@ def test_rerank_drops_weak_and_duplicate_results():
     assert [r["url"] for r, _ in ranked] == ["good", "other"]
 
 
-def test_tools_follow_the_recipe():
+def test_tools_follow_the_recipe(tmp_path):
     names = lambda r: {t.name for t in asyncio.run(mcp_server.build(r, FakeEngine()).list_tools())}
     assert "verify" in names(RECIPE)
-    minimal = recipe.load(Path(__file__).parents[1] / "recipes" / "minimal-stack.toml")
+    path = tmp_path / "minimal.toml"
+    path.write_text(
+        f'extends = "{Path(__file__).parents[1]}/recipe.toml"\n'
+        '[roles]\ndecide = ""\nrerank = ""\n[services]\nsearxng = ""\ncode = ""\n'
+        "[features]\nocr = false\nui = false\n"
+    )
+    minimal = recipe.load(path)
     assert names(minimal) == {
         "search",
         "fetch_page",

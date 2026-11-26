@@ -49,7 +49,7 @@ ocr = "<name>"         # optional: vision OCR on the chips instead of PaddleOCR 
 [features]             # triage, ocr, ui, auto_tool_choice, read_pages
 ```
 
-Overlays (`extends = "../recipe.toml"`) change only what differs; `ttdr up --recipe <overlay>` hands the same file to the engine container (`TTDR_RECIPE`). Setting a role or optional service to `""` removes it. Examples: `recipes/llm-gpt-oss-20b.toml` (another LLM), `recipes/decide-kev-9b.toml` (another decision model), `recipes/minimal-stack.toml` (LLM and embedder only). The recipe is checked when loaded: unknown roles, missing required roles, and a role pointed at the wrong kind of model are all errors.
+Overlays (`extends = "../recipe.toml"`) change only what differs; `ttdr up --recipe <overlay>` hands the same file to the engine container (`TTDR_RECIPE`). Setting a role or optional service to `""` removes it. Examples: `recipes/web-search-tavily.toml` (another web search); more are on the `experimental-recipes` branch. A role set to `""` drops it, so an overlay can serve only the LLM and embedder. The recipe is checked when loaded: unknown roles, missing required roles, and a role pointed at the wrong kind of model are all errors.
 
 ## Making changes
 
@@ -57,9 +57,9 @@ Overlays (`extends = "../recipe.toml"`) change only what differs; `ttdr up --rec
 |---|---|---|
 | Swap a model for another of the same kind | Add `[models.x]`, point the role at it | No |
 | Remove the decision model | `decide = ""` | No: verify and triage switch off, the `verify` tool disappears |
-| Search shows the LLM's reading of the top pages | `[features] read_pages = 3` (`recipes/rerank-read-pages.toml`) | No: one multimodal LLM call per page per search |
+| Search shows the LLM's reading of the top pages | `[features] read_pages = 3` (`recipes/rerank-read-pages.toml` on the `experimental-recipes` branch) | No: one multimodal LLM call per page per search |
 | Pass extra server flags to a model | `serve_args = [...]` on the model | No: `ttdr up` passes them through `tt serve` |
-| Add a reranker | `rerank = "<rerank model>"` (`recipes/rerank-qwen3-vl.toml`) | No: search reranks a pool of 30; any `/v1/rerank` server |
+| Add a reranker | `rerank = "<rerank model>"` (`recipe.toml`) | No: search reranks a pool of 30; any `/v1/rerank` server |
 | Remove web search | `searxng = ""` | No: search covers the corpus and says web is off |
 | Remove OCR or the UI | `[features] ocr = false` / `ui = false` | No: their containers don't start; scanned pages are marked unverified |
 | OCR with a vision model on the chips | `ocr = "<chat model>"` | No: `ttdr up` points the worker at it |

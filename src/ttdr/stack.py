@@ -28,6 +28,7 @@ APP = {
     "deepagents": "http://127.0.0.1:8200/health",
     "ui-deepagents": "http://127.0.0.1:3000",
     "ocr": None,
+    "pyrun": None,  # sandboxed Python: up when the recipe sets services.code
 }
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
 AIQ_SERVICES = {"aiq", "ui"}  # AI-Q's harness: opt in with features.aiq
@@ -124,6 +125,7 @@ def app_services(recipe: Recipe) -> list[str]:
         for s in APP
         if (s not in UI_SERVICES or f.ui)
         and (s != "ocr" or f.ocr)
+        and (s != "pyrun" or recipe.services.code)
         and (s not in AIQ_SERVICES or f.aiq)
     ]
 

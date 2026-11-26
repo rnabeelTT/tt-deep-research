@@ -65,7 +65,7 @@ instruction = "Given a research question, retrieve passages that contain informa
 llm = "ornith"
 embed = "qwen3vl_embed"      # embeddinggemma: the previous default (collection chunks)
 # judge = ...        # optional on-box judge for quick checks (defaults to llm); decisions use the Claude judge
-decide = "ornith"    # optional: without it, verify and triage are off (recipes/decide-kev-9b.toml etc. swap in a decision model)
+decide = "ornith"    # optional: without it, verify and triage are off (overlays swap in a decision model)
 rerank = "reranker"  # optional: without it, embedding order
 # ocr = "ornith"     # optional: OCR with a vision model on the chips instead of PaddleOCR on the CPU
 
@@ -75,6 +75,7 @@ searxng = "http://localhost:8888"   # optional: without it, search covers the co
 # web_search = "tavily"   # or "brave", "serper": used when TAVILY_API_KEY etc. is set, else SearXNG
 redis = "redis://localhost:6379"
 mcp = "http://localhost:9901/mcp"
+code = "http://localhost:9910/mcp"   # sandboxed Python for agents (compose service pyrun); "" turns it off
 
 # What each private collection holds: agents read this to decide when to search the corpus.
 [corpora]

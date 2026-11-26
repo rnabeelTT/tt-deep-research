@@ -11,13 +11,39 @@ from ttdr.stack import app_services
 ROOT = Path(__file__).parents[1]
 RECIPE = recipe.load(ROOT / "recipe.toml")
 
+MINIMAL = """
+extends = "{root}/recipe.toml"
+[roles]
+decide = ""
+rerank = ""
+[services]
+searxng = ""
+code = ""
+[features]
+ocr = false
+ui = false
+"""
 
-def test_minimal_overlay_removes_roles_services_and_features():
-    r = recipe.load(ROOT / "recipes" / "minimal-stack.toml")
+
+def minimal(tmp_path):
+    """The smallest stack as an overlay: LLM + embedder only, corpus search only, no UI."""
+    path = tmp_path / "minimal.toml"
+    path.write_text(MINIMAL.format(root=ROOT))
+    return recipe.load(path)
+
+
+def test_minimal_overlay_removes_roles_services_and_features(tmp_path):
+    r = minimal(tmp_path)
     assert r.decide is None and r.services.searxng is None
     assert list(r.served()) == ["ornith", "qwen3vl_embed"]
     assert app_services(r) == ["engine"]
-    assert app_services(RECIPE) == ["engine", "deepagents", "ui-deepagents", "ocr"]  # one UI
+    assert app_services(RECIPE) == [
+        "engine",
+        "deepagents",
+        "ui-deepagents",
+        "ocr",
+        "pyrun",
+    ]  # one UI
     assert connect(r, httpx.AsyncClient()).decide is None
 
 
@@ -46,41 +72,41 @@ def test_legacy_recipes_from_old_runs_still_load():
     assert r.llm.model == RECIPE.llm.model and r.roles == {"llm": "llm", "embed": "embed"}
 
 
-def test_aiq_config_follows_the_llm_and_its_reasoning_control():
+def test_aiq_config_follows_the_llm_and_its_reasoning_control(gpt_oss):
     ornith = aiq_config.render(RECIPE)["llms"]
     assert ornith["planner_llm"]["model_name"] == RECIPE.llm.model
     assert ornith["agent_llm"]["extra_body"] == {
         "top_k": 20,
         "chat_template_kwargs": {"enable_thinking": True},
     }
-    gptoss = aiq_config.render(recipe.load(ROOT / "recipes" / "llm-gpt-oss-20b.toml"))["llms"]
+    gptoss = aiq_config.render(gpt_oss)["llms"]
     assert gptoss["agent_llm"]["extra_body"] == {"top_k": 20, "reasoning_effort": "high"}
     assert gptoss["planner_llm"]["extra_body"]["reasoning_effort"] == "low"
     assert gptoss["writer_llm"]["temperature"] == 1.0
 
 
-def test_features_reach_compose_through_env():
+def test_features_reach_compose_through_env(overlay):
     from ttdr.stack import compose_env
 
     assert compose_env(RECIPE)["AIQ_AUTO_TOOL_CHOICE"] == "1"
-    forced = recipe.load(ROOT / "recipes" / "aiq-forced-tool-choice.toml")
+    forced = overlay("[features]\nauto_tool_choice = false\n")
     assert compose_env(forced)["AIQ_AUTO_TOOL_CHOICE"] == "0"
     assert compose_env(RECIPE)["TTDR_OCR_BACKEND"] == "paddle"
     assert compose_env(RECIPE)["TTDR_RECIPE"] == "recipe.toml"
     assert (
-        compose_env(RECIPE, Path("recipes/rerank-qwen3-vl.toml"))["TTDR_RECIPE"]
-        == "recipes/rerank-qwen3-vl.toml"
+        compose_env(RECIPE, Path("recipes/cohost-ornith-35b.toml"))["TTDR_RECIPE"]
+        == "recipes/cohost-ornith-35b.toml"
     )
 
 
 def test_decide_can_be_the_llm():
-    r = recipe.load(Path(__file__).parents[1] / "recipes" / "verify-with-llm.toml")
+    r = RECIPE
     assert r.decide.kind == "chat" and r.decide.model == r.llm.model
     assert "laya" not in r.served()
 
 
-def test_claim_checker_verifies_but_cannot_triage():
-    r = recipe.load(ROOT / "recipes" / "verify-minicheck-cpu.toml")
+def test_claim_checker_verifies_but_cannot_triage(minicheck):
+    r = minicheck
     assert r.decide.kind == "check" and r.decide.bundle is None
     assert "laya" not in r.served()
     data = r.model_dump()
@@ -88,16 +114,13 @@ def test_claim_checker_verifies_but_cannot_triage():
         recipe.Recipe.model_validate({**data, "features": {**data["features"], "triage": True}})
 
 
-def test_rerank_overlay_serves_a_reranker_on_chip_3_with_ornith_verifying():
-    r = recipe.load(ROOT / "recipes" / "rerank-qwen3-vl.toml")
+def test_default_serves_a_reranker_on_chip_3_with_ornith_verifying(tmp_path):
+    r = RECIPE
     assert list(r.served()) == ["ornith", "qwen3vl_embed", "reranker"]
     assert r.roles["decide"] == "ornith"
     reranker = connect(r, httpx.AsyncClient()).rerank
     assert reranker.instruction and reranker.query_template == "{query}"
-    assert (
-        connect(recipe.load(ROOT / "recipes" / "minimal-stack.toml"), httpx.AsyncClient()).rerank
-        is None
-    )
+    assert connect(minimal(tmp_path), httpx.AsyncClient()).rerank is None
 
 
 def test_corpus_catalog_reaches_mcp_harness_and_aiq():
@@ -170,7 +193,9 @@ def test_recipes_resolve_by_name_or_path(monkeypatch):
     assert recipe.resolve("default") == Path("recipe.toml")
     assert recipe.resolve(recipe.DEFAULT_NAME) == Path("recipe.toml")
     assert recipe.resolve("cohost-ornith-122b") == Path("recipes/cohost-ornith-122b.toml")
-    assert recipe.resolve("recipes/rerank-qwen3-vl.toml") == Path("recipes/rerank-qwen3-vl.toml")
+    assert recipe.resolve("recipes/cohost-ornith-35b.toml") == Path(
+        "recipes/cohost-ornith-35b.toml"
+    )
     assert recipe.load("cohost-ornith-122b").llm.model == "ornith-ai/Ornith-1.5-122B"
 
 
@@ -182,7 +207,7 @@ def test_catalog_says_what_each_recipe_serves_and_where(monkeypatch):
     assert [m["chips"] for m in default["models"]] == ["0-1", "2", "3"]
     assert cohost["bundles"] == ["raahemnabeel/cohost-ornith-35b-qwen3vl"]
     assert {m["cohosted_with"] for m in cohost["models"]} == {None, "ornith"}
-    # Overlays don't inherit a description: only described recipes are listed by default.
-    assert recipes["rerank-qwen3-vl"]["description"] is None and default["description"]
+    # Overlays don't inherit a description, and `ttdr recipes` lists only described ones.
+    assert all(r["description"] for r in recipes.values())
     for name in ("cohost-ornith-122b", "cohost-qwen38-27b"):
         assert len(recipes[name]["bundles"]) == 1

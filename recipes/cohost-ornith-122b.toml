@@ -1,4 +1,4 @@
-extends = "rerank-qwen3-vl.toml"
+extends = "../recipe.toml"
 description = "The 122B LLM as one cohost bundle; needs the cohost tt-model build (README)"
 
 # Ornith 1.5 122B cohosted with the embedder and reranker on all four chips, one bundle (docs/LOG.md).
