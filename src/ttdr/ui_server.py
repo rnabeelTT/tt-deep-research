@@ -233,8 +233,8 @@ def build(
 ) -> Starlette:
     """MAKE_HARNESS(sources, corpora, conversation) gives a harness whose search is limited to
     SOURCES ("web", "corpus" or "all") and CORPORA (empty: all), answering in the UI's
-    CONVERSATION; its run(question, events=...) is awaited per job. LIBRARY holds the user's collections and takes the UI's file uploads;
-    ABOUT describes other corpora (the recipe's).."""
+    CONVERSATION; its run(question, events=...) is awaited per job. LIBRARY holds the user's
+    collections and takes the UI's file uploads; ABOUT describes other corpora (the recipe's)."""
     jobs: dict[str, Job] = {}
 
     async def research(job: Job) -> None:
