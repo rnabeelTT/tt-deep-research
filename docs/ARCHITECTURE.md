@@ -89,7 +89,7 @@ After any change, `ttdr health` shows what's live and `ttdr up` brings the stack
 | State | Store | Lifetime |
 |---|---|---|
 | Chunks and vectors | Qdrant volume `ttdr_qdrant` | Until re-indexed |
-| Evidence, search cache, page cache, OCR text and queue | Redis (in memory) | Restart of the Redis container; `ttdr down` leaves it running |
+| Chat history, evidence, search cache, page cache, OCR text and queue | Redis volume `ttdr_redis` (append-only file) | Until the volume is removed |
 | AI-Q jobs, checkpoints | SQLite in the `aiq` volume (`data/aiq/` when run on the host) | 24 h job expiry |
 | Eval runs | `runs/` (gitignored) | Kept |
 | Rendered config | `data/aiq/config/ttdr.yml`, `.env` | Rewritten by every `ttdr up` |

@@ -18,6 +18,8 @@ services:
   redis:
     image: redis:8.8.4-alpine
     ports: ["127.0.0.1:${TTDR_REDIS_PORT:-6379}:6379"]
+    command: [redis-server, --appendonly, "yes"]  # chat history and caches survive a restart
+    volumes: [redis:/data]
     restart: unless-stopped
 
   # The app: `ttdr up` (renders data/aiq/config and .env from the recipe, then
@@ -135,4 +137,5 @@ services:
 
 volumes:
   qdrant:
+  redis:
   paddlex:

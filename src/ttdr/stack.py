@@ -54,6 +54,7 @@ PORT_ENV = {
     "code": "TTDR_CODE_PORT",
 }
 """compose.yaml's variable for each port it publishes or passes to a server."""
+DATA = ("qdrant", "searxng", "redis")  # started by the app's depends_on
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
 AIQ_SERVICES = {"aiq", "ui"}  # AI-Q's harness: opt in with features.aiq
 COHOST_TT_MODEL = (
@@ -425,15 +426,16 @@ def _logged(cmd: list[str], path: Path) -> None:
 
 
 def down(recipe: Recipe, keep_models: bool = False) -> None:
-    """Stop the app containers and, unless kept, the recipe's models. The data services
-    (Qdrant, Redis, SearXNG) keep running: they hold the history and caches, not the chips."""
+    """Remove the app containers, stop the data services (Qdrant, Redis, SearXNG; their
+    volumes keep the indexes and history) and, unless kept, the recipe's models."""
     LOGS.mkdir(parents=True, exist_ok=True)
-    with progress.step("App containers") as detail:
+    with progress.step("App and data services") as detail:
         _logged(
             ["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP],
             LOGS / "compose.log",
         )
-        detail("stopped; its data is kept")
+        _logged(["docker", "compose", "stop", *DATA], LOGS / "compose.log")
+        detail("stopped; the data is kept")
     if keep_models:
         return
     served = recipe.served()
