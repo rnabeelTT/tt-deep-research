@@ -14,7 +14,7 @@ The engine is an MCP server (`services.mcp` in the recipe, `http://localhost:990
 
 ## AI-Q
 
-The alternative harness, off by default: with `aiq = true` under `[features]` in the recipe, `ttdr up` also starts it with the engine's web and document endpoints as its data sources, its UI on :3001 and job API on :8100; `ttdr research --harness aiq "…"` from the terminal.
+The alternative harness, on by default (`aiq = false` under `[features]` turns it off): `ttdr up` starts it with the engine's web and document endpoints as its data sources, its UI on :3001 and job API on :8100; `ttdr research --harness aiq "…"` from the terminal.
 
 ## LangChain Deep Agents (default)
 
@@ -31,7 +31,8 @@ uv run ttdr ui-server --recipe recipe.toml                     # or the API from
 
 | UI | Deep Agents |
 |---|---|
-| Chat message | Always a deep-research job: the reply is the UI's `job_escalation` signal; the harness decides report vs short answer itself |
+| Chat message | A job (the reply is the UI's `job_escalation` signal). The first message is researched; each follow-up is routed like AI-Q's chat researcher (`src/ttdr/chat.py`): `chat` gets a brief reply, `report` is answered or revised from the last answer and its citations (escalating to research when that answer lacks it), `research` runs on the message rewritten to stand on its own. The harness decides report vs short answer itself |
+| Conversation | The UI's `conversation_id`: its last 5 turns in Redis (`chat:<id>`), kept 7 days like the evidence they cite. `ttdr research --conversation <id> "…"` continues one from the terminal |
 | Data sources | "Web search" and "Our documents", both on by default; with only one on, `search` is pinned to it (`DeepAgentsHarness.sources`) |
 | Agent cards | One per researcher (each `task` call), with its sub-question and notes; a "planner" card shows the request kind and plan budget |
 | Tool calls | Under their researcher, with the full input and output |

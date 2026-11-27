@@ -30,7 +30,7 @@ APP = {
     "pyrun": None,  # sandboxed Python: up when the recipe sets services.code
 }
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
-AIQ_SERVICES = {"aiq", "ui"}  # AI-Q's harness: opt in with features.aiq
+AIQ_SERVICES = {"aiq", "ui"}  # AI-Q's harness: features.aiq
 COHOST_TT_MODEL = (
     "git+https://github.com/rnabeelTT/tt-kernel-package-manager@raahem/cohost-mixed-groups"
 )

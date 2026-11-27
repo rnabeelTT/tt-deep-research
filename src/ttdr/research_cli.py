@@ -55,22 +55,33 @@ def _describe(e: dict) -> str | None:
     return None
 
 
-def _research_deepagents(question: str, shallow: bool, out: Path | None, quiet: bool) -> None:
+def _research_deepagents(
+    question: str, shallow: bool, out: Path | None, quiet: bool, conversation: str | None
+) -> None:
     import asyncio
 
     from ttdr import recipe as recipes
+    from ttdr.chat import Chat
     from ttdr.harness import DeepAgentsHarness
 
-    h = DeepAgentsHarness(recipes.load())
+    r = recipes.load()
+    h = DeepAgentsHarness(r)
     if shallow:
         h.max_subquestions, h.max_tool_calls = 1, 4
-    result = asyncio.run(h.run(question, log=(lambda _: None) if quiet else console.print))
+    log = (lambda _: None) if quiet else console.print
+    if conversation:
+        session = Chat.from_recipe(r).session(conversation, h)
+        report, stats = asyncio.run(session.run(question, log=log)), {}
+    else:
+        result = asyncio.run(h.run(question, log=log))
+        report, stats = result.report, result.stats
     console.rule()
-    console.print(Markdown(result.report))
+    console.print(Markdown(report))
     console.rule()
     if out:
-        out.write_text(result.report)
-    console.print(", ".join(f"{k} {v:,}" for k, v in result.stats.items()))
+        out.write_text(report)
+    if stats:
+        console.print(", ".join(f"{k} {v:,}" for k, v in stats.items()))
 
 
 def research(
@@ -87,11 +98,17 @@ def research(
         Path | None, typer.Option(help="Write the report (Markdown) here", callback=here)
     ] = None,
     quiet: Annotated[bool, typer.Option(help="Hide live progress")] = False,
+    conversation: Annotated[
+        str | None,
+        typer.Option(help="Continue (or start) this conversation: follow-ups see earlier turns"),
+    ] = None,
 ) -> None:
     """Research a question on the QB2 and print the cited report."""
     if harness == "deepagents":
-        _research_deepagents(question, shallow, out, quiet)
+        _research_deepagents(question, shallow, out, quiet, conversation)
         return
+    if conversation:
+        raise typer.BadParameter("--conversation is for deepagents; AI-Q's UI (:3001) has its own")
     agent = "shallow_researcher" if shallow else "deep_researcher"
     start = time.perf_counter()
     stats: Counter = Counter()

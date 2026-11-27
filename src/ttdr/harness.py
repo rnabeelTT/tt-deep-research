@@ -436,6 +436,13 @@ class DeepAgentsHarness:
         progress.emit("report", {"report": report})
         return Result(report, stats, list(seen))
 
+    async def finish(self, text: str) -> str:
+        """TEXT written outside a run (a follow-up answer), cited like a report: IDs missing from
+        the evidence store removed, the Sources list added."""
+        client = Engine(self.recipe.services.mcp)
+        text = await self.check_citations(client, _clean(text), {}, Counter())
+        return text + await _sources(client, text)
+
     async def check_citations(self, client, report: str, seen: dict, stats: Counter) -> str:
         """Every cited ID must exist in the evidence store. Each section citing invented ones gets
         one rewrite with the real IDs the research returned (kept only if it doesn't lose real

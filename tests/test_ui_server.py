@@ -70,9 +70,10 @@ def made():
 
 @pytest.fixture
 def client(made):
-    def make(sources, corpora):
+    def make(sources, corpora, conversation):
         made.append(FakeHarness(sources))
         made[-1].corpora = corpora
+        made[-1].conversation = conversation
         return made[-1]
 
     with TestClient(ui_server.build(make)) as c:
@@ -131,6 +132,11 @@ def test_chat_message_escalates_to_a_job_that_streams_the_run(client):
     assert client.get(f"/v1/jobs/async/job/{job}").json()["status"] == "success"
 
 
+def test_the_job_answers_in_the_ui_conversation(client, made):
+    submit(client)
+    assert made[-1].conversation == "c1"
+
+
 def test_reconnect_replays_from_the_last_event_id(client):
     job = submit(client)
     full = [e for e in sse(client, f"/v1/jobs/async/job/{job}/stream") if "id" in e]
@@ -143,7 +149,7 @@ def test_reconnect_replays_from_the_last_event_id(client):
 def test_live_stream_switches_mode_and_follows_new_events():
     gate = {}
 
-    def make(sources, corpora):
+    def make(sources, corpora, conversation):
         gate["event"] = asyncio.Event()
         return FakeHarness(sources, gate["event"])
 
@@ -192,7 +198,7 @@ def test_data_sources_lists_web_and_documents(client):
 
 
 def test_cancel_interrupts_the_job():
-    def make(sources, corpora):
+    def make(sources, corpora, conversation):
         return FakeHarness(sources, asyncio.Event())
 
     with TestClient(ui_server.build(make)) as client:

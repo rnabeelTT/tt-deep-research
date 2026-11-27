@@ -67,6 +67,7 @@ class Job:
     question: str
     sources: str
     corpora: tuple[str, ...] = ()
+    conversation: str | None = None
     status: str = "running"
     error: str | None = None
     report: str | None = None
@@ -226,20 +227,20 @@ async def _stream(job: Job, after: int):
 
 
 def build(
-    make_harness: Callable[[str, tuple[str, ...]], object],
+    make_harness: Callable[[str, tuple[str, ...], str | None], object],
     library: Library | None = None,
     about: dict[str, str] | None = None,
 ) -> Starlette:
-    """MAKE_HARNESS(sources, corpora) gives a harness whose search is limited to SOURCES
-    ("web", "corpus" or "all") and CORPORA (empty: all); its run(question, events=...) is
-    awaited per job. LIBRARY holds the user's collections and takes the UI's file uploads;
+    """MAKE_HARNESS(sources, corpora, conversation) gives a harness whose search is limited to
+    SOURCES ("web", "corpus" or "all") and CORPORA (empty: all), answering in the UI's
+    CONVERSATION; its run(question, events=...) is awaited per job. LIBRARY holds the user's collections and takes the UI's file uploads;
     ABOUT describes other corpora (the recipe's).."""
     jobs: dict[str, Job] = {}
 
     async def research(job: Job) -> None:
         job.add("job.status", {"data": {"status": "running"}})
         try:
-            harness = make_harness(job.sources, job.corpora)
+            harness = make_harness(job.sources, job.corpora, job.conversation)
             await harness.run(job.question, events=Translate(job))
         except asyncio.CancelledError:
             job.finish("interrupted", "cancelled by user")
@@ -249,8 +250,8 @@ def build(
         else:
             job.finish("success")
 
-    def submit(question: str, selected: list[str]) -> Job:
-        job = Job(uuid.uuid4().hex, question, *scope(selected))
+    def submit(question: str, selected: list[str], conversation: str | None) -> Job:
+        job = Job(uuid.uuid4().hex, question, *scope(selected), conversation=conversation)
         jobs[job.id] = job
         job.task = asyncio.create_task(research(job))
         return job
@@ -287,7 +288,7 @@ def build(
                         }
                     )
                     continue
-                job = submit(question, selected)
+                job = submit(question, selected, msg.get("conversation_id"))
                 escalation = {"type": "job_escalation", "kind": "deep_research", "job_id": job.id}
                 await ws.send_json(
                     {
@@ -479,6 +480,7 @@ def serve(recipe, host: str, port: int) -> None:
     import uvicorn
     from redis.asyncio import Redis
 
+    from ttdr.chat import Chat
     from ttdr.clients import connect
     from ttdr.engine.ocr import OcrQueue
     from ttdr.harness import DeepAgentsHarness
@@ -486,9 +488,11 @@ def serve(recipe, host: str, port: int) -> None:
     ocr = OcrQueue(Redis.from_url(recipe.services.redis, decode_responses=True))
     corpus = connect(recipe, httpx.AsyncClient(timeout=300)).corpus
     library = Library(corpus, ocr=ocr if recipe.features.ocr else None)
-    app = build(
-        lambda sources, corpora: DeepAgentsHarness(recipe, sources=sources, corpora=corpora),
-        library,
-        recipe.corpora,
-    )
+    chat = Chat.from_recipe(recipe)
+
+    def make(sources, corpora, conversation):
+        harness = DeepAgentsHarness(recipe, sources=sources, corpora=corpora)
+        return chat.session(conversation, harness)
+
+    app = build(make, library, recipe.corpora)
     uvicorn.run(app, host=host, port=port)
