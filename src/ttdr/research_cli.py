@@ -90,7 +90,7 @@ def research(
     harness: Annotated[
         str,
         typer.Option(
-            help="deepagents (in-process, over MCP) or aiq (AI-Q's job API: features.aiq)"
+            help="deepagents (in-process, over MCP) or aiq (AI-Q's job API: ttdr up --aiq)"
         ),
     ] = "deepagents",
     api: Annotated[str, typer.Option(help="AI-Q job API")] = "http://127.0.0.1:8100",
@@ -150,7 +150,7 @@ def jobs(
     limit: int = 15,
     db: Annotated[Path | None, typer.Option(help="AI-Q job store")] = None,
 ) -> None:
-    """Recent AI-Q jobs (features.aiq) with live progress: agents done, searches, fetches, last activity."""
+    """Recent AI-Q jobs (ttdr up --aiq) with live progress: agents done, searches, fetches, last activity."""
     import sqlite3
     from datetime import UTC, datetime
 
