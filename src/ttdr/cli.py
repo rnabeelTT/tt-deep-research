@@ -90,6 +90,13 @@ def up_cmd(
     here = f"{getpass.getuser()}@{socket.gethostname()}"
     progress.pointer(f"from another machine: ssh -L {ui}:localhost:{ui} {here}, then the same URL")
     progress.pointer('CLI: ttdr research "…" · ttdr jobs')
+    if mcp := chosen.get("mcp"):  # Hermes on the engine's tools: two commands, no prompts
+        progress.pointer(
+            f"Hermes tools: hermes config set mcp_servers.ttdr.url http://localhost:{mcp}/mcp"
+        )
+        progress.pointer(
+            f"Hermes skills: cp -r {progress.shown(Path('.hermes/skills'))} ~/.hermes/"
+        )
 
 
 def _chips(chips: str) -> str:

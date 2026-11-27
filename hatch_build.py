@@ -14,6 +14,7 @@ APP_FILES = (
     "scripts",
     "patches",
     ".dockerignore",
+    ".hermes",  # Hermes skills for the engine's tools (docs/CLIENTS.md)
     "pyproject.toml",
     "uv.lock",
     "README.md",
