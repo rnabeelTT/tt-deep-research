@@ -26,6 +26,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from ttdr.corpus.library import LIBRARY, Library, described
 from ttdr.harness import EVIDENCE_ID
+from ttdr.history import OWNER, ChatHistory
 
 HEARTBEAT_S = 15.0
 DATA_SOURCES = [
@@ -230,11 +231,13 @@ def build(
     make_harness: Callable[[str, tuple[str, ...], str | None], object],
     library: Library | None = None,
     about: dict[str, str] | None = None,
+    history: ChatHistory | None = None,
 ) -> Starlette:
     """MAKE_HARNESS(sources, corpora, conversation) gives a harness whose search is limited to
     SOURCES ("web", "corpus" or "all") and CORPORA (empty: all), answering in the UI's
     CONVERSATION; its run(question, events=...) is awaited per job. LIBRARY holds the user's
-    collections and takes the UI's file uploads; ABOUT describes other corpora (the recipe's)."""
+    collections and takes the UI's file uploads; ABOUT describes other corpora (the recipe's).
+    HISTORY keeps each browser's chats (ttdr.history)."""
     jobs: dict[str, Job] = {}
 
     async def research(job: Job) -> None:
@@ -437,6 +440,32 @@ def build(
     async def health(_: Request):
         return JSONResponse({"status": "healthy"})
 
+    async def chats(request: Request):
+        """The owner's chat history; a POST saves its state document."""
+        owner = request.headers.get(OWNER, "")
+        try:
+            if request.method == "POST":
+                await history.save_state(owner, await request.json())
+                return JSONResponse({"saved": True})
+            return JSONResponse(await history.load(owner))
+        except ValueError as e:
+            return JSONResponse({"detail": str(e)}, status_code=400)
+
+    async def chat_history(request: Request):
+        """Save (POST) or delete one of the owner's conversations."""
+        owner, cid = request.headers.get(OWNER, ""), request.path_params["conversation_id"]
+        try:
+            if request.method == "DELETE":
+                await history.delete(owner, cid)
+                return JSONResponse({"deleted": True})
+            conversation = await request.json()
+            if not isinstance(conversation, dict) or conversation.get("id") != cid:
+                raise ValueError("expected the conversation whose id is in the path")
+            await history.save(owner, conversation)
+            return JSONResponse({"saved": True})
+        except ValueError as e:
+            return JSONResponse({"detail": str(e)}, status_code=400)
+
     @contextlib.asynccontextmanager
     async def resume(_):
         """Scanned pages still waiting on OCR when the server last stopped."""
@@ -470,6 +499,14 @@ def build(
                 if library
                 else []
             ),
+            *(
+                [
+                    Route("/v1/chats", chats, methods=["GET", "POST"]),
+                    Route("/v1/chats/{conversation_id}", chat_history, methods=["POST", "DELETE"]),
+                ]
+                if history
+                else []
+            ),
         ],
         lifespan=resume,
     )
@@ -485,14 +522,16 @@ def serve(recipe, host: str, port: int) -> None:
     from ttdr.engine.ocr import OcrQueue
     from ttdr.harness import DeepAgentsHarness
 
-    ocr = OcrQueue(Redis.from_url(recipe.services.redis, decode_responses=True))
+    redis = Redis.from_url(recipe.services.redis, decode_responses=True)
+    ocr = OcrQueue(redis)
     corpus = connect(recipe, httpx.AsyncClient(timeout=300)).corpus
     library = Library(corpus, ocr=ocr if recipe.features.ocr else None)
     chat = Chat.from_recipe(recipe)
+    history = ChatHistory(redis)
 
     def make(sources, corpora, conversation):
         harness = DeepAgentsHarness(recipe, sources=sources, corpora=corpora)
         return chat.session(conversation, harness)
 
-    app = build(make, library, recipe.corpora)
+    app = build(make, library, recipe.corpora, history)
     uvicorn.run(app, host=host, port=port)

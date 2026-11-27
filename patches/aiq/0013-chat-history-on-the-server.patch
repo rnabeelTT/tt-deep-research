@@ -1,0 +1,624 @@
+diff --git a/frontends/ui/src/app/api/v1/[...path]/route.spec.ts b/frontends/ui/src/app/api/v1/[...path]/route.spec.ts
+index dc10d41..07a59f2 100644
+--- a/frontends/ui/src/app/api/v1/[...path]/route.spec.ts
++++ b/frontends/ui/src/app/api/v1/[...path]/route.spec.ts
+@@ -5,7 +5,7 @@ import { describe, test, expect, vi, afterEach } from 'vitest'
+ import { NextRequest } from 'next/server'
+ import { DELETE } from './route'
+ 
+-vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }))
++vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined, set: () => {} }) }))
+ vi.mock('@/adapters/auth/config', () => ({ isAuthRequired: () => false }))
+ 
+ afterEach(() => vi.unstubAllGlobals())
+diff --git a/frontends/ui/src/app/api/v1/[...path]/route.ts b/frontends/ui/src/app/api/v1/[...path]/route.ts
+index bc4477d..4cd796b 100644
+--- a/frontends/ui/src/app/api/v1/[...path]/route.ts
++++ b/frontends/ui/src/app/api/v1/[...path]/route.ts
+@@ -13,8 +13,13 @@
+  * Authentication handling:
+  * - When REQUIRE_AUTH=true: Forwards idToken cookie to backend for backend authentication
+  * - When REQUIRE_AUTH=false: Skips all auth info to ensure anonymous requests
++ *
++ * Every request also names this browser to the backend (X-TTDR-Owner): an anonymous ID kept
++ * in a cookie, which keys its chat history. Cookies ignore the port, so the history follows
++ * the UI when it moves to another one.
+  */
+ 
++import { randomUUID } from 'node:crypto'
+ import { NextRequest, NextResponse } from 'next/server'
+ import { cookies } from 'next/headers'
+ import { isAuthRequired } from '@/adapters/auth/config'
+@@ -31,6 +36,29 @@ const buildBackendUrl = (path: string[], search = ''): string => {
+   return `${backendBase}/v1/${pathString}${search}`
+ }
+ 
++const OWNER_COOKIE = 'ttdr_owner'
++const OWNER_MAX_AGE_S = 10 * 365 * 24 * 3600
++
++const getOwnerHeader = async (): Promise<Record<string, string>> => {
++  const cookieStore = await cookies()
++  let owner = cookieStore.get(OWNER_COOKIE)?.value
++  if (!owner) {
++    owner = randomUUID()
++    cookieStore.set(OWNER_COOKIE, owner, {
++      httpOnly: true,
++      sameSite: 'lax',
++      path: '/',
++      maxAge: OWNER_MAX_AGE_S,
++    })
++  }
++  return { 'X-TTDR-Owner': owner }
++}
++
++const getIdentityHeaders = async (req: NextRequest): Promise<Record<string, string>> => ({
++  ...(await getOwnerHeader()),
++  ...(await getAuthHeaders(req)),
++})
++
+ const getAuthHeaders = async (req: NextRequest): Promise<Record<string, string>> => {
+   // Skip auth when REQUIRE_AUTH=false - don't forward any auth info to backend
+   if (!isAuthRequired()) {
+@@ -54,7 +82,7 @@ export async function GET(
+   try {
+     const { path } = await params
+     const backendUrl = buildBackendUrl(path, req.nextUrl.search)
+-    const authHeaders = await getAuthHeaders(req)
++    const authHeaders = await getIdentityHeaders(req)
+ 
+     const response = await fetch(backendUrl, {
+       method: 'GET',
+@@ -92,7 +120,7 @@ export async function POST(
+   try {
+     const { path } = await params
+     const backendUrl = buildBackendUrl(path, req.nextUrl.search)
+-    const authHeaders = await getAuthHeaders(req)
++    const authHeaders = await getIdentityHeaders(req)
+     const contentType = req.headers.get('Content-Type') || 'application/json'
+ 
+     let body: BodyInit | undefined
+@@ -146,7 +174,7 @@ export async function DELETE(
+   try {
+     const { path } = await params
+     const backendUrl = buildBackendUrl(path, req.nextUrl.search)
+-    const authHeaders = await getAuthHeaders(req)
++    const authHeaders = await getIdentityHeaders(req)
+ 
+     let body: string | undefined
+     try {
+diff --git a/frontends/ui/src/features/chat/lib/chat-history.spec.ts b/frontends/ui/src/features/chat/lib/chat-history.spec.ts
+new file mode 100644
+index 0000000..0188f35
+--- /dev/null
++++ b/frontends/ui/src/features/chat/lib/chat-history.spec.ts
+@@ -0,0 +1,130 @@
++// SPDX-License-Identifier: Apache-2.0
++
++import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
++
++import { createChatHistory } from './chat-history'
++
++type State = { currentConversation: string | null; conversations: { id: string; title: string }[] }
++
++/** The backend's /v1/chats for one owner, as fetch sees it through the proxy. */
++const server = () => {
++  const conversations = new Map<string, string>()
++  let state: string | null = null
++  const calls: string[] = []
++  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
++    const method = init?.method ?? 'GET'
++    const id = decodeURIComponent(url.replace('/api/v1/chats', '').replace(/^\//, ''))
++    calls.push(`${method} ${id}`.trim())
++    if (method === 'GET') {
++      const body = {
++        state: state && JSON.parse(state),
++        conversations: [...conversations.values()].map((c) => JSON.parse(c)),
++      }
++      return new Response(JSON.stringify(body))
++    }
++    if (method === 'DELETE') conversations.delete(id)
++    else if (id) conversations.set(id, init!.body as string)
++    else state = init!.body as string
++    return new Response('{}')
++  })
++  return { conversations, calls, fetchMock, state: () => state }
++}
++
++const value = (
++  conversations: State['conversations'],
++  currentConversation: string | null = null
++) => ({
++  state: { currentConversation, conversations },
++  version: 0,
++})
++
++describe('createChatHistory', () => {
++  let backend: ReturnType<typeof server>
++
++  beforeEach(() => {
++    vi.useFakeTimers()
++    backend = server()
++    vi.stubGlobal('fetch', backend.fetchMock)
++    localStorage.clear()
++  })
++
++  afterEach(() => {
++    vi.useRealTimers()
++    vi.unstubAllGlobals()
++  })
++
++  const settle = async () => {
++    await vi.runAllTimersAsync()
++  }
++
++  test('saves nothing before the history has loaded', async () => {
++    backend.conversations.set('c1', JSON.stringify({ id: 'c1', title: 'Capex' }))
++    const history = createChatHistory<State>()
++    history.save(value([]))
++    await settle()
++    expect(backend.conversations.has('c1')).toBe(true)
++    expect(backend.calls).toEqual([])
++  })
++
++  test('loads the saved chats, then sends only what changed', async () => {
++    backend.conversations.set('c1', JSON.stringify({ id: 'c1', title: 'Capex' }))
++    const history = createChatHistory<State>()
++    const loaded = await history.load()
++    expect(loaded?.state.conversations).toEqual([{ id: 'c1', title: 'Capex' }])
++    backend.calls.length = 0
++
++    history.save(
++      value(
++        [
++          { id: 'c1', title: 'Capex' },
++          { id: 'c2', title: 'Revenue' },
++        ],
++        'c2'
++      )
++    )
++    await settle()
++    expect(backend.calls.sort()).toEqual(['POST', 'POST c2'])
++    expect(JSON.parse(backend.state()!)).toEqual({ currentConversation: 'c2' })
++  })
++
++  test('debounces a burst of saves into one write of the last value', async () => {
++    const history = createChatHistory<State>()
++    await history.load()
++    backend.calls.length = 0
++    for (const title of ['R', 'Re', 'Rev']) history.save(value([{ id: 'c1', title }]))
++    await settle()
++    expect(backend.calls.filter((c) => c === 'POST c1')).toHaveLength(1)
++    expect(JSON.parse(backend.conversations.get('c1')!).title).toBe('Rev')
++  })
++
++  test('deletes only conversations this tab has seen', async () => {
++    backend.conversations.set('c1', JSON.stringify({ id: 'c1', title: 'Capex' }))
++    const history = createChatHistory<State>()
++    await history.load()
++    backend.conversations.set('other-tab', JSON.stringify({ id: 'other-tab', title: 'New' }))
++    history.save(value([]))
++    await settle()
++    expect([...backend.conversations.keys()]).toEqual(['other-tab'])
++  })
++
++  test('moves chats kept in localStorage to the server once', async () => {
++    const legacy = { state: { conversations: [{ id: 'old', title: 'Before' }] }, version: 0 }
++    localStorage.setItem('aiq-chat-store', JSON.stringify(legacy))
++    const loaded = await createChatHistory<State>().load()
++    expect(loaded?.state.conversations).toEqual([{ id: 'old', title: 'Before' }])
++    expect(backend.conversations.has('old')).toBe(true)
++    expect(localStorage.getItem('aiq-chat-store')).toBeNull()
++  })
++
++  test('an unreachable server loads nothing and saves nothing', async () => {
++    vi.stubGlobal(
++      'fetch',
++      vi.fn(async () => new Response('', { status: 502 }))
++    )
++    const history = createChatHistory<State>()
++    expect(await history.load()).toBeNull()
++    history.save(value([{ id: 'c1', title: 'Capex' }]))
++    await settle()
++    expect(fetch).toHaveBeenCalledTimes(1)
++  })
++})
+diff --git a/frontends/ui/src/features/chat/lib/chat-history.ts b/frontends/ui/src/features/chat/lib/chat-history.ts
+new file mode 100644
+index 0000000..eec2563
+--- /dev/null
++++ b/frontends/ui/src/features/chat/lib/chat-history.ts
+@@ -0,0 +1,113 @@
++// SPDX-License-Identifier: Apache-2.0
++
++/**
++ * Chat history on the server (the backend's /v1/chats, through the /api/v1 proxy, which names
++ * this browser with a cookie), one document per conversation. It outlives localStorage's quota
++ * and follows the browser across ports.
++ *
++ * Saves are debounced and send only what changed. Nothing is saved before the history has
++ * loaded, and a tab deletes only conversations it has seen, so a tab never wipes chats it
++ * doesn't know about (another tab's new chat, or the history while it loads).
++ */
++
++import type { StorageValue } from 'zustand/middleware'
++
++const API = '/api/v1/chats'
++const LEGACY_KEY = 'aiq-chat-store'
++const SAVE_DELAY_MS = 500
++
++type Stored = { id: string }
++type History<S> = S & { conversations: Stored[] }
++
++const post = (path: string, json: string): Promise<boolean> =>
++  fetch(`${API}${path}`, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json' },
++    body: json,
++  })
++    .then((r) => r.ok)
++    .catch(() => false)
++
++const remove = (id: string): Promise<boolean> =>
++  fetch(`${API}/${encodeURIComponent(id)}`, { method: 'DELETE' })
++    .then((r) => r.ok)
++    .catch(() => false)
++
++/** Chats this browser kept in localStorage before the history moved to the server. */
++const legacyConversations = (): Stored[] => {
++  try {
++    return JSON.parse(localStorage.getItem(LEGACY_KEY) ?? 'null')?.state?.conversations ?? []
++  } catch {
++    return []
++  }
++}
++
++export const createChatHistory = <S extends { conversations: Stored[] }>() => {
++  const saved = new Map<string, string>()
++  let savedState = ''
++  let loaded = false
++  let pending: StorageValue<History<S>> | null = null
++  let timer: ReturnType<typeof setTimeout> | null = null
++  let queue = Promise.resolve()
++
++  const flush = async () => {
++    timer = null
++    const value = pending
++    pending = null
++    if (!value) return
++    const { conversations, ...state } = value.state
++    const current = new Map(conversations.map((c) => [c.id, JSON.stringify(c)]))
++    const writes: Promise<void>[] = [...current]
++      .filter(([id, json]) => saved.get(id) !== json)
++      .map(async ([id, json]) => {
++        if (await post(`/${encodeURIComponent(id)}`, json)) saved.set(id, json)
++      })
++    const deletes = [...saved.keys()]
++      .filter((id) => !current.has(id))
++      .map(async (id) => {
++        if (await remove(id)) saved.delete(id)
++      })
++    const stateJson = JSON.stringify(state)
++    if (stateJson !== savedState) {
++      writes.push(
++        (async () => {
++          if (await post('', stateJson)) savedState = stateJson
++        })()
++      )
++    }
++    await Promise.all([...writes, ...deletes])
++  }
++
++  const load = async (): Promise<StorageValue<History<S>> | null> => {
++    const response = await fetch(API).catch(() => null)
++    if (!response?.ok) return null
++    const body: { state: Omit<S, 'conversations'> | null; conversations: Stored[] } =
++      await response.json()
++    let conversations = body.conversations
++    conversations.forEach((c) => saved.set(c.id, JSON.stringify(c)))
++    savedState = JSON.stringify(body.state ?? {})
++    if (!conversations.length) {
++      const legacy = legacyConversations()
++      const uploaded = await Promise.all(
++        legacy.map((c) => post(`/${encodeURIComponent(c.id)}`, JSON.stringify(c)))
++      )
++      if (uploaded.every(Boolean)) {
++        legacy.forEach((c) => saved.set(c.id, JSON.stringify(c)))
++        localStorage.removeItem(LEGACY_KEY)
++        conversations = legacy
++      }
++    }
++    loaded = true
++    return { state: { ...(body.state ?? {}), conversations } as History<S>, version: 0 }
++  }
++
++  const save = (value: StorageValue<History<S>>) => {
++    if (!loaded) return
++    pending = value
++    timer ??= setTimeout(() => {
++      queue = queue.then(flush)
++    }, SAVE_DELAY_MS)
++  }
++
++  return { load, save }
++}
+diff --git a/frontends/ui/src/features/chat/store.spec.ts b/frontends/ui/src/features/chat/store.spec.ts
+index 0f451ec..5760c44 100644
+--- a/frontends/ui/src/features/chat/store.spec.ts
++++ b/frontends/ui/src/features/chat/store.spec.ts
+@@ -849,113 +849,6 @@ describe('useChatStore', () => {
+       expect(useChatStore.getState().currentConversation).toEqual(conv1)
+     })
+ 
+-    test('deleteConversation removes session from localStorage', async () => {
+-      // Create conversations and wait for persist
+-      const conv1: Conversation = {
+-        id: 'conv-persist-1',
+-        userId: 'user-1',
+-        title: 'Session to Delete',
+-        messages: [],
+-        createdAt: new Date('2024-01-01'),
+-        updatedAt: new Date('2024-01-01'),
+-      }
+-      const conv2: Conversation = {
+-        id: 'conv-persist-2',
+-        userId: 'user-1',
+-        title: 'Session to Keep',
+-        messages: [],
+-        createdAt: new Date('2024-01-02'),
+-        updatedAt: new Date('2024-01-02'),
+-      }
+-      useChatStore.setState({
+-        currentUserId: 'user-1',
+-        currentConversation: conv1,
+-        conversations: [conv1, conv2],
+-      })
+-
+-      // Wait for Zustand persist to sync to localStorage
+-      await vi.waitFor(() => {
+-        const stored = localStorage.getItem(STORAGE_KEY)
+-        expect(stored).not.toBeNull()
+-        const parsed = JSON.parse(stored!)
+-        expect(parsed.state.conversations).toHaveLength(2)
+-      })
+-
+-      // Verify initial localStorage state
+-      const beforeDelete = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+-      expect(beforeDelete.state.conversations.map((c: Conversation) => c.id)).toContain(
+-        'conv-persist-1'
+-      )
+-      expect(beforeDelete.state.conversations.map((c: Conversation) => c.id)).toContain(
+-        'conv-persist-2'
+-      )
+-
+-      // Delete the first conversation
+-      useChatStore.getState().deleteConversation('conv-persist-1')
+-
+-      // Wait for Zustand persist to sync the deletion to localStorage
+-      await vi.waitFor(() => {
+-        const stored = localStorage.getItem(STORAGE_KEY)
+-        const parsed = JSON.parse(stored!)
+-        expect(parsed.state.conversations).toHaveLength(1)
+-      })
+-
+-      // Verify localStorage was updated correctly
+-      const afterDelete = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+-
+-      // The deleted session should NOT be in localStorage
+-      expect(afterDelete.state.conversations.map((c: Conversation) => c.id)).not.toContain(
+-        'conv-persist-1'
+-      )
+-
+-      // The other session should still be in localStorage
+-      expect(afterDelete.state.conversations.map((c: Conversation) => c.id)).toContain(
+-        'conv-persist-2'
+-      )
+-
+-      // currentConversation should be cleared since we deleted the current one
+-      expect(afterDelete.state.currentConversation).toBeNull()
+-    })
+-
+-    test('deleteConversation updates currentConversation in localStorage when deleting current', async () => {
+-      const conv: Conversation = {
+-        id: 'conv-current',
+-        userId: 'user-1',
+-        title: 'Current Session',
+-        messages: [],
+-        createdAt: new Date(),
+-        updatedAt: new Date(),
+-      }
+-      useChatStore.setState({
+-        currentUserId: 'user-1',
+-        currentConversation: conv,
+-        conversations: [conv],
+-      })
+-
+-      // Wait for initial persist (currentConversation stored as ID string)
+-      await vi.waitFor(() => {
+-        const stored = localStorage.getItem(STORAGE_KEY)
+-        expect(stored).not.toBeNull()
+-        const parsed = JSON.parse(stored!)
+-        expect(parsed.state.currentConversation).toBe('conv-current')
+-      })
+-
+-      // Delete the current conversation
+-      useChatStore.getState().deleteConversation('conv-current')
+-
+-      // Wait for persist to sync
+-      await vi.waitFor(() => {
+-        const stored = localStorage.getItem(STORAGE_KEY)
+-        const parsed = JSON.parse(stored!)
+-        expect(parsed.state.conversations).toHaveLength(0)
+-      })
+-
+-      // Verify currentConversation is cleared in localStorage
+-      const stored = JSON.parse(localStorage.getItem(STORAGE_KEY)!)
+-      expect(stored.state.currentConversation).toBeNull()
+-      expect(stored.state.conversations).toHaveLength(0)
+-    })
+-
+     test('refreshDeepResearchSessionStatuses marks unavailable completed reports expired without deleting sessions', async () => {
+       const expiredConversation: Conversation = {
+         id: 'conv-expired',
+diff --git a/frontends/ui/src/features/chat/store.ts b/frontends/ui/src/features/chat/store.ts
+index 42d6f42..7dbb999 100644
+--- a/frontends/ui/src/features/chat/store.ts
++++ b/frontends/ui/src/features/chat/store.ts
+@@ -9,13 +9,7 @@
+  */
+ 
+ import { create } from 'zustand'
+-import {
+-  devtools,
+-  persist,
+-  createJSONStorage,
+-  type StorageValue,
+-  type PersistStorage,
+-} from 'zustand/middleware'
++import { devtools, persist, type StorageValue, type PersistStorage } from 'zustand/middleware'
+ import { v4 as uuidv4 } from 'uuid'
+ import type {
+   ChatStore,
+@@ -50,25 +44,13 @@ import { isUnavailableDeepResearchJobError } from './lib/deep-research-errors'
+ import { hasActiveDeepResearchJob, hasNoUserChatMessages } from './lib/session-activity'
+ import { discardSessionDocumentsResources } from '@/features/documents/discard-session-resources'
+ import { useDocumentsStore } from '@/features/documents/store'
+-import {
+-  logStorageWrite,
+-  logQuotaExceededPruning,
+-  logCriticalSessionsClear,
+-  logStorageAvailability,
+-  logExternalStorageEvent,
+-  logStoreHydration,
+-} from './lib/storage-logger'
++import { logExternalStorageEvent, logStoreHydration } from './lib/storage-logger'
++import { createChatHistory } from './lib/chat-history'
+ import { pruneMessageForStorage } from './lib/prune-message-for-storage'
+ import { normalizeDeepResearchTodos } from './lib/deep-research-todos'
+ import { ensureStorageCapacity, checkStorageHealth } from './lib/storage-manager'
+ import { useLayoutStore } from '@/features/layout/store'
+ 
+-const isQuotaExceededError = (error: unknown): boolean => {
+-  if (!(error instanceof Error)) return false
+-  if (error.name === 'QuotaExceededError') return true
+-  return /quota|exceeded|storage/i.test(error.message)
+-}
+-
+ type PersistedChatState = {
+   currentUserId: ChatState['currentUserId']
+   conversations: ChatState['conversations']
+@@ -119,89 +101,37 @@ const prunePersistedChatState = (value: PersistedChatStorageValue): PersistedCha
+   }
+ }
+ 
+-const createResilientStorage = (): PersistStorage<PersistedChatState> | undefined => {
+-  const base = createJSONStorage<PersistedChatState>(() => localStorage)
+-  if (!base) {
+-    logStorageAvailability(false)
+-    return undefined
+-  }
++/** The chat store's persistence: the server's chat history (./lib/chat-history). */
++const createChatStorage = (): PersistStorage<PersistedChatState> => {
++  const history = createChatHistory<PersistedChatState>()
+ 
+   return {
+-    getItem: async (name: string): Promise<PersistedChatStorageValue | null> => {
+-      const raw = await base.getItem(name)
++    getItem: async (): Promise<PersistedChatStorageValue | null> => {
++      const raw = await history.load()
+       if (!raw) return null
+ 
+       // Strip connection error messages — they are transient and should not
+       // survive page reloads. Persisting them causes the UI to show a permanent
+       // "failed to connect" state that only clears when the user wipes cache.
+-      const stripConnectionErrors = (conversations: Conversation[]) =>
+-        conversations.map((c) => ({
+-          ...c,
+-          messages: c.messages.filter(
+-            (m) => !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
+-          ),
+-        }))
+-
+-      if (raw.state.conversations) {
+-        raw.state.conversations = stripConnectionErrors(raw.state.conversations)
+-      }
++      raw.state.conversations = (raw.state.conversations ?? []).map((c) => ({
++        ...c,
++        messages: c.messages.filter(
++          (m) => !(m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.'))
++        ),
++      }))
+ 
+       // Reconstruct currentConversation from the ID stored by prunePersistedChatState.
+       const storedId = raw.state.currentConversation as unknown as string | null
+-      if (storedId) {
+-        const conversations = raw.state.conversations ?? []
+-        raw.state.currentConversation = conversations.find((c) => c.id === storedId) ?? null
+-      }
++      raw.state.currentConversation = storedId
++        ? (raw.state.conversations.find((c) => c.id === storedId) ?? null)
++        : null
+ 
+       return raw
+     },
+-    removeItem: base.removeItem,
+-    setItem: (name: string, value: PersistedChatStorageValue) => {
+-      const prunedValue = prunePersistedChatState(value)
+-      const serializedValue = JSON.stringify(prunedValue)
+-
+-      try {
+-        if (localStorage.getItem(name) === serializedValue) return
+-
+-        localStorage.setItem(name, serializedValue)
+-        logStorageWrite(
+-          prunedValue.state.conversations ?? [],
+-          prunedValue.state.currentUserId ?? null
+-        )
+-      } catch (error) {
+-        if (!isQuotaExceededError(error)) {
+-          throw error
+-        }
+-
+-        const beforeConversations = prunedValue.state.conversations ?? []
+-        const beforeCount = beforeConversations.length
+-        const beforeSizeKB = Math.round((JSON.stringify(beforeConversations).length * 2) / 1024)
+-
+-        logQuotaExceededPruning(beforeCount, beforeCount, beforeSizeKB, beforeSizeKB)
+-
+-        // Last resort: clear all conversations
+-        try {
+-          const lostSessionIds = beforeConversations.map((c) => c.id)
+-
+-          base.removeItem(name)
+-          base.setItem(name, {
+-            ...value,
+-            state: {
+-              currentUserId: value.state.currentUserId ?? null,
+-              conversations: [],
+-              currentConversation: null,
+-              pendingInteraction: null,
+-            },
+-          })
+-
+-          logCriticalSessionsClear(value.state.currentUserId ?? null, lostSessionIds, error)
+-        } catch (finalError) {
+-          console.error('[SessionsStore] ❌ CATASTROPHIC: Failed to clear sessions', {
+-            error: finalError instanceof Error ? finalError.message : String(finalError),
+-          })
+-        }
+-      }
++    setItem: (_name: string, value: PersistedChatStorageValue) => {
++      history.save(prunePersistedChatState(value))
+     },
++    removeItem: () => {},
+   }
+ }
+ 
+@@ -3207,7 +3137,7 @@ export const useChatStore = create<ChatStore>()(
+       }),
+       {
+         name: 'aiq-chat-store',
+-        storage: typeof window === 'undefined' ? undefined : createResilientStorage(),
++        storage: typeof window === 'undefined' ? undefined : createChatStorage(),
+         partialize: (state) => ({
+           // Persist conversations and user context, not streaming state or panel content
+           currentUserId: state.currentUserId,
