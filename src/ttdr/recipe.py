@@ -162,7 +162,7 @@ class OneDrive(BaseModel):
 class Connectors(BaseModel):
     """Document stores users can import from in the web UI (docs/CONNECTORS.md)."""
 
-    origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    origins: list[str] = ["http://localhost:3000"]
     """Where the UI may be opened for sign-in: the Google client's JavaScript origins and the
     Microsoft app's redirect URIs are registered for exactly these."""
     google_drive: GoogleDrive = GoogleDrive()

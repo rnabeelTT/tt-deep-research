@@ -170,7 +170,7 @@ def pick(item_id):
 def test_onedrive_is_off_until_the_recipe_or_environment_sets_its_client_id(monkeypatch):
     monkeypatch.delenv("TTDR_MICROSOFT_CLIENT_ID", raising=False)
     assert onedrive.Config.load(recipe.OneDrive(), {}) is None
-    assert available(recipe.load("recipe.toml").connectors) == {}
+    assert available(Connectors(), {}) == {}
     shipped = Connectors(onedrive=recipe.OneDrive(client_id=CLIENT.upper(), accounts="personal"))
     found = available(shipped, {})
     assert list(found) == ["onedrive"]
@@ -190,7 +190,7 @@ def test_onedrive_is_off_until_the_recipe_or_environment_sets_its_client_id(monk
             }
         ],
         "redirect_path": "/auth/msal-redirect",
-        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "origins": ["http://localhost:3000"],
         "importable": sorted({*onedrive.STORED, *onedrive.CONVERTED}),
     }
     assert {".pdf", ".docx", ".pptx", ".xlsx", ".md"} <= set(

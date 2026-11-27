@@ -145,12 +145,12 @@ def test_google_drive_is_off_until_the_recipe_or_environment_configures_it():
     assert list(available(Connectors(), ENV)) == ["google-drive"]
 
 
-def test_the_shipped_recipe_leaves_google_drive_off_with_localhost_origins(monkeypatch):
-    for key in ENV:
+def test_the_shipped_recipe_imports_from_onedrive_only_at_localhost(monkeypatch):
+    for key in [*ENV, "TTDR_MICROSOFT_CLIENT_ID"]:
         monkeypatch.delenv(key, raising=False)
     shipped = recipe.load("recipe.toml").connectors
-    assert available(shipped) == {}
-    assert shipped.origins == ["http://localhost:3000", "http://127.0.0.1:3000"]
+    assert list(available(shipped)) == ["onedrive"]
+    assert shipped.origins == ["http://localhost:3000"]
     cohost = recipe.load("recipes/cohost-ornith-35b.toml").connectors
     assert cohost == shipped
 

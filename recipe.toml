@@ -88,7 +88,7 @@ unidoc = "Energy and construction documents: technical and research reports, sta
 # design; a store stays off while its values are empty. TTDR_GOOGLE_CLIENT_ID, TTDR_GOOGLE_API_KEY,
 # TTDR_GOOGLE_APP_ID and TTDR_MICROSOFT_CLIENT_ID override them for development.
 [connectors]
-origins = ["http://localhost:3000", "http://127.0.0.1:3000"]   # each one + /auth/msal-redirect is a redirect URI in the Entra app
+origins = ["http://localhost:3000"]   # + /auth/msal-redirect is the Entra app's redirect URI
 
 [connectors.google_drive]
 client_id = ""       # OAuth client (Web application), ….apps.googleusercontent.com
@@ -96,7 +96,7 @@ api_key = ""         # browser key, restricted to the Picker API and the origins
 app_id = ""          # the Cloud project number
 
 [connectors.onedrive]
-client_id = ""       # Entra app registration (SPA), a GUID
+client_id = "8ebdb018-6c38-4dcd-83d6-f7a9c4bfff21"   # Tenstorrent's Entra app registration (SPA)
 accounts = "any"     # "work": Entra ID accounts, SharePoint and OneDrive; "personal": OneDrive only;
                      # "any": each person picks work or personal when signing in
 tenant = ""          # a tenant ID to accept work accounts from one organization only; empty: any

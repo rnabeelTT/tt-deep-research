@@ -81,7 +81,7 @@ Pages are 0-indexed, matching FinanceBench. Each page gets flags: `text_ok`, `im
 
 For Tenstorrent, once per product: customers never create a Google Cloud project or edit a file. One Tenstorrent project's three browser-side values ship in `recipe.toml`, every install signs its users in through that project, and each person's Google token reaches only the files they pick (docs/CONNECTORS.md). Until the values are filled in, the backend reports Google Drive as not set up and the UI shows no button. SharePoint and OneDrive work the same way ([below](#sharepoint-and-onedrive-import)).
 
-Sign-in works only when the UI is opened at `http://localhost:3000` or `http://127.0.0.1:3000` (the recipe's `[connectors] origins`, shared by both stores): a Web application OAuth client accepts only registered JavaScript origins, and Google and Microsoft allow plain `http` only for localhost. Customers on another machine use an SSH port forward (`ssh -L 3000:localhost:3000 <user>@<host>`), and the UI says so when it is opened at any other address. The AI-Q UI on :3001 is not registered.
+Sign-in works only when the UI is opened at `http://localhost:3000` (the recipe's `[connectors] origins`, shared by both stores): a Web application OAuth client accepts only registered JavaScript origins, and Google and Microsoft allow plain `http` only for localhost. Customers on another machine use an SSH port forward (`ssh -L 3000:localhost:3000 <user>@<host>`), and the UI says so when it is opened at any other address. The AI-Q UI on :3001 is not registered.
 
 1. **Project.** In the [Google Cloud console](https://console.cloud.google.com/), create a project owned by a Tenstorrent organization account (for example `tt-deep-research`), with at least two owners so it outlives any one person.
 2. **APIs.** APIs & Services → Library: enable the **Google Drive API** and the **Google Picker API**.
@@ -89,14 +89,14 @@ Sign-in works only when the UI is opened at `http://localhost:3000` or `http://1
    - Branding: app name (Tenstorrent Deep Research), support email, logo, home page, privacy policy, and `tenstorrent.com` as an authorized domain. These are what people see when they sign in.
    - Audience: **External**, so any Google account, personal or Workspace, can sign in. Publish the app (In production). While it is in Testing, only listed test users can sign in.
    - Data access: add only `https://www.googleapis.com/auth/drive.file` (access to files the person picks). It is a non-sensitive scope, so there is no security assessment. Brand verification (Google checks the name, logo and domain) is needed before more than 100 users can sign in, so finish it before shipping.
-4. **OAuth client.** Clients → Create client → **Web application**. Authorized JavaScript origins: `http://localhost:3000` and `http://127.0.0.1:3000`. No redirect URIs. Copy the client ID (`….apps.googleusercontent.com`). There is no client secret to keep: the token client doesn't use one.
-5. **API key.** APIs & Services → Credentials → Create credentials → API key. Restrict it to the **Google Picker API** (API restrictions), and to **Websites** `http://localhost:3000/*` and `http://127.0.0.1:3000/*` (application restrictions). It ships to every browser, so these restrictions are what keep it from being used elsewhere.
+4. **OAuth client.** Clients → Create client → **Web application**. Authorized JavaScript origin: `http://localhost:3000`. No redirect URIs. Copy the client ID (`….apps.googleusercontent.com`). There is no client secret to keep: the token client doesn't use one.
+5. **API key.** APIs & Services → Credentials → Create credentials → API key. Restrict it to the **Google Picker API** (API restrictions), and to **Websites** `http://localhost:3000/*` (application restrictions). It ships to every browser, so these restrictions are what keep it from being used elsewhere.
 6. **Project number.** The project dashboard (or IAM & Admin → Settings) shows the **project number**: digits only, not the project ID. It is the Picker's `app_id`, which ties picked files to this project's OAuth client.
 7. **Ship the values** in `recipe.toml`, which every recipe extends:
 
    ```toml
    [connectors]
-   origins = ["http://localhost:3000", "http://127.0.0.1:3000"]   # step 4's JavaScript origins
+   origins = ["http://localhost:3000"]   # step 4's JavaScript origin
 
    [connectors.google_drive]
    client_id = "1234567890-abc123.apps.googleusercontent.com"
@@ -125,7 +125,7 @@ The registration's supported account types must match. The browser uses MSAL wit
    - Name: Tenstorrent Deep Research (people see it when they sign in).
    - Supported account types: for `"work"`, **Accounts in any organizational directory (Multitenant)**, or **this organizational directory only** for an app registered in the customer's own tenant (then set `tenant`); for `"personal"`, **Personal Microsoft accounts only**; for `"any"`, **Accounts in any organizational directory and personal Microsoft accounts**. Switching an existing app to that last type can fail with "requestedAccessTokenVersion is invalid": in Manifest set `"requestedAccessTokenVersion": 2` (under `api`; `accessTokenAcceptedVersion` in the older manifest), save, then change the type.
    - Redirect URI: platform **Single-page application (SPA)**, `http://localhost:3000/auth/msal-redirect`.
-2. **Redirect URIs.** Authentication → Single-page application: add `http://127.0.0.1:3000/auth/msal-redirect` too, so both registered origins work. Leave implicit grant (access and ID tokens) off, and "Allow public client flows" off; the SPA platform gives the auth code flow with PKCE.
+2. **Redirect URIs.** Authentication → Single-page application: `http://localhost:3000/auth/msal-redirect` is the only one. Leave implicit grant (access and ID tokens) off, and "Allow public client flows" off; the SPA platform gives the auth code flow with PKCE.
 3. **Permissions.** API permissions: remove the default `User.Read`, and add Microsoft Graph → **Delegated**:
    - `"work"`: **`Files.Read.All`** and **`Sites.Read.All`**. Neither needs admin consent by default, so people consent for themselves on first sign-in. A tenant that limits user consent (to verified publishers, or to admins) needs its admin to grant consent once (Grant admin consent, or the admin consent URL), or a verified publisher (step 5).
    - `"personal"`: **`Files.Read`** (the person's own files).
@@ -144,7 +144,7 @@ The registration's supported account types must match. The browser uses MSAL wit
    ```
 
    The redirect URIs are the `[connectors] origins` plus `/auth/msal-redirect`; keep the two lists in step. Microsoft ignores the port of a `localhost` (or `127.0.0.1`) redirect URI, so with `http://localhost:3000/auth/msal-redirect` registered, the app signs in to Microsoft from any port on localhost (checked against Entra: other ports and no port are accepted, another path is refused). Google matches the port exactly: add each port you use to `origins` and to the OAuth client. With `tenant` set, work sign-in goes to that tenant and the server refuses work tokens from any other (personal accounts, with `"any"`, are unaffected).
-7. **Check.** `uv run ttdr up`, then `/v1/connectors` shows `onedrive` with `"configured": true`, and the Files tab shows **Import from SharePoint and OneDrive** (**Import from OneDrive** for personal accounts). Sign in with a work account, open a SharePoint site and its library, and import a picked PDF, a PowerPoint (as PDF) and a folder; then the same from My files. Try it from both `http://localhost:3000` and `http://127.0.0.1:3000`. With `"any"`, import once as each kind.
+7. **Check.** `uv run ttdr up`, then `/v1/connectors` shows `onedrive` with `"configured": true`, and the Files tab shows **Import from SharePoint and OneDrive** (**Import from OneDrive** for personal accounts). Sign in with a work account, open a SharePoint site and its library, and import a picked PDF, a PowerPoint (as PDF) and a folder; then the same from My files. With `"any"`, import once as each kind.
 
 A client ID or tenant that isn't a GUID leaves the import off and logs `OneDrive import is off: [connectors.onedrive] …`. `TTDR_MICROSOFT_CLIENT_ID` overrides the recipe's client ID for development.
 
