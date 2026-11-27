@@ -1,13 +1,13 @@
 import asyncio
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 import httpx
 from mcp import Client
 
-from ttdr import recipe
+from ttdr import ports, recipe
 from ttdr.clients import Clients, reasoning_params
 from ttdr.corpus.store import Hit
 from ttdr.engine.rerank import Rerank
@@ -170,7 +170,7 @@ class AIQ:
     """A question submitted as an AI-Q job (shallow_researcher or deep_researcher) over its API."""
 
     agent: str = "shallow_researcher"
-    api: str = "http://127.0.0.1:8100"
+    api: str = field(default_factory=lambda: ports.local("aiq"))
     poll_s: float = 5.0
     timeout_s: float = 3600.0
 

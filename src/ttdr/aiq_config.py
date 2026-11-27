@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 
+from ttdr import ports
 from ttdr.recipe import Model, Recipe
 
 BASE = Path("configs/aiq/ttdr.yml")
@@ -23,6 +24,7 @@ def _llm(entry: dict, m: Model) -> dict:
 
 def render(recipe: Recipe, base: Path = BASE) -> dict:
     cfg = yaml.safe_load(base.read_text())
+    cfg["general"]["front_end"]["port"] = ports.port("aiq")
     cfg["llms"] = {name: _llm(e, recipe.llm) for name, e in cfg["llms"].items()}
     for group, path in (("web", "web"), ("documents", "docs")):
         cfg["function_groups"][group]["server"]["url"] = f"{recipe.services.mcp}/{path}"

@@ -93,7 +93,9 @@ def research(
             help="deepagents (in-process, over MCP) or aiq (AI-Q's job API: ttdr up --aiq)"
         ),
     ] = "deepagents",
-    api: Annotated[str, typer.Option(help="AI-Q job API")] = "http://127.0.0.1:8100",
+    api: Annotated[
+        str | None, typer.Option(help="AI-Q job API [default: as ttdr up placed it]")
+    ] = None,
     out: Annotated[
         Path | None, typer.Option(help="Write the report (Markdown) here", callback=here)
     ] = None,
@@ -109,6 +111,9 @@ def research(
         return
     if conversation:
         raise typer.BadParameter("--conversation is for deepagents; AI-Q's UI (:3001) has its own")
+    from ttdr import ports
+
+    api = api or ports.local("aiq")
     agent = "shallow_researcher" if shallow else "deep_researcher"
     start = time.perf_counter()
     stats: Counter = Counter()

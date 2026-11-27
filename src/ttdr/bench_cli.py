@@ -57,14 +57,18 @@ def load(
     jobs: int = 8,
     agent: str = "shallow_researcher",
     suite: str = "financebench",
-    api: str = "http://127.0.0.1:8100",
+    api: Annotated[
+        str | None, typer.Option(help="AI-Q job API [default: as ttdr up placed it]")
+    ] = None,
     recipe_path: RecipeOpt = None,
 ) -> None:
     """Research jobs through AI-Q at each concurrency: reports/hour, latency, prefill/decode split."""
     import json
 
     from ttdr import load as loadtest
+    from ttdr import ports
 
+    api = api or ports.local("aiq")
     llm_url = recipe.load(recipe_path).llm.url
     lines = jsonl.lines(Path(f"data/suites/{suite}.jsonl"))
     questions = [json.loads(x)["question"] for x in lines]

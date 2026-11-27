@@ -58,15 +58,18 @@ def upload(
     description: Annotated[
         str | None, typer.Option(help="What a new collection holds; agents read it")
     ] = None,
-    url: Annotated[str, typer.Option(help="The app's API (ttdr ui-server)")] = (
-        "http://localhost:8200"
-    ),
+    url: Annotated[
+        str | None,
+        typer.Option(help="The app's API (ttdr ui-server) [default: as ttdr up placed it]"),
+    ] = None,
     batch: int = 20,
 ) -> None:
     """Add every PDF, Word, Markdown and text file under FOLDER to one of your document
     collections, through the running app, as the UI's uploads do."""
+    from ttdr import ports
     from ttdr.corpus.library import SUFFIXES
 
+    url = url or ports.local("api")
     paths = sorted(p for p in folder.rglob("*") if p.suffix.lower() in SUFFIXES)
     console.print(f"{len(paths)} files")
     failed = 0

@@ -3,13 +3,13 @@ name: ttdr
 services:
   qdrant:
     image: qdrant/qdrant:v1.19.2
-    ports: ["127.0.0.1:6333:6333"]
+    ports: ["127.0.0.1:${TTDR_QDRANT_PORT:-6333}:6333"]
     volumes: [qdrant:/qdrant/storage]
     restart: unless-stopped
 
   searxng:
     image: searxng/searxng:2026.10.19-81371861f
-    ports: ["127.0.0.1:8888:8080"]
+    ports: ["127.0.0.1:${TTDR_SEARXNG_PORT:-8888}:8080"]
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-ttdr-local}
     volumes: ["./configs/searxng/settings.yml:/etc/searxng/settings.yml:ro"]
@@ -17,7 +17,7 @@ services:
 
   redis:
     image: redis:8.8.4-alpine
-    ports: ["127.0.0.1:6379:6379"]
+    ports: ["127.0.0.1:${TTDR_REDIS_PORT:-6379}:6379"]
     restart: unless-stopped
 
   # The app: `ttdr up` (renders data/aiq/config and .env from the recipe, then
@@ -51,8 +51,8 @@ services:
     environment:
       CONFIG_FILE: /config/ttdr.yml
       HOST: 127.0.0.1
-      PORT: "8100"
-      DASK_SCHEDULER_PORT: "8796"
+      PORT: ${TTDR_AIQ_PORT:-8100}
+      DASK_SCHEDULER_PORT: ${TTDR_DASK_PORT:-8796}
       NAT_JOB_STORE_DB_URL: sqlite+aiosqlite:////app/data/jobs.db
       AIQ_CHECKPOINT_DB: /app/data/checkpoints.db
       AIQ_AUTO_TOOL_CHOICE: ${AIQ_AUTO_TOOL_CHOICE:-0}   # from features.auto_tool_choice
@@ -66,12 +66,16 @@ services:
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:   # PAGES_URL: citations' page links (/pages/*) are served by the engine
-      { BACKEND_URL: "http://127.0.0.1:8100", PORT: "3001", REQUIRE_AUTH: "false", PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}" }
-    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:3001/"] }   # the image's checks :3000
+      BACKEND_URL: "http://127.0.0.1:${TTDR_AIQ_PORT:-8100}"
+      PORT: ${TTDR_AIQ_UI_PORT:-3001}
+      REQUIRE_AUTH: "false"
+      PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}"
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:${TTDR_AIQ_UI_PORT:-3001}/"] }   # the image's checks :3000
     depends_on: [aiq]
     restart: unless-stopped
 
-  # The Deep Agents harness (the default, docs/LOG.md) behind the UI: UI on :3000, API on :8200.
+  # The Deep Agents harness (the default, docs/LOG.md) behind the UI: UI on :3000, API on :8200
+  # by default; `ttdr up` moves any port another program holds (data/ports.json, .env).
   # AI-Q's own backend (aiq, ui on :3001) is the alternative harness, started with features.aiq.
   deepagents:
     profiles: [app]
@@ -80,7 +84,7 @@ services:
     working_dir: ${PWD}
     user: "${TTDR_UID:-1000}:${TTDR_GID:-1000}"   # uploads are the host user's files
     volumes: ["${PWD}:${PWD}:ro", "${PWD}/data/corpus:${PWD}/data/corpus"]   # uploads and collections
-    command: ["ttdr", "ui-server"]
+    command: ["ttdr", "ui-server", "--port", "${TTDR_API_PORT:-8200}"]
     environment:
       TTDR_RECIPE: ${TTDR_RECIPE:-recipe.toml}
       HOME: /tmp
@@ -93,12 +97,13 @@ services:
     image: ttdr/ui:${TTDR_VERSION:-dev}
     network_mode: host
     environment:
-      BACKEND_URL: "http://127.0.0.1:8200"
-      PORT: "3000"
+      BACKEND_URL: "http://127.0.0.1:${TTDR_API_PORT:-8200}"
+      PORT: ${TTDR_UI_PORT:-3000}
       REQUIRE_AUTH: "false"
       PAGES_URL: "${TTDR_ENGINE_URL:-http://127.0.0.1:9901}"
       FILE_UPLOAD_MAX_FILE_COUNT: "${TTDR_UPLOAD_MAX_FILES:-1000}"   # the whole library, not one chat's files
       FILE_UPLOAD_MAX_SIZE_MB: "${TTDR_UPLOAD_MAX_MB:-2048}"
+    healthcheck: { test: ["CMD", "curl", "-f", "http://localhost:${TTDR_UI_PORT:-3000}/"] }
     depends_on: [deepagents]
     restart: unless-stopped
 
@@ -108,7 +113,7 @@ services:
     profiles: [app, code]
     build: { context: docker, dockerfile: pyrun.Dockerfile }
     image: ttdr/pyrun:${TTDR_VERSION:-dev}
-    ports: ["127.0.0.1:9910:9910"]
+    ports: ["127.0.0.1:${TTDR_CODE_PORT:-9910}:9910"]
     read_only: true
     tmpfs: [/tmp]
     mem_limit: 2g

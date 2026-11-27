@@ -15,20 +15,45 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ttdr import aiq_config, health, progress
+from ttdr import aiq_config, health, ports, progress
 from ttdr.recipe import Model, Recipe
 
 TEMPLATE_DIR = "ttdr"
-# app service -> health URL (None: checked through the recipe's MCP URL)
+# app service -> (its port's name, health path); None: checked through the recipe's MCP URL
 APP = {
     "engine": None,
-    "aiq": "http://127.0.0.1:8100/health",
-    "ui": "http://127.0.0.1:3001",
-    "deepagents": "http://127.0.0.1:8200/health",
-    "ui-deepagents": "http://127.0.0.1:3000",
+    "aiq": ("aiq", "/health"),
+    "ui": ("aiq-ui", "/"),
+    "deepagents": ("api", "/health"),
+    "ui-deepagents": ("ui", "/"),
     "ocr": None,
     "pyrun": None,  # sandboxed Python: up when the recipe sets services.code
 }
+OWNER = {
+    "ui": "ui-deepagents",
+    "api": "deepagents",
+    "aiq-ui": "ui",
+    "aiq": "aiq",
+    "dask": "aiq",
+    "qdrant": "qdrant",
+    "searxng": "searxng",
+    "redis": "redis",
+    "mcp": "engine",
+    "code": "pyrun",
+}
+"""The Compose service listening on each port (ttdr.ports names)."""
+PORT_ENV = {
+    "ui": "TTDR_UI_PORT",
+    "api": "TTDR_API_PORT",
+    "aiq-ui": "TTDR_AIQ_UI_PORT",
+    "aiq": "TTDR_AIQ_PORT",
+    "dask": "TTDR_DASK_PORT",
+    "qdrant": "TTDR_QDRANT_PORT",
+    "searxng": "TTDR_SEARXNG_PORT",
+    "redis": "TTDR_REDIS_PORT",
+    "code": "TTDR_CODE_PORT",
+}
+"""compose.yaml's variable for each port it publishes or passes to a server."""
 UI_SERVICES = {"ui", "deepagents", "ui-deepagents"}  # the two web UIs and Deep Agents' API for one
 AIQ_SERVICES = {"aiq", "ui"}  # AI-Q's harness: opt in with features.aiq
 COHOST_TT_MODEL = (
@@ -288,18 +313,24 @@ def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
     return status
 
 
-def compose_env(recipe: Recipe, path: Path | None = None) -> dict[str, str]:
-    """Recipe values Compose needs, written to .env (Compose reads it automatically). The
-    engine loads the same recipe file, overlays included. Page links in citations use
-    TTDR_PAGES_URL from the environment: the UI's address as browsers reach it, plus /pages."""
+def compose_env(
+    recipe: Recipe, path: Path | None = None, chosen: dict[str, int] | None = None
+) -> dict[str, str]:
+    """Recipe values and CHOSEN ports Compose needs, written to .env (Compose reads it
+    automatically). The engine loads the same recipe file, overlays included. Page links in
+    citations use TTDR_PAGES_URL from the environment: the UI's address as browsers reach it,
+    plus /pages."""
+    chosen = chosen or ports.APP
     mcp = urlparse(recipe.services.mcp)
+    pages = f"http://localhost:{chosen['ui']}/pages"
     env = {
         "TTDR_RECIPE": str(path or "recipe.toml"),
         "TTDR_ENGINE_URL": f"{mcp.scheme}://{mcp.netloc}",
-        "TTDR_PAGES_URL": os.environ.get("TTDR_PAGES_URL", "http://localhost:3000/pages"),
+        "TTDR_PAGES_URL": os.environ.get("TTDR_PAGES_URL", pages),
         "AIQ_AUTO_TOOL_CHOICE": "1" if recipe.features.auto_tool_choice else "0",
         "TTDR_UID": str(os.getuid()),
         "TTDR_GID": str(os.getgid()),
+        **{var: str(chosen[n]) for n, var in PORT_ENV.items() if n in chosen},
     }
     ocr = recipe.role("ocr")
     if not ocr:
@@ -319,9 +350,46 @@ def write_env(values: dict[str, str], env: Path = Path(".env")) -> None:
     )
 
 
-def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, bool]:
+def _running() -> set[str]:
+    """Compose services running now."""
+    ps = ["docker", "compose", "ps", "--status", "running", "--format", "{{.Service}}"]
+    return set(subprocess.run(ps, capture_output=True, text=True, check=False).stdout.split())
+
+
+def held(recipe: Recipe, last: dict[str, int]) -> dict[str, int]:
+    """Ports our own services hold now, where `ttdr up` LAST put them: running Compose
+    services, and models that answer as the recipe's."""
+    where = {n: last.get(n, p) for n, p in ports.defaults(recipe).items()}
+    running = _running()
+    answering = {
+        c.name.split(" ")[0] for c in asyncio.run(health.run(ports.apply(recipe, where))) if c.ok
+    }
+
+    def ours(name: str) -> bool:
+        model = name.removeprefix(ports.MODEL)
+        return model in answering if model != name else OWNER[name] in running
+
+    return {n: p for n, p in where.items() if ours(n)}
+
+
+def place(recipe: Recipe) -> tuple[Recipe, dict[str, int]]:
+    """RECIPE (with its own ports) on ports free for it, recorded for every later load."""
+    wanted = ports.defaults(recipe)
+    chosen = ports.assign(wanted, held(recipe, ports.read()))
+    ports.write(chosen)
+    for name, port in chosen.items():
+        if port != wanted[name]:
+            progress.note(f"{name}: port {wanted[name]} is taken, using {port}")
+    return ports.apply(recipe, chosen), chosen
+
+
+def up(
+    recipe: Recipe, build: bool, log, path: Path | None = None
+) -> tuple[dict[str, bool], dict[str, int]]:
+    """RECIPE with its own ports (`recipe.load(path, moved=False)`): `ttdr up` places them."""
     from ttdr.recipe import name_of
 
+    recipe, chosen = place(recipe)
     serve_models(recipe, log, name=name_of(path) if path else "")
     progress.heading("Starting the app")
     LOGS.mkdir(parents=True, exist_ok=True)
@@ -330,7 +398,7 @@ def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, 
             _logged(["scripts/setup-aiq.sh"], LOGS / "setup-aiq.log")
             detail("cloned and patched")
     aiq_config.write(recipe)
-    write_env(compose_env(recipe, path))
+    write_env(compose_env(recipe, path, chosen))
     for d in ("data/corpus/library", "data/aiq/app"):  # else Docker creates them as root
         Path(d).mkdir(parents=True, exist_ok=True)
     services = app_services(recipe)
@@ -342,8 +410,8 @@ def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, 
             LOGS / "compose.log",
         )
     urls = {"engine": recipe.services.mcp}
-    urls |= {s: APP[s] for s in services if APP[s]}
-    return wait(urls)
+    urls |= {s: f"http://127.0.0.1:{chosen[APP[s][0]]}{APP[s][1]}" for s in services if APP[s]}
+    return wait(urls), chosen
 
 
 def _logged(cmd: list[str], path: Path) -> None:

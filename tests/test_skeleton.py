@@ -211,10 +211,12 @@ def test_prompted_embedder_wraps_queries_and_documents():
 def test_up_runs_ai_q_beside_deep_agents_only_when_asked(monkeypatch, args, aiq):
     from typer.testing import CliRunner
 
-    from ttdr import cli, stack
+    from ttdr import cli, ports, stack
 
     started = []
-    monkeypatch.setattr(stack, "up", lambda r, *_: started.append(r) or {"engine": True})
+    monkeypatch.setattr(
+        stack, "up", lambda r, *_: started.append(r) or ({"engine": True}, ports.APP)
+    )
     result = CliRunner().invoke(cli.app, ["up", *args])
     assert result.exit_code == 0, result.output
     services = stack.app_services(started[0])

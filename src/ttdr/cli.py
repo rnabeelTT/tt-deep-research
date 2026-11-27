@@ -53,12 +53,12 @@ def mcp_cmd(
 def ui_server_cmd(
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
     host: Annotated[str, typer.Option(help="Bind address")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(help="Port")] = 8200,
+    port: Annotated[int | None, typer.Option(help="Port [default: as ttdr up placed it]")] = None,
 ):
     """Serve AI-Q's web UI protocol (chat websocket, job SSE) on the Deep Agents harness."""
-    from ttdr import ui_server
+    from ttdr import ports, ui_server
 
-    ui_server.serve(recipe.load(recipe_path), host, port)
+    ui_server.serve(recipe.load(recipe_path), host, port or ports.port("api"))
 
 
 @app.command("up")
@@ -74,20 +74,21 @@ def up_cmd(
     """Serve the recipe's models, start data services and the app, and check every endpoint."""
     from ttdr import progress, stack
 
-    r = recipe.load(recipe_path)
+    r = recipe.load(recipe_path, moved=False)
     if aiq:
         r = r.model_copy(update={"features": r.features.model_copy(update={"aiq": True})})
     log = lambda m: progress.console.print(f"[dim]$ {m}[/]")
-    status = stack.up(r, build, log, recipe.resolve(recipe_path))
+    status, chosen = stack.up(r, build, log, recipe.resolve(recipe_path))
     if not all(status.values()):
         down = ", ".join(name for name, ok in status.items() if not ok)
         progress.pointer(f"logs: docker logs ttdr-<service>-1 (for {down})")
         raise typer.Exit(1)
-    progress.pointer("UI: http://localhost:3000")
+    ui = chosen["ui"]
+    progress.pointer(f"UI: http://localhost:{ui}")
     if r.features.aiq:
-        progress.pointer("AI-Q UI: http://localhost:3001")
+        progress.pointer(f"AI-Q UI: http://localhost:{chosen['aiq-ui']}")
     here = f"{getpass.getuser()}@{socket.gethostname()}"
-    progress.pointer(f"from another machine: ssh -L 3000:localhost:3000 {here}, then the same URL")
+    progress.pointer(f"from another machine: ssh -L {ui}:localhost:{ui} {here}, then the same URL")
     progress.pointer('CLI: ttdr research "…" · ttdr jobs')
 
 

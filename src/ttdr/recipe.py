@@ -247,9 +247,13 @@ def resolve(name: str | Path | None = None) -> Path:
     return named if not Path(name).is_file() and named.is_file() else Path(name)
 
 
-def load(path: str | Path | None = None) -> Recipe:
-    """Load a recipe by path or name; `extends = "<path>"` overlays it on another recipe."""
-    return Recipe.model_validate(_read(resolve(path)))
+def load(path: str | Path | None = None, moved: bool = True) -> Recipe:
+    """Load a recipe by path or name; `extends = "<path>"` overlays it on another recipe.
+    MOVED applies the ports `ttdr up` recorded (ttdr.ports); without it, the recipe's own."""
+    from ttdr import ports
+
+    r = Recipe.model_validate(_read(resolve(path)))
+    return ports.apply(r, ports.read()) if moved else r
 
 
 def name_of(path: str | Path) -> str:

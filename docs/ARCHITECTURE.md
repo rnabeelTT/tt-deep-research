@@ -24,6 +24,7 @@ How the pieces fit, what each one promises the others, and where a change goes. 
 
 - **The recipe is the only place that names models, ports and options.** Everything else reads it: clients, health checks, `ttdr up`, the engine, the MCP tool list, and AI-Q's config (rendered from it).
 - **The engine is the product; the harness is replaceable.** The engine sits behind MCP, so AI-Q, Hermes or Deep Agents can drive it without changes on either side.
+- **Ports are defaults.** The recipe's URLs and the app's own ports (UI :3000, API :8200, AI-Q :8100/:3001) are where each service starts; `ttdr up` keeps ports our running services hold, moves any another program holds to the next free one, and records the result in `data/ports.json`, which every recipe load applies (`src/ttdr/ports.py`). Compose gets them through `.env`.
 - **Containers never touch the chips.** tt serves the models; Compose runs everything else with host networking, so the recipe's localhost URLs work inside containers.
 
 ## The recipe

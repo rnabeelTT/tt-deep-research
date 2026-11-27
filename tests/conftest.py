@@ -55,3 +55,11 @@ def gpt_oss(overlay):
 @pytest.fixture
 def minicheck(overlay):
     return overlay(MINICHECK)
+
+
+@pytest.fixture(autouse=True)
+def no_recorded_ports(tmp_path, monkeypatch):
+    """Recipes load with their own ports, whatever a real `ttdr up` recorded in data/."""
+    from ttdr import ports
+
+    monkeypatch.setattr(ports, "FILE", tmp_path / "ports.json")
