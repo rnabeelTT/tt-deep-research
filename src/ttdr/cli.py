@@ -90,13 +90,16 @@ def up_cmd(
     here = f"{getpass.getuser()}@{socket.gethostname()}"
     progress.pointer(f"from another machine: ssh -L {ui}:localhost:{ui} {here}, then the same URL")
     progress.pointer('CLI: ttdr research "…" · ttdr jobs')
-    if mcp := chosen.get("mcp"):  # Hermes on the engine's tools: two commands, no prompts
+    if mcp := chosen.get("mcp"):  # Hermes on the engine's tools: set up once, then launch
         progress.pointer(
             f"Hermes tools: hermes config set mcp_servers.ttdr.url http://localhost:{mcp}/mcp"
         )
         skills = progress.shown(Path(".hermes/skills"))  # read in place: they update with ttdr
         progress.pointer(
             f"""Hermes skills: hermes config set skills.external_dirs '["{skills}"]'"""
+        )
+        progress.pointer(
+            "Hermes: tt launch hermes --web (its dashboard), or tt launch hermes (terminal)"
         )
 
 
