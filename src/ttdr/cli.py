@@ -94,8 +94,9 @@ def up_cmd(
         progress.pointer(
             f"Hermes tools: hermes config set mcp_servers.ttdr.url http://localhost:{mcp}/mcp"
         )
+        skills = progress.shown(Path(".hermes/skills"))  # read in place: they update with ttdr
         progress.pointer(
-            f"Hermes skills: cp -r {progress.shown(Path('.hermes/skills'))} ~/.hermes/"
+            f"""Hermes skills: hermes config set skills.external_dirs '["{skills}"]'"""
         )
 
 
