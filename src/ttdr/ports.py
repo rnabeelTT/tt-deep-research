@@ -86,7 +86,15 @@ def apply(recipe, ports: dict[str, int]):
         n: m.model_copy(update={"url": _moved(m.url, ports.get(MODEL + n))})
         for n, m in recipe.models.items()
     }
-    return recipe.model_copy(update={"services": services, "models": models})
+    # The UI's origins move with it: Microsoft accepts any port of a localhost redirect URI.
+    origins = [
+        _moved(o, ports.get("ui")) if urlparse(o).port == APP["ui"] else o
+        for o in recipe.connectors.origins
+    ]
+    connectors = recipe.connectors.model_copy(update={"origins": origins})
+    return recipe.model_copy(
+        update={"services": services, "models": models, "connectors": connectors}
+    )
 
 
 def read() -> dict[str, int]:

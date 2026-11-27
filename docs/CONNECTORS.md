@@ -23,7 +23,7 @@ Picked files index in the background like uploads. Each file shows its own resul
 
 The upload caps apply to every import, on the server: `TTDR_UPLOAD_MAX_FILES` files (default 1,000, counting the files already in the Files tab) and `TTDR_UPLOAD_MAX_MB` (default 2,048) per import, across all picked folders.
 
-**Where the app is opened.** Sign-in works only when the UI is opened at `http://localhost:3000` (the recipe's `[connectors] origins`, registered with Google and Microsoft). Opened at any other address, the buttons are disabled with a note: open it on the machine running it, or through an SSH port forward, `ssh -L 3000:localhost:3000 <user>@<host>`. Google and Microsoft allow plain `http` only on localhost, so a LAN address can't be registered.
+**Where the app is opened.** Sign-in works only when the UI is opened at `http://localhost:3000`, or the port `ttdr up` moved it to (the recipe's `[connectors] origins`, which follow the UI, registered with Google and Microsoft). Opened at any other address, the buttons are disabled with a note: open it on the machine running it, or through an SSH port forward, `ssh -L 3000:localhost:3000 <user>@<host>`. Google and Microsoft allow plain `http` only on localhost, so a LAN address can't be registered.
 
 ## How access works
 

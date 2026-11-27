@@ -98,3 +98,7 @@ def _answering(*names):
         return [Check(n, True, 1.0, "") for n in names]
 
     return run
+
+
+def test_the_sign_in_origin_follows_the_ui(raw):
+    assert ports.apply(raw, {"ui": 3001}).connectors.origins == ["http://localhost:3001"]
