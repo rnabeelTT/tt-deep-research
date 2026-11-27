@@ -27,7 +27,7 @@ uv run ttdr research "your question"
 
 `ttdr up` checks first that everything it needs is in place (Docker with Compose and its daemon, tt, git, a writable model cache: tt's, `$HF_HOME` or `~/.cache/huggingface`) and prints the fix for anything missing. It then serves the three models at once, each pinned to its chips (`chips` in the recipe; logs in `data/logs/`), builds and starts the app, and exits 0 only when every endpoint is up; rerunning it is safe. The chips must be free: `tt model ps` lists what's serving, and if another workload held them, `tt model stop <bundle>` then `tt device reset --yes` before `ttdr up`. A fresh install has no documents; upload some in the UI (below) or research the web only. Web search needs no API key.
 
-The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness runs beside it on :3001 (`aiq = false` under `[features]` turns it off). Both keep follow-up conversations: a follow-up is answered from the last report, or researched when it needs new sources. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app and its models, keeping the data (`--keep-models` leaves the models serving).
+The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `ttdr up --aiq` (or `aiq = true` under `[features]` in the recipe). Both keep follow-up conversations: a follow-up is answered from the last report, or researched when it needs new sources. `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app and its models, keeping the data (`--keep-models` leaves the models serving).
 
 Without a checkout, `uv tool install git+https://github.com/rnabeelTT/tt-deep-research` (or `tt launch deep-research`, currently in beta, which installs it) works too. An installed `ttdr` works in `$TTDR_HOME` (default `~/.tt-deep-research`): it copies its compose file, recipes and configs there, refreshed by each `ttdr up`, and keeps `.env` and `data/` there across upgrades. Run from a checkout, `ttdr` works in the checkout as before.
 
@@ -116,8 +116,8 @@ Each file is indexed in the background: text chunks embedded and BM25-indexed; s
 
 | Command | What |
 |---|---|
-| `ttdr up` / `ttdr down` | Whole stack from the recipe |
-| `ttdr research "…"` [`--shallow`] [`--harness aiq`] | Research with live progress (Deep Agents; `aiq` needs `features.aiq`) |
+| `ttdr up` [`--aiq`] / `ttdr down` | Whole stack from the recipe (`--aiq`: also AI-Q's harness on :3001) |
+| `ttdr research "…"` [`--shallow`] [`--harness aiq`] | Research with live progress (Deep Agents; `aiq` needs `ttdr up --aiq`) |
 | `ttdr verify report.md` [`--revise`] | Check each cited claim against its source |
 | `ttdr jobs` | Recent AI-Q research jobs, with progress (`features.aiq`) |
 | `ttdr corpus upload FOLDER` [`--collection NAME --description "…"`] | Add a folder of your own documents to a collection (default: the UI's uploads), through the running app (`--url`, default :8200) |

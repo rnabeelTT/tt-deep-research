@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
 
   # The Deep Agents harness (the default, docs/LOG.md) behind the UI: UI on :3000, API on :8200.
-  # AI-Q's own backend (aiq, ui on :3001) runs beside it with features.aiq (on in recipe.toml).
+  # AI-Q's own backend (aiq, ui on :3001) is the alternative harness, started with features.aiq.
   deepagents:
     profiles: [app]
     image: ttdr/engine:${TTDR_VERSION:-dev}

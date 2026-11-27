@@ -14,7 +14,7 @@ The engine is an MCP server (`services.mcp` in the recipe, `http://localhost:990
 
 ## AI-Q
 
-The alternative harness, on by default (`aiq = false` under `[features]` turns it off): `ttdr up` starts it with the engine's web and document endpoints as its data sources, its UI on :3001 and job API on :8100; `ttdr research --harness aiq "…"` from the terminal.
+The alternative harness, off by default: `ttdr up --aiq` (or `aiq = true` under `[features]` in the recipe) also starts it with the engine's web and document endpoints as its data sources, its UI on :3001 and job API on :8100; `ttdr research --harness aiq "…"` from the terminal.
 
 ## LangChain Deep Agents (default)
 

@@ -205,3 +205,17 @@ def test_prompted_embedder_wraps_queries_and_documents():
     asyncio.run(go())
     assert bodies[0]["input"] == ["task: search result | query: what?"]
     assert bodies[1]["input"] == ["title: ACME | text: revenue"]
+
+
+@pytest.mark.parametrize("args, aiq", [([], False), (["--aiq"], True)])
+def test_up_runs_ai_q_beside_deep_agents_only_when_asked(monkeypatch, args, aiq):
+    from typer.testing import CliRunner
+
+    from ttdr import cli, stack
+
+    started = []
+    monkeypatch.setattr(stack, "up", lambda r, *_: started.append(r) or {"engine": True})
+    result = CliRunner().invoke(cli.app, ["up", *args])
+    assert result.exit_code == 0, result.output
+    services = stack.app_services(started[0])
+    assert ("aiq" in services and "ui" in services) is aiq and "deepagents" in services

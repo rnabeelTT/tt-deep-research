@@ -22,7 +22,6 @@ code = ""
 [features]
 ocr = false
 ui = false
-aiq = false
 """
 
 
@@ -40,13 +39,11 @@ def test_minimal_overlay_removes_roles_services_and_features(tmp_path):
     assert app_services(r) == ["engine"]
     assert app_services(RECIPE) == [
         "engine",
-        "aiq",
-        "ui",
         "deepagents",
         "ui-deepagents",
         "ocr",
         "pyrun",
-    ]  # Deep Agents' UI and AI-Q's
+    ]  # one UI
     assert connect(r, httpx.AsyncClient()).decide is None
 
 

@@ -67,17 +67,25 @@ def up_cmd(
         Path | None, typer.Option("--recipe", help="Recipe name (`ttdr recipes`) or file")
     ] = None,
     build: Annotated[bool, typer.Option(help="Rebuild the app images")] = False,
+    aiq: Annotated[
+        bool, typer.Option("--aiq", help="Also run AI-Q's harness: UI :3001, job API :8100")
+    ] = False,
 ) -> None:
     """Serve the recipe's models, start data services and the app, and check every endpoint."""
     from ttdr import progress, stack
 
+    r = recipe.load(recipe_path)
+    if aiq:
+        r = r.model_copy(update={"features": r.features.model_copy(update={"aiq": True})})
     log = lambda m: progress.console.print(f"[dim]$ {m}[/]")
-    status = stack.up(recipe.load(recipe_path), build, log, recipe.resolve(recipe_path))
+    status = stack.up(r, build, log, recipe.resolve(recipe_path))
     if not all(status.values()):
         down = ", ".join(name for name, ok in status.items() if not ok)
         progress.pointer(f"logs: docker logs ttdr-<service>-1 (for {down})")
         raise typer.Exit(1)
     progress.pointer("UI: http://localhost:3000")
+    if r.features.aiq:
+        progress.pointer("AI-Q UI: http://localhost:3001")
     here = f"{getpass.getuser()}@{socket.gethostname()}"
     progress.pointer(f"from another machine: ssh -L 3000:localhost:3000 {here}, then the same URL")
     progress.pointer('CLI: ttdr research "…" · ttdr jobs')

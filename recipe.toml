@@ -86,5 +86,5 @@ unidoc = "Energy and construction documents: technical and research reports, sta
 triage = false       # Laya reranking lowers recall (docs/LOG.md)
 ocr = true
 ui = true            # web UI on :3000 (Deep Agents)
-aiq = true           # AI-Q's harness beside Deep Agents: job API :8100, UI :3001 (`ttdr research --harness aiq`)
+aiq = false          # true: also AI-Q's harness, job API :8100 and UI :3001 (`ttdr research --harness aiq`)
 auto_tool_choice = true    # AI-Q agents choose their tools instead of a forced call each turn (docs/LOG.md)
