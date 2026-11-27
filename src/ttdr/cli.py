@@ -1,5 +1,7 @@
 import asyncio
+import getpass
 import json
+import socket
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
@@ -67,15 +69,18 @@ def up_cmd(
     build: Annotated[bool, typer.Option(help="Rebuild the app images")] = False,
 ) -> None:
     """Serve the recipe's models, start data services and the app, and check every endpoint."""
-    from ttdr import stack
+    from ttdr import progress, stack
 
-    console = Console()
-    log = lambda m: console.print(f"[dim]$ {m}[/]")
+    log = lambda m: progress.console.print(f"[dim]$ {m}[/]")
     status = stack.up(recipe.load(recipe_path), build, log, recipe.resolve(recipe_path))
-    for name, ok in status.items():
-        console.print(f"{'[green]up[/]' if ok else '[red]down[/]'} {name}")
-    console.print('UI http://<host>:3000 · jobs `ttdr jobs` · CLI `ttdr research "..."`')
-    raise typer.Exit(0 if all(status.values()) else 1)
+    if not all(status.values()):
+        down = ", ".join(name for name, ok in status.items() if not ok)
+        progress.pointer(f"logs: docker logs ttdr-<service>-1 (for {down})")
+        raise typer.Exit(1)
+    progress.pointer("UI: http://localhost:3000")
+    here = f"{getpass.getuser()}@{socket.gethostname()}"
+    progress.pointer(f"from another machine: ssh -L 3000:localhost:3000 {here}, then the same URL")
+    progress.pointer('CLI: ttdr research "…" · ttdr jobs')
 
 
 def _chips(chips: str) -> str:
@@ -128,14 +133,15 @@ def aiq_config_cmd(
 
 @app.command("down")
 def down_cmd(
-    models: Annotated[bool, typer.Option("--models", help="Also stop the models")] = False,
+    keep_models: Annotated[
+        bool, typer.Option("--keep-models", help="Leave the models serving")
+    ] = False,
     recipe_path: Annotated[Path | None, typer.Option("--recipe", help="Recipe file")] = None,
 ) -> None:
-    """Stop the app containers (and, with --models, the models)."""
+    """Stop the app containers and the recipe's models; the data is kept."""
     from ttdr import stack
 
-    console = Console()
-    stack.down(models, recipe.load(recipe_path), lambda m: console.print(f"[dim]$ {m}[/]"))
+    stack.down(recipe.load(recipe_path), keep_models)
 
 
 @app.command("health")

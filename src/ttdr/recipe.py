@@ -252,6 +252,11 @@ def load(path: str | Path | None = None) -> Recipe:
     return Recipe.model_validate(_read(resolve(path)))
 
 
+def name_of(path: str | Path) -> str:
+    """What `ttdr recipes` calls the recipe at PATH."""
+    return DEFAULT_NAME if Path(path) == Path(DEFAULT) else Path(path).stem
+
+
 def catalog() -> list[dict]:
     """Every recipe here: its name and path, its own description (overlays don't inherit one;
     recipes without one are listed only on request), what `ttdr up` serves and where."""
@@ -263,7 +268,7 @@ def catalog() -> list[dict]:
         host = {c: name for name, m in served.items() for c in m.cohosts}
         out.append(
             {
-                "name": DEFAULT_NAME if path == Path(DEFAULT) else path.stem,
+                "name": name_of(path),
                 "default": path == Path(DEFAULT),
                 "path": str(path),
                 "description": tomllib.loads(path.read_text()).get("description"),

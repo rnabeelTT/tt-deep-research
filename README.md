@@ -27,7 +27,7 @@ uv run ttdr research "your question"
 
 `ttdr up` checks first that everything it needs is in place (Docker with Compose and its daemon, tt, git, a writable model cache: tt's, `$HF_HOME` or `~/.cache/huggingface`) and prints the fix for anything missing. It then serves the three models at once, each pinned to its chips (`chips` in the recipe; logs in `data/logs/`), builds and starts the app, and exits 0 only when every endpoint is up; rerunning it is safe. The chips must be free: `tt model ps` lists what's serving, and if another workload held them, `tt model stop <bundle>` then `tt device reset --yes` before `ttdr up`. A fresh install has no documents; upload some in the UI (below) or research the web only. Web search needs no API key.
 
-The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app (`--models` stops the models too).
+The UI is at `http://<host>:3000` (Deep Agents, the default harness, with a research panel showing the plan, each researcher and every search); AI-Q's own harness can run beside it on :3001 with `aiq = true` under `[features]` in the recipe (off by default). `ttdr up` reads everything from `recipe.toml`: which bundles to serve, in which order, their chat templates, and the endpoints. Models already serving are left as they are. `ttdr down` stops the app and its models, keeping the data (`--keep-models` leaves the models serving).
 
 Without a checkout, `uv tool install git+https://github.com/rnabeelTT/tt-deep-research` (or `tt launch deep-research`, currently in beta, which installs it) works too. An installed `ttdr` works in `$TTDR_HOME` (default `~/.tt-deep-research`): it copies its compose file, recipes and configs there, refreshed by each `ttdr up`, and keeps `.env` and `data/` there across upgrades. Run from a checkout, `ttdr` works in the checkout as before.
 
@@ -61,7 +61,7 @@ uv run ttdr up --recipe recipes/cohost-ornith-35b.toml
 
 The cohost bundle is built from `models/autoports/cohost_ornith_qwen3vl` on branch `raahem/cohost-ornith-qwen3vl` of [rnabeelTT/tt-metal](https://github.com/rnabeelTT/tt-metal/tree/raahem/cohost-ornith-qwen3vl/models/autoports/cohost_ornith_qwen3vl) (build, card and vision fixes); its runtime is `tt-model` branch `raahem/cohost-mixed-groups` of [rnabeelTT/tt-kernel-package-manager](https://github.com/rnabeelTT/tt-kernel-package-manager/tree/raahem/cohost-mixed-groups).
 
-To switch, stop the running models first (`uv run ttdr down --models --recipe <the recipe now serving>`), then `ttdr up` with the other. Either way, uploaded scans are searchable by their page image at once and by their OCR text once it lands.
+To switch, stop the running models first (`uv run ttdr down --recipe <the recipe now serving>`), then `ttdr up` with the other. Either way, uploaded scans are searchable by their page image at once and by their OCR text once it lands.
 
 | Layer | What |
 |---|---|

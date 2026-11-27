@@ -160,12 +160,14 @@ def test_up_starts_pinned_models_together_and_waits_for_all(monkeypatch, tmp_pat
     assert all((tmp_path / "data/logs" / f"serve-{n}.log").exists() for n in names)
 
 
-def test_up_stops_at_a_failed_start_and_shows_its_log(monkeypatch, tmp_path):
+def test_up_stops_at_a_failed_start_and_shows_its_log(monkeypatch, tmp_path, capsys):
     stack, _, _ = _serve_fakes(monkeypatch, tmp_path, returncode=1)
     with pytest.raises(SystemExit) as err:
         stack.serve_models(RECIPE, lambda m: None)
-    assert "tt could not start ornith, qwen3vl_embed, reranker" in str(err.value)
-    assert "container exited" in str(err.value)
+    assert err.value.code == 1
+    shown = capsys.readouterr().err
+    assert "✗ Ornith-1.5-35B-A3B" in shown and "did not start" in shown
+    assert "container exited" in shown  # the end of its log
 
 
 def test_instructed_embedder_sends_the_instruction_with_queries_only():

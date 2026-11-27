@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ttdr import aiq_config, health
+from ttdr import aiq_config, health, progress
 from ttdr.recipe import Model, Recipe
 
 TEMPLATE_DIR = "ttdr"
@@ -147,21 +147,16 @@ def app_services(recipe: Recipe) -> list[str]:
     ]
 
 
-def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
+def serve_models(recipe: Recipe, log, timeout_s: float = 1800, name: str = "") -> None:
     up = {c.name.split(" ")[0]: c.ok for c in asyncio.run(health.run(recipe))}
     preflight(recipe, up)
     served = recipe.served()
     cohosted = {c for m in served.values() for c in m.cohosts}
-    todo = []
-    for name, m in served.items():
-        if up.get(name):
-            log(f"{name}: already serving ({m.bundle or m.url})")
-        elif name in cohosted:
-            continue
-        elif not m.bundle:
-            log(f"{name}: no bundle, not served by tt; start it at {m.url}")
-        else:
-            todo.append((name, m))
+    shown = {n: m for n, m in served.items() if n not in cohosted and (m.bundle or up.get(n))}
+    todo = [(n, m) for n, m in shown.items() if not up.get(n)]
+    for n, m in served.items():
+        if not m.bundle and not up.get(n):
+            log(f"{n}: no bundle, not served by tt; start it at {m.url}")
     for _, m in todo:
         for snap in m.prefetch:
             repo, rev = snap.split("@")
@@ -170,87 +165,83 @@ def serve_models(recipe: Recipe, log, timeout_s: float = 1800) -> None:
         if m.chat_template:
             (model_cache() / TEMPLATE_DIR).mkdir(parents=True, exist_ok=True)
             shutil.copy(m.chat_template, model_cache() / TEMPLATE_DIR)
-    starts = {}
-    if all(m.chips for _, m in todo):
-        starts = _start_together(todo)
-    else:  # tt picks the chips: one model at a time, largest first, for a stable order
+    pinned = all(m.chips for _, m in todo)
+    if not shown:
+        return
+    progress.heading(f"Serving the {name} recipe" if name else "Serving the recipe's models")
+    if todo:
+        how = "each on its own chips" if pinned else "tt picks the chips, one at a time"
+        progress.note(
+            f"{len(todo)} models to start, {how} · 10-15 min from cold · logs in "
+            f"{progress.shown(LOGS)}"
+        )
+    if not pinned:  # tt picks the chips: one model at a time, largest first, for a stable order
         for _, m in todo:
             _run(serve_command(m), log)
-    if todo:
-        _watch(recipe, todo, starts, timeout_s)
+    starts = _start_together(todo) if pinned else {}
+    _watch(recipe, shown, up, starts, timeout_s)
+
+
+LOGS = Path("data/logs")
 
 
 def _start_together(todo: list[tuple[str, Model]]) -> dict[str, tuple[subprocess.Popen, Path]]:
     """Start models pinned to their own chips all at once, so their downloads and loads
-    overlap: {model: (its tt serve, its log in data/logs/)}."""
+    overlap: {model: (its tt serve, its log)}."""
     if any(not m.cohosts for _, m in todo):
         # `tt serve` installs tt-model on first use; do that once, not in every serve at once.
         subprocess.run(["tt", "model", "package", "--help"], check=True, capture_output=True)
-    logs = Path("data/logs")
-    logs.mkdir(parents=True, exist_ok=True)
+    LOGS.mkdir(parents=True, exist_ok=True)
     starts = {}
     for name, m in todo:
-        path = logs / f"serve-{name}.log"
+        path = LOGS / f"serve-{name}.log"
         with path.open("w") as out:
             starts[name] = (subprocess.Popen(serve_command(m), stdout=out, stderr=out), path)
     return starts
 
 
-STAGES = {
-    "starting": "downloading and starting",
-    "loading": "loading (10-15 min from cold)",
-    "up": "up",
-}
-
-
-def _watch(recipe: Recipe, todo, starts, timeout_s: float) -> None:
-    """A live row per model until each answers: starting (downloading, starting its
-    container), loading, up. A start that fails stops the wait and prints its log's end."""
-    from rich.console import Console
-    from rich.live import Live
-    from rich.spinner import Spinner
-    from rich.table import Table
-
+def _watch(recipe: Recipe, shown: dict[str, Model], up: dict, starts, timeout_s: float) -> None:
+    """A row per model until each answers: starting (downloading, starting its container),
+    loading, then ✓ with how long it took. A start that fails stops the wait and shows its log."""
+    labels = {n: m.model.split("/")[-1] for n, m in shown.items()}
+    chips = {n: f"chips {m.chips}" if m.chips else "" for n, m in shown.items()}
+    chips = {n: c.ljust(max(map(len, chips.values()))) for n, c in chips.items()}  # stages line up
     began, checked = time.time(), 0.0
-    state = {name: "starting" if name in starts else "loading" for name, _ in todo}
-
-    def view() -> Table:
-        minutes, seconds = divmod(int(time.time() - began), 60)
-        rows = Table.grid(padding=(0, 2))
-        for name, m in todo:
-            stage = state[name]
-            mark = {"up": "[green]✓[/]", "failed": "[red]✗[/]"}.get(stage) or Spinner("dots")
-            label = f"[red]failed: {starts[name][1]}[/]" if stage == "failed" else STAGES[stage]
-            clock = "" if stage in ("up", "failed") else f"[dim]{minutes}:{seconds:02d}[/]"
-            chips = f"[dim]chips {m.chips}[/]" if m.chips else ""
-            rows.add_row(mark, m.model.split("/")[-1], chips, label, clock)
-        return rows
-
-    with Live(view(), console=Console(), refresh_per_second=4) as live:
-        while set(state.values()) - {"up", "failed"} and time.time() - began < timeout_s:
-            for name, (proc, _) in starts.items():
-                if state[name] == "starting" and proc.poll() is not None:
-                    state[name] = "loading" if proc.returncode == 0 else "failed"
-            if "failed" in state.values():
+    with progress.Board(labels) as board:
+        for n in shown:
+            stage = "already serving" if up.get(n) else "starting" if n in starts else "loading"
+            board.set(n, detail=" · ".join(filter(None, [chips[n], stage])))
+            if up.get(n):
+                board.set(n, state="done")
+        while any(board.state(n) == "running" for n in shown) and time.time() - began < timeout_s:
+            for n, (proc, _) in starts.items():
+                if board.state(n) == "running" and proc.poll() is not None:
+                    if proc.returncode:
+                        board.set(n, state="failed")
+                    else:
+                        board.set(n, detail=" · ".join(filter(None, [chips[n], "loading"])))
+            if any(board.state(n) == "failed" for n in shown):
                 break
             if time.time() - checked > 10:
                 checked = time.time()
                 answering = {c.name.split(" ")[0] for c in asyncio.run(health.run(recipe)) if c.ok}
-                state.update({name: "up" for name in state if name in answering})
-            live.update(view())
+                for n in answering & set(shown):
+                    if board.state(n) == "running":
+                        board.set(n, detail=chips[n], state="done")
             time.sleep(1)
-        live.update(view())
-    failed = [name for name, stage in state.items() if stage == "failed"]
+        failed = [n for n in shown if board.state(n) == "failed"]
+        late = [n for n in shown if board.state(n) == "running"]
+        for n in late:
+            board.set(n, state="failed")
+    for n in failed:
+        progress.pointer(f"{labels[n]} did not start; the end of {progress.shown(starts[n][1])}:")
+        progress.tail(starts[n][1])
     if failed:
-        tails = "\n".join(
-            f"{name} ({starts[name][1]}):\n" + "\n".join(starts[name][1].read_text().splitlines()[-15:])
-            for name in failed
-        )
-        raise SystemExit(f"tt could not start {', '.join(failed)}:\n{tails}")
-    pending = [m.bundle for name, m in todo if state[name] != "up"]
-    if pending:
-        logs = "; ".join(f"`tt model logs {b} --follow`" for b in pending)
-        raise TimeoutError(f"models not ready after {timeout_s:.0f}s; see {logs}")
+        raise SystemExit(1)
+    if late:
+        logs = "; ".join(f"`tt model logs {shown[n].bundle} --follow`" for n in late)
+        progress.pointer(f"not answering after {progress.duration(timeout_s)}: {logs}")
+        raise SystemExit(1)
 
 
 MCP_INIT = {
@@ -274,17 +265,26 @@ def _up(http: httpx.Client, name: str, url: str) -> bool:
 
 
 def wait(urls: dict[str, str], timeout_s: float = 600) -> dict[str, bool]:
-    deadline, status = time.time() + timeout_s, {}
-    with httpx.Client(timeout=5) as http:
-        for name, url in urls.items():
-            while True:
+    """A row per app endpoint until each answers, or the timeout."""
+    deadline, status = time.time() + timeout_s, dict.fromkeys(urls, False)
+    with httpx.Client(timeout=5) as http, progress.Board(dict(zip(urls, urls))) as board:
+        for name in urls:
+            board.set(name, detail="starting")
+        while not all(status.values()) and time.time() < deadline:
+            for name, url in urls.items():
+                if status[name]:
+                    continue
                 try:
                     status[name] = _up(http, name, url)
                 except httpx.HTTPError:
-                    status[name] = False
-                if status[name] or time.time() > deadline:
-                    break
+                    pass
+                if status[name]:
+                    board.set(name, detail="answering", state="done")
+            if not all(status.values()):
                 time.sleep(3)
+        for name, ok in status.items():
+            if not ok:
+                board.set(name, detail="not answering", state="failed")
     return status
 
 
@@ -320,32 +320,88 @@ def write_env(values: dict[str, str], env: Path = Path(".env")) -> None:
 
 
 def up(recipe: Recipe, build: bool, log, path: Path | None = None) -> dict[str, bool]:
-    serve_models(recipe, log)
+    from ttdr.recipe import name_of
+
+    serve_models(recipe, log, name=name_of(path) if path else "")
+    progress.heading("Starting the app")
+    LOGS.mkdir(parents=True, exist_ok=True)
     if not Path("external/aiq").exists():
-        _run(["scripts/setup-aiq.sh"], log)
-    log(f"rendered {aiq_config.write(recipe)}")
+        with progress.step("AI-Q source") as detail:
+            _logged(["scripts/setup-aiq.sh"], LOGS / "setup-aiq.log")
+            detail("cloned and patched")
+    aiq_config.write(recipe)
     write_env(compose_env(recipe, path))
     for d in ("data/corpus/library", "data/aiq/app"):  # else Docker creates them as root
         Path(d).mkdir(parents=True, exist_ok=True)
     services = app_services(recipe)
     flags = ["--build"] if build else []
-    _run(["docker", "compose", "--profile", "app", "up", "-d", *flags, *services], log)
+    with progress.step("App containers") as detail:
+        detail(", ".join(services))
+        _logged(
+            ["docker", "compose", "--profile", "app", "up", "-d", *flags, *services],
+            LOGS / "compose.log",
+        )
     urls = {"engine": recipe.services.mcp}
     urls |= {s: APP[s] for s in services if APP[s]}
     return wait(urls)
 
 
-def down(stop_models: bool, recipe: Recipe, log) -> None:
-    """Stop the app containers (data services and Redis' caches keep running)."""
-    _run(["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP], log)
-    if stop_models:
-        served = recipe.served()
-        cohosted = {c for m in served.values() for c in m.cohosts}  # stopped with their host
-        for name, m in served.items():
-            if m.bundle and name not in cohosted:
-                cmd = ["tt", "model", "stop", m.bundle]
-                log(" ".join(cmd))
-                if subprocess.run(
-                    cmd, check=False
-                ).returncode:  # not running: keep stopping the others
-                    log(f"{name}: not stopped (was it running?)")
+def _logged(cmd: list[str], path: Path) -> None:
+    """Run a noisy command with its output in a log; on failure, show the log's end."""
+    with path.open("w") as out:
+        code = subprocess.run(cmd, stdout=out, stderr=out, check=False).returncode
+    if code:
+        progress.pointer(f"`{' '.join(cmd[:4])} …` failed; the end of {progress.shown(path)}:")
+        progress.tail(path)
+        raise SystemExit(code)
+
+
+def down(recipe: Recipe, keep_models: bool = False) -> None:
+    """Stop the app containers and, unless kept, the recipe's models. The data services
+    (Qdrant, Redis, SearXNG) keep running: they hold the history and caches, not the chips."""
+    LOGS.mkdir(parents=True, exist_ok=True)
+    with progress.step("App containers") as detail:
+        _logged(
+            ["docker", "compose", "--profile", "app", "rm", "--stop", "--force", *APP],
+            LOGS / "compose.log",
+        )
+        detail("stopped; its data is kept")
+    if keep_models:
+        return
+    served = recipe.served()
+    cohosted = {c for m in served.values() for c in m.cohosts}  # stopped with their host
+    hosts = {n: m for n, m in served.items() if m.bundle and n not in cohosted}
+    running = _running_bundles()
+    with progress.Board({n: m.model.split("/")[-1] for n, m in hosts.items()}) as board:
+        for name, m in hosts.items():
+            if m.bundle not in running:
+                board.set(name, detail="not running", state="done")
+                continue
+            with (LOGS / "stop.log").open("a") as out:
+                stop = ["tt", "model", "stop", m.bundle]
+                code = subprocess.run(stop, stdout=out, stderr=out, check=False).returncode
+            if code:  # keep stopping the others
+                board.set(name, detail=f"see {progress.shown(LOGS / 'stop.log')}", state="failed")
+            else:
+                board.set(name, detail="stopped", state="done")
+    if any(board.state(n) == "failed" for n in hosts):
+        raise SystemExit(1)
+
+
+def _running_bundles() -> set[str]:
+    """The bundles tt-model is serving, read off its containers' labels."""
+    label = "org.tenstorrent.tt-model"
+    listed = subprocess.run(
+        [
+            "docker",
+            "ps",
+            "--filter",
+            f"label={label}",
+            "--format",
+            f'{{{{.Label "{label}.repo"}}}}',
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return set(listed.stdout.split())
